@@ -34,6 +34,15 @@ zod schemas in `packages/shared`, so validation, the docs and the web client use
 
 - **Catalogue:** categories; products with search, category/brand/price/stock filters, sorting and paging.
 - **Accounts:** sign-up with email confirmation, sign-in, password reset and change, one-click demo accounts.
+- **Shopping:** wishlist; a guest cart kept in the browser and merged into the account cart on sign-in;
+  saved addresses with flat shipping by province.
+- **Orders:** checkout prices everything on the server and takes stock with a guarded update inside one
+  transaction (two buyers can never both get the last unit); an idempotency key makes a retried checkout
+  return the same order; unpaid orders expire after 60 minutes and release their stock.
+- **Payments:** Midtrans Snap (sandbox). Notifications are accepted only with a valid SHA-512 signature and
+  the exact order amount, are idempotent, and are all logged; a payment that arrives after an order closed is
+  flagged for refund instead of reopening it.
+- **Reviews:** only from customers with a paid order for the product.
 - **Sessions:** 15-minute access tokens (sent as `Authorization: Bearer`) and a refresh token in an
   `HttpOnly`, `SameSite=Strict` cookie scoped to `/api/auth`. The refresh token rotates on every use; replaying
   an old one revokes the session. Signing out or resetting a password takes effect immediately.

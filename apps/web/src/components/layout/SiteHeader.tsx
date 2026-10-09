@@ -1,6 +1,8 @@
 import { useRef } from 'react';
 import { Link, NavLink, useLocation, useSearchParams } from 'react-router';
 import { useAuth } from '../../lib/auth-context';
+import { useCart } from '../../lib/cart';
+import { cartDrawer } from '../cart/cart-drawer-store';
 import { useCategories, useWishlist } from '../../lib/queries';
 
 export function SiteHeader() {
@@ -10,6 +12,7 @@ export function SiteHeader() {
   const categories = useCategories();
   const { status, user } = useAuth();
   const wishlist = useWishlist();
+  const { cart } = useCart();
   const { pathname } = useLocation();
   const [params] = useSearchParams();
   const activeCategory = pathname === '/products' ? params.get('category') : null;
@@ -52,8 +55,16 @@ export function SiteHeader() {
           <Link to={accountTo} className="hidden min-h-11 items-center text-ink-2 hover:text-ink sm:flex">
             {status === 'restoring' ? '…' : accountLabel}
           </Link>
-          <button type="button" className="flex min-h-11 items-center gap-2 font-semibold">
-            Cart <span className="tabular bg-ink px-1.5 font-mono text-xs text-alu-50">0</span>
+          <button
+            type="button"
+            onClick={cartDrawer.open}
+            aria-haspopup="dialog"
+            className="flex min-h-11 items-center gap-2 font-semibold"
+          >
+            Cart{' '}
+            <span className="tabular bg-ink px-1.5 font-mono text-xs text-alu-50">
+              {cart?.itemCount ?? 0}
+            </span>
           </button>
           <button
             type="button"

@@ -1,3 +1,5 @@
+import { MAX_LINE_QUANTITY } from '@gear-store/shared';
+import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Button } from '../components/ui/Button';
@@ -7,9 +9,14 @@ import { SpecPlate } from '../components/ui/SpecPlate';
 import { StockNote } from '../components/ui/StockNote';
 import { ProductArt } from '../components/product/ProductArt';
 import { SaveButton } from '../components/product/SaveButton';
+import { ReviewsSection } from '../components/reviews/ReviewsSection';
+import { Stars } from '../components/reviews/Stars';
+import { cartDrawer } from '../components/cart/cart-drawer-store';
+import { QuantityStepper } from '../components/cart/QuantityStepper';
+import { useCart } from '../lib/cart';
 import { Notice } from '../components/ui/Field';
 import { ApiError } from '../lib/api';
-import { useCategories, useProduct } from '../lib/queries';
+import { useCategories, useProduct, useProductReviews } from '../lib/queries';
 import { useCanRender3D, useCoarsePointer } from '../three/useCanRender3D';
 import { Viewer3D } from '../three/Viewer3D';
 import { NotFoundPage } from './NotFoundPage';
@@ -24,9 +31,18 @@ function ProductDetail({ slug }: { slug: string }) {
   const query = useProduct(slug);
   const product = query.data;
   const categories = useCategories();
+  const reviews = useProductReviews(slug);
   const [explode, setExplode] = useState(0);
   const [colorId, setColorId] = useState<string>();
   const [qty, setQty] = useState(1);
+  const cart = useCart();
+  const addToCart = useMutation({
+    mutationFn: () => cart.add(slug, colorId ?? query.data?.colors[0]?.key ?? '', qty),
+    onSuccess: () => {
+      setQty(1);
+      cartDrawer.open();
+    },
+  });
   const coarsePointer = useCoarsePointer();
   const can3D = useCanRender3D();
   // on touch screens the model only takes the finger while this is on, so the page keeps scrolling
@@ -142,6 +158,15 @@ function ProductDetail({ slug }: { slug: string }) {
             <Price amount={product.price} className="text-2xl" />
             <StockNote stock={product.stock} />
           </div>
+          {reviews.data && reviews.data.count > 0 && (
+            <a href="#reviews" className="flex w-fit items-center gap-2 text-sm hover:underline">
+              <Stars value={reviews.data.average ?? 0} />
+              <span className="tabular font-mono">{reviews.data.average?.toFixed(1)}</span>
+              <span className="text-ink-3">
+                · {reviews.data.count} {reviews.data.count === 1 ? 'review' : 'reviews'}
+              </span>
+            </a>
+          )}
 
           <SpecPlate specs={product.plate} />
 
@@ -175,34 +200,24 @@ function ProductDetail({ slug }: { slug: string }) {
           )}
 
           <div className="flex flex-wrap gap-3">
-            <div className="flex border border-ink">
-              <button
-                type="button"
-                className="size-11 font-mono disabled:text-bench-strong"
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
-                disabled={qty <= 1 || soldOut}
-                aria-label="Decrease quantity"
-              >
-                −
-              </button>
-              <output aria-label="Quantity" className="tabular grid w-10 place-items-center font-mono">
-                {qty}
-              </output>
-              <button
-                type="button"
-                className="size-11 font-mono disabled:text-bench-strong"
-                onClick={() => setQty((q) => Math.min(product.stock, q + 1))}
-                disabled={qty >= product.stock || soldOut}
-                aria-label="Increase quantity"
-              >
-                +
-              </button>
-            </div>
-            <Button className="flex-1" disabled={soldOut}>
-              {soldOut ? 'Out of stock' : 'Add to cart'}
+            <QuantityStepper
+              label="Quantity"
+              value={qty}
+              max={Math.max(1, Math.min(MAX_LINE_QUANTITY, product.stock))}
+              disabled={soldOut}
+              onChange={setQty}
+            />
+            <Button
+              className="flex-1"
+              disabled={soldOut || addToCart.isPending}
+              onClick={() => addToCart.mutate()}
+            >
+              {soldOut ? 'Out of stock' : addToCart.isPending ? 'Adding…' : 'Add to cart'}
             </Button>
             <SaveButton product={product} />
           </div>
+
+          {addToCart.error && <Notice tone="error">{addToCart.error.message}</Notice>}
 
           <p className="max-w-[60ch] text-ink-2">{product.description}</p>
 
@@ -226,6 +241,8 @@ function ProductDetail({ slug }: { slug: string }) {
           )}
         </section>
       </div>
+
+      <ReviewsSection slug={product.slug} />
     </div>
   );
 }

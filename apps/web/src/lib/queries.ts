@@ -1,5 +1,9 @@
 import {
   brandSchema,
+  myReviewSchema,
+  productReviewsSchema,
+  reviewSchema,
+  type ReviewInput,
   categorySchema,
   productDetailSchema,
   productPageSchema,
@@ -87,4 +91,54 @@ export function useToggleWishlist() {
     onError: (_error, _vars, context) => queryClient.setQueryData(key, context?.previous),
     onSettled: () => queryClient.invalidateQueries({ queryKey: key }),
   });
+}
+
+export function useProductReviews(slug: string) {
+  return useQuery({
+    queryKey: ['reviews', slug],
+    queryFn: ({ signal }) =>
+      api(`/products/${encodeURIComponent(slug)}/reviews`, { schema: productReviewsSchema, signal }),
+  });
+}
+
+export function useMyReview(slug: string) {
+  const { status, authed } = useAuth();
+  return useQuery({
+    queryKey: ['me', 'review', slug],
+    queryFn: ({ signal }) =>
+      authed((accessToken) =>
+        api(`/me/reviews/${encodeURIComponent(slug)}`, { accessToken, schema: myReviewSchema, signal }),
+      ),
+    enabled: status === 'signed-in',
+  });
+}
+
+export function useSaveReview(slug: string) {
+  const { authed } = useAuth();
+  const queryClient = useQueryClient();
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['reviews', slug] });
+    void queryClient.invalidateQueries({ queryKey: ['me', 'review', slug] });
+  };
+  return {
+    save: useMutation({
+      mutationFn: (input: ReviewInput) =>
+        authed((accessToken) =>
+          api(`/me/reviews/${encodeURIComponent(slug)}`, {
+            method: 'PUT',
+            body: input,
+            accessToken,
+            schema: reviewSchema,
+          }),
+        ),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: () =>
+        authed((accessToken) =>
+          api(`/me/reviews/${encodeURIComponent(slug)}`, { method: 'DELETE', accessToken }),
+        ),
+      onSuccess: refresh,
+    }),
+  };
 }

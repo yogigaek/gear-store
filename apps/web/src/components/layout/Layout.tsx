@@ -1,4 +1,6 @@
 import { Outlet, ScrollRestoration } from 'react-router';
+import { CartDrawer } from '../cart/CartDrawer';
+import { CartSync } from '../cart/CartSync';
 import { SiteFooter } from './SiteFooter';
 import { SiteHeader } from './SiteHeader';
 
@@ -16,6 +18,8 @@ export function Layout() {
         <Outlet />
       </main>
       <SiteFooter />
+      <CartDrawer />
+      <CartSync />
       <ScrollRestoration />
     </>
   );

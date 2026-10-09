@@ -69,6 +69,17 @@ export function AccountPage() {
         </Button>
       </header>
 
+      <Panel title="Orders & addresses">
+        <p className="flex flex-wrap gap-x-6 gap-y-2">
+          <Link to="/orders" className="font-semibold underline underline-offset-4">
+            Your orders
+          </Link>
+          <Link to="/account/addresses" className="font-semibold underline underline-offset-4">
+            Shipping addresses
+          </Link>
+        </p>
+      </Panel>
+
       <Panel title="Wishlist">
         <p className="text-ink-2">
           <span className="tabular font-mono text-ink">{wishlist.data?.length ?? '–'}</span> saved products.{' '}

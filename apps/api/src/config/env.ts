@@ -11,6 +11,9 @@ const envSchema = z.object({
   // smtp://localhost:1025 is Mailpit in development; production uses the provider's SMTP URL
   SMTP_URL: z.url({ protocol: /^smtps?$/ }),
   MAIL_FROM: z.string().min(3).default('Rakit <no-reply@rakit.example>'),
+  // Midtrans server key (sandbox keys start with "SB-Mid-server-"); signs webhook checks and API calls
+  MIDTRANS_SERVER_KEY: z.string().min(10),
+  MIDTRANS_PRODUCTION: z.stringbool().default(false),
 });
 
 export type Env = z.infer<typeof envSchema>;

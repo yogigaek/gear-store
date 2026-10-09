@@ -5,6 +5,7 @@ const valid = {
   WEB_ORIGIN: 'http://localhost:5173',
   JWT_ACCESS_SECRET: 'x'.repeat(32),
   SMTP_URL: 'smtp://localhost:1025',
+  MIDTRANS_SERVER_KEY: 'SB-Mid-server-test',
 };
 
 describe('loadEnv', () => {
@@ -12,6 +13,7 @@ describe('loadEnv', () => {
     const env = loadEnv(valid);
     expect(env.PORT).toBe(3000);
     expect(env.NODE_ENV).toBe('development');
+    expect(env.MIDTRANS_PRODUCTION).toBe(false);
   });
 
   it('coerces PORT', () => {
@@ -32,5 +34,6 @@ describe('loadEnv', () => {
   it('never echoes values in the error', () => {
     expect(() => loadEnv({ DATABASE_URL: 'mysql://u:secret-password@h/db' })).not.toThrow(/secret-password/);
     expect(() => loadEnv({ ...valid, JWT_ACCESS_SECRET: 'tiny-secret' })).not.toThrow(/tiny-secret/);
+    expect(() => loadEnv({ ...valid, MIDTRANS_SERVER_KEY: 'short' })).not.toThrow(/short/);
   });
 });

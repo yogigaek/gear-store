@@ -7,6 +7,7 @@ import { RequireAuth } from './components/layout/RequireAuth';
 import { ApiError } from './lib/api';
 import { AuthProvider } from './lib/auth';
 import { AccountPage } from './pages/account/AccountPage';
+import { AddressesPage } from './pages/account/AddressesPage';
 import { ForgotPasswordPage } from './pages/account/ForgotPasswordPage';
 import { RegisterPage } from './pages/account/RegisterPage';
 import { ResetPasswordPage } from './pages/account/ResetPasswordPage';
@@ -17,6 +18,9 @@ import { CategoryRedirect } from './pages/CategoryRedirect';
 import { DesignSystemPage } from './pages/DesignSystemPage';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { CheckoutPage } from './pages/orders/CheckoutPage';
+import { OrderPage } from './pages/orders/OrderPage';
+import { OrdersPage } from './pages/orders/OrdersPage';
 import { ProductPage } from './pages/ProductPage';
 import { WishlistPage } from './pages/WishlistPage';
 import './index.css';
@@ -58,6 +62,38 @@ const router = createBrowserRouter([
         element: (
           <RequireAuth>
             <WishlistPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'account/addresses',
+        element: (
+          <RequireAuth>
+            <AddressesPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'checkout',
+        element: (
+          <RequireAuth>
+            <CheckoutPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'orders',
+        element: (
+          <RequireAuth>
+            <OrdersPage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'orders/:number',
+        element: (
+          <RequireAuth>
+            <OrderPage />
           </RequireAuth>
         ),
       },

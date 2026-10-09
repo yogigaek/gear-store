@@ -11,3 +11,5 @@ export WEB_ORIGIN=http://localhost:5173
 export JWT_ACCESS_SECRET=change-me-to-at-least-32-random-characters
 # Email: Mailpit from docker compose (inbox at http://localhost:8025)
 export SMTP_URL=smtp://localhost:1025
+# Payments: Midtrans sandbox server key (Dashboard → Settings → Access Keys, sandbox environment)
+export MIDTRANS_SERVER_KEY=SB-Mid-server-REPLACE_ME

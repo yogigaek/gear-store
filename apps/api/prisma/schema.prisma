@@ -30,6 +30,10 @@ model User {
   sessions    Session[]
   emailTokens EmailToken[]
   wishlist    WishlistItem[]
+  cartItems   CartItem[]
+  addresses   Address[]
+  orders      Order[]
+  reviews     Review[]
 }
 
 /// One signed-in device. Its refresh tokens rotate; presenting a used one revokes the whole session.
@@ -110,6 +114,9 @@ model Product {
   specs      ProductSpec[]
   colors     ProductColor[]
   wishlistBy WishlistItem[]
+  inCarts    CartItem[]
+  orderItems OrderItem[]
+  reviews    Review[]
 
   @@index([categoryId, isActive])
   @@index([brand])
@@ -148,4 +155,169 @@ model WishlistItem {
   createdAt DateTime @default(now())
 
   @@id([userId, productId])
+}
+
+model CartItem {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String   @db.Uuid
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// '' for products without finishes (an empty string, not NULL, so the unique key below holds)
+  colorKey  String   @default("")
+  quantity  Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, productId, colorKey])
+}
+
+// ── Checkout ────────────────────────────────────────────────────────────────
+
+model Address {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label      String   @default("")
+  recipient  String
+  /// +62… normalised
+  phone      String
+  line1      String
+  line2      String   @default("")
+  city       String
+  province   String
+  postalCode String
+  /// at most one per user: partial unique index in the migration
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  EXPIRED
+}
+
+/// Prices, names and the address are copied in at checkout, so an invoice never changes afterwards.
+model Order {
+  id               String      @id @default(uuid(7)) @db.Uuid
+  /// shown to people and sent to Midtrans as order_id: RKT-YYMMDD-XXXXXX
+  number           String      @unique
+  /// orders outlive accounts: an account with orders cannot be deleted by accident
+  userId           String      @db.Uuid
+  user             User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status           OrderStatus @default(PENDING_PAYMENT)
+  subtotal         Int
+  shippingFee      Int
+  /// CHECK (total = subtotal + shippingFee) in the migration
+  total            Int
+  shippingZone     String
+  shipRecipient    String
+  shipPhone        String
+  shipLine1        String
+  shipLine2        String
+  shipCity         String
+  shipProvince     String
+  shipPostalCode   String
+  /// the client's key for this checkout attempt: a retried request returns the same order
+  idempotencyKey   String
+  paymentExpiresAt DateTime
+  paidAt           DateTime?
+  closedAt         DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  items   OrderItem[]
+  events  OrderEvent[]
+  payment Payment?
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([status, paymentExpiresAt])
+}
+
+model OrderItem {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  orderId    String   @db.Uuid
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String?  @db.Uuid
+  product    Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  slug       String
+  name       String
+  model      String
+  colorKey   String
+  colorLabel String?
+  unitPrice  Int
+  quantity   Int
+  /// CHECK (lineTotal = unitPrice * quantity) in the migration
+  lineTotal  Int
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+/// The order's timeline, oldest first.
+model OrderEvent {
+  id        String      @id @default(uuid(7)) @db.Uuid
+  orderId   String      @db.Uuid
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String
+  createdAt DateTime    @default(now())
+
+  @@index([orderId, createdAt])
+}
+
+model Payment {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  orderId           String   @unique @db.Uuid
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider          String   @default("midtrans")
+  redirectUrl       String?
+  transactionId     String?  @unique
+  transactionStatus String?
+  paymentType       String?
+  grossAmount       Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+/// Every payment notification as received, valid or not: the audit trail for payment disputes.
+model PaymentNotification {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  orderNumber       String
+  transactionId     String?
+  transactionStatus String?
+  signatureValid    Boolean
+  outcome           String
+  payload           Json
+  receivedAt        DateTime @default(now())
+
+  @@index([orderNumber])
+}
+
+// ── Reviews ─────────────────────────────────────────────────────────────────
+
+/// One per buyer and product, editable. Only accounts with a paid order for the product can write one.
+model Review {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String   @db.Uuid
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  /// CHECK (rating BETWEEN 1 AND 5) in the migration
+  rating    Int
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, productId])
+  @@index([productId, createdAt])
 }

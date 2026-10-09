@@ -3,8 +3,7 @@ import { authResponseSchema, userSchema } from '@gear-store/shared';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
-import { PrismaService } from '../src/prisma/prisma.service.js';
-import { createTestApp, FakeMail, nextIp } from './setup.js';
+import { createTestApp, FakeMail, nextIp, deleteTestUsers } from './setup.js';
 
 const PASSWORD = 'correct horse battery';
 const WEB_ORIGIN = process.env['WEB_ORIGIN'];
@@ -19,7 +18,6 @@ const cookieValue = (setCookie: string) => setCookie.split(';')[0]!;
 
 describe('Auth (e2e)', () => {
   let app: INestApplication<App>;
-  let prisma: PrismaService;
   const mail = new FakeMail();
   let ip: string;
 
@@ -47,7 +45,6 @@ describe('Auth (e2e)', () => {
 
   beforeAll(async () => {
     app = await createTestApp({ mail });
-    prisma = app.get(PrismaService);
   });
 
   beforeEach(() => {
@@ -55,7 +52,7 @@ describe('Auth (e2e)', () => {
   });
 
   afterAll(async () => {
-    await prisma.user.deleteMany({ where: { email: { endsWith: '@test.example' } } });
+    await deleteTestUsers(app);
     await app.close();
   });
 

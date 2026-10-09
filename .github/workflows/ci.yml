@@ -31,6 +31,7 @@ jobs:
       # test-only values: the e2e suite replaces the mailer and nothing here protects real data
       JWT_ACCESS_SECRET: ci-only-access-secret-not-used-anywhere-else
       SMTP_URL: smtp://localhost:1025
+      MIDTRANS_SERVER_KEY: SB-Mid-server-ci-only-not-a-real-key
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
