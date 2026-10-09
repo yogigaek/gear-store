@@ -22,7 +22,8 @@
     "typecheck": "prisma generate && tsc --noEmit -p tsconfig.json",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:seed": "npm run build && node dist/seed/seed.js"
+    "db:seed": "npm run build && node dist/seed/seed.js",
+    "admin:grant": "npm run build && node dist/seed/grant-admin.js"
   },
   "dependencies": {
     "@gear-store/shared": "^0.0.0",

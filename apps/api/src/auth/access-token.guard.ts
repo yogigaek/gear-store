@@ -15,6 +15,7 @@ export interface AuthContext {
   userId: string;
   sessionId: string;
   role: Role;
+  isDemo: boolean;
 }
 
 type AuthedRequest = Request & { auth?: AuthContext };
@@ -44,11 +45,16 @@ export class AccessTokenGuard implements CanActivate {
 
     const session = await this.prisma.session.findFirst({
       where: { id: claims.sid, userId: claims.sub, revokedAt: null, expiresAt: { gt: new Date() } },
-      select: { user: { select: { role: true } } },
+      select: { user: { select: { role: true, isDemo: true } } },
     });
     if (!session) throw new UnauthorizedException('Session expired, sign in again');
 
-    req.auth = { userId: claims.sub, sessionId: claims.sid, role: session.user.role };
+    req.auth = {
+      userId: claims.sub,
+      sessionId: claims.sid,
+      role: session.user.role,
+      isDemo: session.user.isDemo,
+    };
     return true;
   }
 }

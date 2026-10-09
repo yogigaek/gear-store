@@ -18,7 +18,7 @@ import { AddressesService } from '../addresses/addresses.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { newOrderNumber } from './order-number.js';
 
-const detailInclude = {
+export const detailInclude = {
   items: {
     orderBy: { id: 'asc' },
     include: { product: { select: { category: { select: { slug: true } } } } },
@@ -27,7 +27,7 @@ const detailInclude = {
   payment: true,
 } satisfies Prisma.OrderInclude;
 
-type OrderRow = Prisma.OrderGetPayload<{ include: typeof detailInclude }>;
+export type OrderRow = Prisma.OrderGetPayload<{ include: typeof detailInclude }>;
 type Tx = Prisma.TransactionClient;
 
 @Injectable()
@@ -279,6 +279,13 @@ export class OrdersService {
         : null,
       canPay: waiting,
       canCancel: waiting,
+      fulfilment: {
+        courier: o.courier,
+        trackingNumber: o.trackingNumber,
+        shippedAt: o.shippedAt?.toISOString() ?? null,
+        deliveredAt: o.deliveredAt?.toISOString() ?? null,
+      },
+      refundStatus: o.refundStatus,
     };
   }
 }

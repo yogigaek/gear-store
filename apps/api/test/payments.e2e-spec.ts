@@ -195,10 +195,13 @@ describe('Payments (e2e)', () => {
     it('flags money that arrives after the order closed instead of reopening it', async () => {
       const o = await placedOrder();
       await o.cancel().expect(200);
-      expect((await notify(signed(o.order, 'settlement')).expect(200)).body.outcome).toBe('paid-after-close');
+      const late = signed(o.order, 'settlement');
+      expect((await notify(late).expect(200)).body.outcome).toBe('paid-after-close');
+      expect((await notify(late).expect(200)).body.outcome).toBe('duplicate');
       const order = await o.get();
       expect(order.status).toBe('CANCELLED');
       expect(order.events.at(-1)?.note).toMatch(/refunded/);
+      expect(order.events.filter((e) => /refunded/.test(e.note))).toHaveLength(1);
     });
 
     it('acknowledges notifications for orders it does not know', async () => {

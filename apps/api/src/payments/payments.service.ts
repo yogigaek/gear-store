@@ -10,7 +10,7 @@ import {
 import { paymentMethodLabel, type OrderDetail } from '@gear-store/shared';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
-import { OrderStatus, Prisma } from '../generated/prisma/client.js';
+import { OrderStatus, Prisma, RefundStatus } from '../generated/prisma/client.js';
 import { OrdersService } from '../orders/orders.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
@@ -208,7 +208,13 @@ export class PaymentsService {
       });
       if (current.status !== OrderStatus.CANCELLED && current.status !== OrderStatus.EXPIRED)
         return 'duplicate' as const;
-      // money arrived for an order whose stock was already released: flag it for a refund, never resell silently
+      // money arrived for an order whose stock was already released: flag it for a refund, never resell silently.
+      // Flagged once: a repeated notification finds the flag already set.
+      const flagged = await tx.order.updateMany({
+        where: { id: orderId, refundStatus: RefundStatus.NONE },
+        data: { refundStatus: RefundStatus.NEEDED },
+      });
+      if (flagged.count === 0) return 'duplicate' as const;
       this.logger.error(`Payment received for closed order ${current.number}; refund needed`);
       await tx.orderEvent.create({
         data: {

@@ -195,6 +195,13 @@ model Address {
   @@index([userId])
 }
 
+enum RefundStatus {
+  NONE
+  /// money arrived after the order closed and must go back
+  NEEDED
+  DONE
+}
+
 enum OrderStatus {
   PENDING_PAYMENT
   PAID
@@ -206,13 +213,13 @@ enum OrderStatus {
 
 /// Prices, names and the address are copied in at checkout, so an invoice never changes afterwards.
 model Order {
-  id               String      @id @default(uuid(7)) @db.Uuid
+  id               String       @id @default(uuid(7)) @db.Uuid
   /// shown to people and sent to Midtrans as order_id: RKT-YYMMDD-XXXXXX
-  number           String      @unique
+  number           String       @unique
   /// orders outlive accounts: an account with orders cannot be deleted by accident
-  userId           String      @db.Uuid
-  user             User        @relation(fields: [userId], references: [id], onDelete: Restrict)
-  status           OrderStatus @default(PENDING_PAYMENT)
+  userId           String       @db.Uuid
+  user             User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status           OrderStatus  @default(PENDING_PAYMENT)
   subtotal         Int
   shippingFee      Int
   /// CHECK (total = subtotal + shippingFee) in the migration
@@ -230,8 +237,13 @@ model Order {
   paymentExpiresAt DateTime
   paidAt           DateTime?
   closedAt         DateTime?
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
+  shippedAt        DateTime?
+  deliveredAt      DateTime?
+  courier          String?
+  trackingNumber   String?
+  refundStatus     RefundStatus @default(NONE)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   items   OrderItem[]
   events  OrderEvent[]

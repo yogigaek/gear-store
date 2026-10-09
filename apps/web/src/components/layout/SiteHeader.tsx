@@ -52,6 +52,14 @@ export function SiteHeader() {
               Saved <span className="tabular font-mono text-xs">{wishlist.data?.length ?? 0}</span>
             </Link>
           )}
+          {user?.role === 'ADMIN' && (
+            <Link
+              to="/admin"
+              className="hidden min-h-11 items-center font-mono text-xs uppercase tracking-[0.08em] text-ink-2 hover:text-ink sm:flex"
+            >
+              Admin
+            </Link>
+          )}
           <Link to={accountTo} className="hidden min-h-11 items-center text-ink-2 hover:text-ink sm:flex">
             {status === 'restoring' ? '…' : accountLabel}
           </Link>
@@ -114,6 +122,7 @@ export function SiteHeader() {
           <ul className="mt-6 border-t border-ink">
             {[
               { to: accountTo, label: status === 'signed-in' ? 'Account' : 'Sign in' },
+              ...(user?.role === 'ADMIN' ? [{ to: '/admin', label: 'Admin' }] : []),
               ...(status === 'signed-in'
                 ? [{ to: '/wishlist', label: `Wishlist (${wishlist.data?.length ?? 0})` }]
                 : []),

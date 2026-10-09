@@ -97,6 +97,57 @@ const router = createBrowserRouter([
           </RequireAuth>
         ),
       },
+      {
+        // the admin area is its own chunk, fetched only when someone opens /admin
+        path: 'admin',
+        lazy: async () => ({ Component: (await import('./pages/admin/AdminRoutes')).default }),
+        children: [
+          {
+            index: true,
+            lazy: async () => ({ Component: (await import('./pages/admin/OverviewPage')).OverviewPage }),
+          },
+          {
+            path: 'orders',
+            lazy: async () => ({
+              Component: (await import('./pages/admin/OrdersAdminPage')).OrdersAdminPage,
+            }),
+          },
+          {
+            path: 'orders/:number',
+            lazy: async () => ({ Component: (await import('./pages/admin/OrderAdminPage')).OrderAdminPage }),
+          },
+          {
+            path: 'products',
+            lazy: async () => ({
+              Component: (await import('./pages/admin/ProductsAdminPage')).ProductsAdminPage,
+            }),
+          },
+          {
+            path: 'products/new',
+            lazy: async () => ({
+              Component: (await import('./pages/admin/ProductEditPage')).ProductEditPage,
+            }),
+          },
+          {
+            path: 'products/:slug',
+            lazy: async () => ({
+              Component: (await import('./pages/admin/ProductEditPage')).ProductEditPage,
+            }),
+          },
+          {
+            path: 'categories',
+            lazy: async () => ({
+              Component: (await import('./pages/admin/CategoriesAdminPage')).CategoriesAdminPage,
+            }),
+          },
+          {
+            path: 'customers',
+            lazy: async () => ({
+              Component: (await import('./pages/admin/CustomersAdminPage')).CustomersAdminPage,
+            }),
+          },
+        ],
+      },
       { path: 'design', element: <DesignSystemPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],

@@ -1,0 +1,200 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  adminCategoryInputSchema,
+  adminCategorySchema,
+  adminListQuerySchema,
+  adminOrderQuerySchema,
+  adminOrderRowSchema,
+  adminOrderSchema,
+  adminProductInputSchema,
+  adminProductRowSchema,
+  adminProductSchema,
+  adminProductUpdateSchema,
+  adminStatsQuerySchema,
+  adminStatsSchema,
+  adminUserRowSchema,
+  orderNumberSchema,
+  pageOf,
+  productSlugSchema,
+  roleInputSchema,
+  shipInputSchema,
+  type AdminCategoryInput,
+  type AdminListQuery,
+  type AdminOrderQuery,
+  type AdminProductInput,
+  type AdminProductUpdate,
+  type ShipInput,
+} from '@gear-store/shared';
+import { z } from 'zod';
+import { AccessTokenGuard, type AuthContext, CurrentAuth } from '../auth/access-token.guard.js';
+import { ApiQueryFrom, openApiSchema } from '../common/openapi.js';
+import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { AdminCatalogService } from './admin-catalog.service.js';
+import { AdminGuard } from './admin.guard.js';
+import { AdminOrdersService } from './admin-orders.service.js';
+import { AdminStatsService } from './admin-stats.service.js';
+import { AdminUsersService } from './admin-users.service.js';
+
+const pipe = <S extends z.ZodType>(schema: S) => new ZodValidationPipe(schema);
+const slugParam = pipe(productSlugSchema);
+const numberParam = pipe(orderNumberSchema);
+
+@ApiTags('Admin')
+@ApiBearerAuth()
+@UseGuards(AccessTokenGuard, AdminGuard)
+@Controller('admin')
+export class AdminController {
+  constructor(
+    private readonly stats: AdminStatsService,
+    private readonly catalog: AdminCatalogService,
+    private readonly orders: AdminOrdersService,
+    private readonly users: AdminUsersService,
+  ) {}
+
+  @Get('stats')
+  @ApiOperation({ summary: 'Revenue, orders, best sellers and what needs attention' })
+  @ApiQueryFrom(adminStatsQuerySchema)
+  @ApiOkResponse({ schema: openApiSchema(adminStatsSchema) })
+  overview(@Query(pipe(adminStatsQuerySchema)) query: { days: number }) {
+    return this.stats.stats(query.days);
+  }
+
+  // ── products ──
+
+  @Get('products')
+  @ApiOperation({ summary: 'All products, including those taken off sale' })
+  @ApiQueryFrom(adminListQuerySchema)
+  @ApiOkResponse({ schema: openApiSchema(pageOf(adminProductRowSchema)) })
+  products(@Query(pipe(adminListQuerySchema)) query: AdminListQuery) {
+    return this.catalog.products(query);
+  }
+
+  @Get('products/:slug')
+  @ApiOkResponse({ schema: openApiSchema(adminProductSchema) })
+  product(@Param('slug', slugParam) slug: string) {
+    return this.catalog.product(slug);
+  }
+
+  @Post('products')
+  @ApiOperation({ summary: 'Add a product' })
+  @ApiBody({ schema: openApiSchema(adminProductInputSchema, 'input') })
+  @ApiOkResponse({ schema: openApiSchema(adminProductSchema) })
+  createProduct(@Body(pipe(adminProductInputSchema)) input: AdminProductInput) {
+    return this.catalog.createProduct(input);
+  }
+
+  @Put('products/:slug')
+  @ApiOperation({ summary: 'Replace a product; refused with 409 if it changed since it was loaded' })
+  @ApiBody({ schema: openApiSchema(adminProductUpdateSchema, 'input') })
+  @ApiOkResponse({ schema: openApiSchema(adminProductSchema) })
+  updateProduct(
+    @Param('slug', slugParam) slug: string,
+    @Body(pipe(adminProductUpdateSchema)) input: AdminProductUpdate,
+  ) {
+    return this.catalog.updateProduct(slug, input);
+  }
+
+  // ── categories ──
+
+  @Get('categories')
+  @ApiOkResponse({ schema: openApiSchema(z.array(adminCategorySchema)) })
+  categories() {
+    return this.catalog.categories();
+  }
+
+  @Post('categories')
+  @ApiBody({ schema: openApiSchema(adminCategoryInputSchema, 'input') })
+  @ApiOkResponse({ schema: openApiSchema(adminCategorySchema) })
+  createCategory(@Body(pipe(adminCategoryInputSchema)) input: AdminCategoryInput) {
+    return this.catalog.createCategory(input);
+  }
+
+  @Put('categories/:slug')
+  @ApiBody({ schema: openApiSchema(adminCategoryInputSchema, 'input') })
+  @ApiOkResponse({ schema: openApiSchema(adminCategorySchema) })
+  updateCategory(
+    @Param('slug', slugParam) slug: string,
+    @Body(pipe(adminCategoryInputSchema)) input: AdminCategoryInput,
+  ) {
+    return this.catalog.updateCategory(slug, input);
+  }
+
+  @Delete('categories/:slug')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Delete an empty category' })
+  deleteCategory(@Param('slug', slugParam) slug: string) {
+    return this.catalog.deleteCategory(slug);
+  }
+
+  // ── orders ──
+
+  @Get('orders')
+  @ApiQueryFrom(adminOrderQuerySchema)
+  @ApiOkResponse({ schema: openApiSchema(pageOf(adminOrderRowSchema)) })
+  listOrders(@Query(pipe(adminOrderQuerySchema)) query: AdminOrderQuery) {
+    return this.orders.list(query);
+  }
+
+  @Get('orders/:number')
+  @ApiOkResponse({ schema: openApiSchema(adminOrderSchema) })
+  order(@Param('number', numberParam) number: string) {
+    return this.orders.detail(number);
+  }
+
+  @Post('orders/:number/ship')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Mark a paid order shipped, with courier and tracking number' })
+  @ApiBody({ schema: openApiSchema(shipInputSchema, 'input') })
+  @ApiOkResponse({ schema: openApiSchema(adminOrderSchema) })
+  ship(@Param('number', numberParam) number: string, @Body(pipe(shipInputSchema)) input: ShipInput) {
+    return this.orders.ship(number, input);
+  }
+
+  @Post('orders/:number/deliver')
+  @HttpCode(200)
+  @ApiOkResponse({ schema: openApiSchema(adminOrderSchema) })
+  deliver(@Param('number', numberParam) number: string) {
+    return this.orders.deliver(number);
+  }
+
+  @Post('orders/:number/refund')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Record that a late payment was refunded' })
+  @ApiOkResponse({ schema: openApiSchema(adminOrderSchema) })
+  refund(@Param('number', numberParam) number: string) {
+    return this.orders.markRefunded(number);
+  }
+
+  // ── customers ──
+
+  @Get('users')
+  @ApiQueryFrom(adminListQuerySchema)
+  @ApiOkResponse({ schema: openApiSchema(pageOf(adminUserRowSchema)) })
+  listUsers(@Query(pipe(adminListQuerySchema)) query: AdminListQuery) {
+    return this.users.list(query);
+  }
+
+  @Patch('users/:id/role')
+  @ApiBody({ schema: openApiSchema(roleInputSchema, 'input') })
+  @ApiOkResponse({ schema: openApiSchema(adminUserRowSchema) })
+  setRole(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', pipe(z.uuid())) id: string,
+    @Body(pipe(roleInputSchema)) input: z.infer<typeof roleInputSchema>,
+  ) {
+    return this.users.setRole(auth.userId, id, input.role);
+  }
+}

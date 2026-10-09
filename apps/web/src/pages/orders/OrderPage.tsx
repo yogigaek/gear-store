@@ -190,6 +190,29 @@ export function OrderPage() {
             </h2>
             <AddressLines address={o.shipping} />
           </section>
+          {o.fulfilment.trackingNumber && (
+            <section className="space-y-1 text-sm">
+              <h2 className="font-mono text-xs uppercase tracking-[0.08em] text-ink-3">Delivery</h2>
+              <p>
+                {o.fulfilment.courier} ·{' '}
+                <span className="select-all font-mono">{o.fulfilment.trackingNumber}</span>
+              </p>
+              {o.fulfilment.deliveredAt ? (
+                <p className="text-ink-2">Delivered {formatDateTime(o.fulfilment.deliveredAt)}</p>
+              ) : (
+                o.fulfilment.shippedAt && (
+                  <p className="text-ink-2">Shipped {formatDateTime(o.fulfilment.shippedAt)}</p>
+                )
+              )}
+            </section>
+          )}
+          {o.refundStatus !== 'NONE' && (
+            <Notice tone={o.refundStatus === 'DONE' ? 'ok' : 'error'}>
+              {o.refundStatus === 'DONE'
+                ? 'Your late payment has been refunded.'
+                : 'Your payment arrived after this order closed. It will be refunded.'}
+            </Notice>
+          )}
           {o.payment?.method && (
             <section className="space-y-1 text-sm">
               <h2 className="font-mono text-xs uppercase tracking-[0.08em] text-ink-3">Payment</h2>

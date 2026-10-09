@@ -23,6 +23,7 @@ docker compose up -d --wait       # PostgreSQL on :5436, Mailpit on :8025
 npm ci
 npm run db:deploy -w @gear-store/api
 npm run db:seed -w @gear-store/api   # demo catalogue + demo shopper/admin accounts
+npm run admin:grant -w @gear-store/api -- you@example.com   # make your own account an administrator
 npm run dev:api                   # http://localhost:3000/api/docs (OpenAPI)
 npm run dev:web                   # http://localhost:5173
 ```
@@ -43,6 +44,9 @@ zod schemas in `packages/shared`, so validation, the docs and the web client use
   the exact order amount, are idempotent, and are all logged; a payment that arrives after an order closed is
   flagged for refund instead of reopening it.
 - **Reviews:** only from customers with a paid order for the product.
+- **Admin:** revenue overview with a daily chart and what needs attention, orders (ship with courier and
+  tracking, mark delivered, record refunds), products (edits refused if stock changed since the form was
+  opened), categories and customer roles. The shared demo administrator can open everything but save nothing.
 - **Sessions:** 15-minute access tokens (sent as `Authorization: Bearer`) and a refresh token in an
   `HttpOnly`, `SameSite=Strict` cookie scoped to `/api/auth`. The refresh token rotates on every use; replaying
   an old one revokes the session. Signing out or resetting a password takes effect immediately.

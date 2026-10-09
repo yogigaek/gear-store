@@ -74,6 +74,13 @@ export const orderDetailSchema = z.object({
     .nullable(),
   canPay: z.boolean(),
   canCancel: z.boolean(),
+  fulfilment: z.object({
+    courier: z.string().nullable(),
+    trackingNumber: z.string().nullable(),
+    shippedAt: z.string().nullable(),
+    deliveredAt: z.string().nullable(),
+  }),
+  refundStatus: z.enum(['NONE', 'NEEDED', 'DONE']),
 });
 export type OrderDetail = z.infer<typeof orderDetailSchema>;
 
