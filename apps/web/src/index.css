@@ -1,9 +1,70 @@
-/* Placeholder until the design system lands in Phase 1. */
-:root {
-  font-family: system-ui, sans-serif;
-  color-scheme: light dark;
+@import 'tailwindcss';
+@import '@fontsource-variable/archivo/wdth.css';
+@import '@fontsource-variable/jetbrains-mono/index.css';
+
+/*
+  Rakit — an engineering bench. Light aluminium ground, graphite ink, hairline bench lines, and one signal
+  yellow used only to mark interaction (focus rings, hotspots, the primary action's underline). Numbers
+  and specs are always mono. No gradients, no glass, no soft drop shadows.
+*/
+@theme {
+  --color-alu: #e4e6e6; /* page ground */
+  --color-alu-50: #f5f6f6; /* raised surfaces: cards, plates */
+  --color-bench: #c3c8ca; /* hairlines and grid */
+  --color-bench-strong: #9aa2a6;
+  --color-ink: #15181a; /* text, primary action */
+  --color-ink-2: #3c4449; /* secondary text */
+  --color-ink-3: #555e63; /* captions, labels (4.7:1 on alu) */
+  --color-signal: #f2c230; /* interaction marker only, never text on light */
+  --color-danger: #a32a20;
+  --color-ok: #24683f;
+
+  --font-sans: 'Archivo Variable', 'Arial Narrow', Arial, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+
+  --text-display: clamp(2.5rem, 5.4vw, 4.6rem);
+  --text-display--line-height: 0.95;
 }
 
-body {
-  margin: 0;
+@layer base {
+  html {
+    background: var(--color-alu);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    min-height: 100dvh;
+  }
+  :focus-visible {
+    outline: 3px solid var(--color-signal);
+    outline-offset: 2px;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+}
+
+@utility font-expanded {
+  font-stretch: 125%;
+}
+@utility font-condensed {
+  font-stretch: 75%;
+}
+/* engineering-paper grid: 16 px squares, hairline bench lines */
+@utility bg-grid {
+  background-color: var(--color-alu-50);
+  background-image:
+    linear-gradient(var(--color-bench) 1px, transparent 1px),
+    linear-gradient(90deg, var(--color-bench) 1px, transparent 1px);
+  background-size: 16px 16px;
+  background-position: -1px -1px;
+}
+@utility tabular {
+  font-variant-numeric: tabular-nums;
 }
