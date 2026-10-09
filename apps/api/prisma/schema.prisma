@@ -29,6 +29,7 @@ model User {
 
   sessions    Session[]
   emailTokens EmailToken[]
+  wishlist    WishlistItem[]
 }
 
 /// One signed-in device. Its refresh tokens rotate; presenting a used one revokes the whole session.
@@ -106,8 +107,9 @@ model Product {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  specs  ProductSpec[]
-  colors ProductColor[]
+  specs      ProductSpec[]
+  colors     ProductColor[]
+  wishlistBy WishlistItem[]
 
   @@index([categoryId, isActive])
   @@index([brand])
@@ -136,4 +138,14 @@ model ProductColor {
   position  Int
 
   @@unique([productId, key])
+}
+
+model WishlistItem {
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String   @db.Uuid
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, productId])
 }

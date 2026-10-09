@@ -1,9 +1,16 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Category, ProductDetail, ProductPage, ProductQuery, ProductSummary } from '@gear-store/shared';
+import type {
+  Brand,
+  Category,
+  ProductDetail,
+  ProductPage,
+  ProductQuery,
+  ProductSummary,
+} from '@gear-store/shared';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
-const summarySelect = {
+export const summarySelect = {
   slug: true,
   name: true,
   model: true,
@@ -24,7 +31,7 @@ const orderBy: Record<ProductQuery['sort'], Prisma.ProductOrderByWithRelationInp
   name: [{ name: 'asc' }, { slug: 'asc' }],
 };
 
-function toSummary(row: SummaryRow): ProductSummary {
+export function toSummary(row: SummaryRow): ProductSummary {
   const { category, specs, ...rest } = row;
   return { ...rest, category: category.slug, plate: specs };
 }
@@ -44,6 +51,16 @@ export class CatalogService {
       },
     });
     return rows.map(({ _count, ...c }) => ({ ...c, productCount: _count.products }));
+  }
+
+  async brands(): Promise<Brand[]> {
+    const rows = await this.prisma.product.groupBy({
+      by: ['brand'],
+      where: { isActive: true },
+      _count: { _all: true },
+      orderBy: { brand: 'asc' },
+    });
+    return rows.map((r) => ({ name: r.brand, productCount: r._count._all }));
   }
 
   async products(query: ProductQuery): Promise<ProductPage> {

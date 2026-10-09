@@ -1,8 +1,6 @@
-import type { CategoryId } from '../../data/catalog';
-
 // Line drawings in the style of a technical sheet: one stroke weight, dimension ticks in signal yellow.
 // Stand-ins for product renders until Phase 3 brings real images.
-const drawings: Record<CategoryId, React.ReactNode> = {
+const drawings: Record<string, React.ReactNode> = {
   audio: (
     <>
       <path d="M26 62V50a34 34 0 0 1 68 0v12" />
@@ -34,7 +32,15 @@ const drawings: Record<CategoryId, React.ReactNode> = {
   ),
 };
 
-export function ProductArt({ category, className = '' }: { category: CategoryId; className?: string }) {
+// any category without its own drawing gets a plain box with a dimension line
+const fallback = (
+  <>
+    <rect x="28" y="34" width="64" height="52" rx="6" />
+    <path d="M28 94v6M92 94v6M28 97h64" className="stroke-signal" />
+  </>
+);
+
+export function ProductArt({ category, className = '' }: { category: string; className?: string }) {
   return (
     <svg
       viewBox="0 0 120 120"
@@ -46,7 +52,7 @@ export function ProductArt({ category, className = '' }: { category: CategoryId;
       className={`text-ink ${className}`}
       aria-hidden="true"
     >
-      {drawings[category]}
+      {drawings[category] ?? fallback}
     </svg>
   );
 }

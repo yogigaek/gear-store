@@ -4,7 +4,24 @@ import { Price } from '../components/ui/Price';
 import { SpecPlate } from '../components/ui/SpecPlate';
 import { StockNote } from '../components/ui/StockNote';
 import { ProductCard } from '../components/product/ProductCard';
-import { products } from '../data/catalog';
+import type { ProductSummary } from '@gear-store/shared';
+
+// a fixed sample, so this page documents the components without depending on the API
+const sample: ProductSummary = {
+  slug: 'h-40-anc-headphone',
+  name: 'Over-ear ANC Headphone',
+  model: 'H-40',
+  brand: 'Rakit Lab',
+  category: 'audio',
+  price: 1249000,
+  stock: 14,
+  has3d: true,
+  plate: [
+    { label: 'Driver', value: '40 mm' },
+    { label: 'Battery', value: '60 h' },
+    { label: 'Latency', value: '45 ms' },
+  ],
+};
 
 const colors = [
   { token: 'alu', hex: '#e4e6e6', use: 'Page ground' },
@@ -106,7 +123,7 @@ export function DesignSystemPage() {
               <Button variant="ghost">View specs</Button>
               <Button disabled>Out of stock</Button>
             </div>
-            <SpecPlate specs={products[0].plate} />
+            <SpecPlate specs={sample.plate} />
             <div className="flex flex-wrap items-baseline gap-6">
               <Price amount={1249000} className="text-2xl" />
               <StockNote stock={14} />
@@ -114,7 +131,7 @@ export function DesignSystemPage() {
             </div>
           </div>
           <div className="max-w-xs">
-            <ProductCard product={products[0]} />
+            <ProductCard product={sample} />
           </div>
         </div>
       </Section>

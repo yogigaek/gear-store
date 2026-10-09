@@ -15,8 +15,10 @@ export const passwordSchema = z
 /** Opaque single-use token from an email link: 32 random bytes, base64url. */
 export const emailLinkTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Invalid or expired link');
 
+const nameSchema = z.string().trim().min(1, 'Enter your name').max(80, 'Use at most 80 characters');
+
 export const registerSchema = z.object({
-  name: z.string().trim().min(1).max(80),
+  name: nameSchema,
   email: emailSchema,
   password: passwordSchema,
 });
@@ -44,7 +46,7 @@ export const changePasswordSchema = z.object({
 });
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 
-export const updateProfileSchema = z.object({ name: z.string().trim().min(1).max(80) });
+export const updateProfileSchema = z.object({ name: nameSchema });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
 export const roles = ['CUSTOMER', 'ADMIN'] as const;

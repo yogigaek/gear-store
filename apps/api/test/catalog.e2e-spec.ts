@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import { categorySchema, productDetailSchema, productPageSchema } from '@gear-store/shared';
+import { brandSchema, categorySchema, productDetailSchema, productPageSchema } from '@gear-store/shared';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { z } from 'zod';
@@ -23,6 +23,14 @@ describe('Catalogue (e2e)', () => {
     const categories = z.array(categorySchema).parse(res.body);
     expect(categories.map((c) => c.slug)).toEqual(['audio', 'keyboards', 'power', 'hubs']);
     expect(categories.every((c) => c.productCount > 0)).toBe(true);
+  });
+
+  it('lists brands alphabetically with counts that add up to the catalogue', async () => {
+    const brands = z.array(brandSchema).parse((await get('/api/brands').expect(200)).body);
+    const names = brands.map((b) => b.name);
+    expect(names).toEqual([...names].sort());
+    const total = productPageSchema.parse((await get('/api/products').expect(200)).body).total;
+    expect(brands.reduce((sum, b) => sum + b.productCount, 0)).toBe(total);
   });
 
   it('returns a page that matches the shared contract', async () => {

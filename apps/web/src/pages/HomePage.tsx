@@ -1,16 +1,20 @@
 import { Link } from 'react-router';
-import { ProductCard } from '../components/product/ProductCard';
+import { ProductCard, ProductCardSkeleton } from '../components/product/ProductCard';
 import { Label } from '../components/ui/Label';
-import { categories, products } from '../data/catalog';
+import { useCategories, useProduct, useProducts } from '../lib/queries';
 import { usePrefersReducedMotion } from '../three/useCanRender3D';
 import { Viewer3D } from '../three/Viewer3D';
 
-const hero = products[0];
-// aluminium shows the screws and drivers on the light bench; graphite reads as a silhouette
-const heroFinish = hero.colors.find((c) => c.id === 'aluminium') ?? hero.colors[0];
+const HERO_SLUG = 'h-40-anc-headphone';
+const ALUMINIUM = '#b9bfc2';
 
 export function HomePage() {
   const reducedMotion = usePrefersReducedMotion();
+  const hero = useProduct(HERO_SLUG).data;
+  const categories = useCategories();
+  const latest = useProducts({ sort: 'newest', pageSize: 8 });
+  // aluminium shows the screws and drivers on the light bench; graphite reads as a silhouette
+  const finish = hero?.colors.find((c) => c.key === 'aluminium');
 
   return (
     <>
@@ -29,16 +33,16 @@ export function HomePage() {
             </p>
             <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
               <Link
-                to="/c/audio"
+                to="/products"
                 className="inline-flex min-h-11 items-center border-b-[3px] border-signal bg-ink px-5 text-sm font-semibold uppercase tracking-[0.06em] text-alu-50 hover:bg-ink-2"
               >
-                Shop audio
+                Shop the bench
               </Link>
               <Link
-                to={`/products/${hero.slug}`}
+                to={`/products/${HERO_SLUG}`}
                 className="min-h-11 content-center text-sm font-semibold underline decoration-bench-strong underline-offset-4 hover:decoration-ink"
               >
-                Take the {hero.model} apart
+                Take the H-40 apart
               </Link>
             </div>
           </div>
@@ -46,17 +50,17 @@ export function HomePage() {
           <figure className="bg-grid relative border border-bench">
             <div className="aspect-[5/4]">
               <Viewer3D
-                category={hero.category}
+                category="audio"
                 explode={0}
-                shellColor={heroFinish.hex}
+                shellColor={finish?.hex ?? ALUMINIUM}
                 assembleOnMount={!reducedMotion}
                 interactive={false}
-                label={`${hero.name} ${hero.model}, three-quarter view`}
+                label="Over-ear ANC Headphone H-40, three-quarter view"
               />
             </div>
             <figcaption className="flex flex-wrap items-baseline justify-between gap-2 border-t border-bench bg-alu-50 px-4 py-3">
               <span className="text-sm font-semibold">
-                {hero.name} · {hero.model} · {heroFinish.label}
+                {hero ? `${hero.name} · ${hero.model}` : 'H-40'} · {finish?.label ?? 'Aluminium'}
               </span>
               <span className="font-mono text-xs text-ink-3">8 parts · 8 screws · no glue</span>
             </figcaption>
@@ -68,24 +72,21 @@ export function HomePage() {
         <h2 id="cat-title" className="sr-only">
           Categories
         </h2>
-        <ul className="grid grid-cols-2 border-l border-t border-ink lg:grid-cols-4">
-          {categories.map((c) => {
-            const count = products.filter((p) => p.category === c.id).length;
-            return (
-              <li key={c.id} className="border-b border-r border-ink">
-                <Link
-                  to={`/c/${c.id}`}
-                  className="group flex h-full flex-col gap-1 p-4 hover:bg-alu-50 sm:p-5"
-                >
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className="font-semibold group-hover:underline">{c.label}</span>
-                    <span className="tabular font-mono text-xs text-ink-3">{count}</span>
-                  </span>
-                  <span className="text-sm text-ink-2">{c.note}</span>
-                </Link>
-              </li>
-            );
-          })}
+        <ul className="grid min-h-[7.5rem] grid-cols-2 border-l border-t border-ink lg:grid-cols-4">
+          {categories.data?.map((c) => (
+            <li key={c.slug} className="border-b border-r border-ink">
+              <Link
+                to={`/products?category=${c.slug}`}
+                className="group flex h-full flex-col gap-1 p-4 hover:bg-alu-50 sm:p-5"
+              >
+                <span className="flex items-baseline justify-between gap-2">
+                  <span className="font-semibold group-hover:underline">{c.name}</span>
+                  <span className="tabular font-mono text-xs text-ink-3">{c.productCount}</span>
+                </span>
+                <span className="text-sm text-ink-2">{c.description}</span>
+              </Link>
+            </li>
+          ))}
         </ul>
       </section>
 
@@ -94,10 +95,16 @@ export function HomePage() {
           <h2 id="new-title" className="font-expanded text-2xl font-bold uppercase">
             On the bench
           </h2>
-          <Label>{products.length} products</Label>
+          <Link
+            to="/products"
+            className="font-mono text-xs uppercase tracking-[0.08em] underline underline-offset-4"
+          >
+            All {latest.data?.total ?? ''} products
+          </Link>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {products.map((p) => (
+          {latest.isPending && Array.from({ length: 4 }, (_, i) => <ProductCardSkeleton key={i} />)}
+          {latest.data?.items.map((p) => (
             <ProductCard key={p.slug} product={p} />
           ))}
         </div>

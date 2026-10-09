@@ -7,11 +7,11 @@ A rebuild of my 2022 bootcamp capstone (MERN), redone with a modern stack. **Wor
 
 ## Stack
 
-| Part                       | Tools                           |
-| -------------------------- | ------------------------------- |
-| Web (`apps/web`)           | React, Vite, TypeScript         |
-| API (`apps/api`)           | NestJS, Prisma, PostgreSQL, zod |
-| Shared (`packages/shared`) | zod schemas used by both sides  |
+| Part                       | Tools                                                      |
+| -------------------------- | ---------------------------------------------------------- |
+| Web (`apps/web`)           | React, Vite, TypeScript, TanStack Query, React Three Fiber |
+| API (`apps/api`)           | NestJS, Prisma, PostgreSQL, zod                            |
+| Shared (`packages/shared`) | zod schemas used by both sides                             |
 
 ## Run locally
 

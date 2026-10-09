@@ -5,7 +5,11 @@ import { Label } from '../components/ui/Label';
 import { Price } from '../components/ui/Price';
 import { SpecPlate } from '../components/ui/SpecPlate';
 import { StockNote } from '../components/ui/StockNote';
-import { categories, findProduct } from '../data/catalog';
+import { ProductArt } from '../components/product/ProductArt';
+import { SaveButton } from '../components/product/SaveButton';
+import { Notice } from '../components/ui/Field';
+import { ApiError } from '../lib/api';
+import { useCategories, useProduct } from '../lib/queries';
 import { useCanRender3D, useCoarsePointer } from '../three/useCanRender3D';
 import { Viewer3D } from '../three/Viewer3D';
 import { NotFoundPage } from './NotFoundPage';
@@ -17,20 +21,34 @@ export function ProductPage() {
 }
 
 function ProductDetail({ slug }: { slug: string }) {
-  const product = findProduct(slug);
+  const query = useProduct(slug);
+  const product = query.data;
+  const categories = useCategories();
   const [explode, setExplode] = useState(0);
-  const [colorId, setColorId] = useState(product?.colors[0]?.id);
+  const [colorId, setColorId] = useState<string>();
   const [qty, setQty] = useState(1);
   const coarsePointer = useCoarsePointer();
   const can3D = useCanRender3D();
   // on touch screens the model only takes the finger while this is on, so the page keeps scrolling
   const [rotating, setRotating] = useState(false);
 
-  if (!product) return <NotFoundPage />;
-  const category = categories.find((c) => c.id === product.category);
-  const color = product.colors.find((c) => c.id === colorId) ?? product.colors[0];
-  // only the H-40 has a 3D model in the prototype
-  const has3D = product.category === 'audio' && can3D;
+  if (query.error instanceof ApiError && query.error.status === 404) return <NotFoundPage />;
+  if (query.isError) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+        <Notice tone="error">
+          {query.error.message}{' '}
+          <button type="button" className="font-semibold underline" onClick={() => void query.refetch()}>
+            Try again
+          </button>
+        </Notice>
+      </div>
+    );
+  }
+  if (!product) return <ProductSkeleton />;
+  const category = categories.data?.find((c) => c.slug === product.category);
+  const color = product.colors.find((c) => c.key === colorId) ?? product.colors[0];
+  const has3D = product.has3d && can3D;
   const interactive = has3D && (!coarsePointer || rotating);
   const soldOut = product.stock === 0;
 
@@ -41,8 +59,8 @@ function ProductDetail({ slug }: { slug: string }) {
           Home
         </Link>
         <span aria-hidden="true"> / </span>
-        <Link to={`/c/${product.category}`} className="hover:text-ink">
-          {category?.label}
+        <Link to={`/products?category=${product.category}`} className="hover:text-ink">
+          {category?.name ?? product.category}
         </Link>
         <span aria-hidden="true"> / </span>
         <span aria-current="page" className="text-ink">
@@ -53,14 +71,21 @@ function ProductDetail({ slug }: { slug: string }) {
       <div className="grid gap-10 lg:grid-cols-[1.25fr_1fr]">
         <section aria-label="Product view" className="min-w-0">
           <div className="bg-grid relative aspect-[4/3] border border-bench">
-            <Viewer3D
-              category={product.category}
-              explode={has3D ? explode : 0}
-              shellColor={color?.hex ?? '#24292c'}
-              showLabels={has3D && explode > 0.6}
-              interactive={interactive}
-              label={`${product.name} ${product.model}, drag to rotate`}
-            />
+            {product.has3d ? (
+              <Viewer3D
+                category={product.category}
+                explode={explode}
+                shellColor={color?.hex ?? '#24292c'}
+                showLabels={has3D && explode > 0.6}
+                interactive={interactive}
+                label={`${product.name} ${product.model}, drag to rotate`}
+              />
+            ) : (
+              // no model for this product yet: the technical drawing stands in
+              <div className="grid h-full place-items-center">
+                <ProductArt category={product.category} className="w-2/5" />
+              </div>
+            )}
             {has3D && !coarsePointer && (
               <span className="pointer-events-none absolute left-3 top-3 font-mono text-[0.68rem] uppercase tracking-[0.08em] text-ink-3">
                 Drag to rotate · scroll to zoom
@@ -106,7 +131,7 @@ function ProductDetail({ slug }: { slug: string }) {
         <section aria-labelledby="product-name" className="flex min-w-0 flex-col gap-6">
           <div className="space-y-2">
             <Label>
-              {product.model} · {category?.label}
+              {product.model} · {product.brand}
             </Label>
             <h1 id="product-name" className="font-expanded text-3xl font-extrabold uppercase leading-tight">
               {product.name}
@@ -127,13 +152,13 @@ function ProductDetail({ slug }: { slug: string }) {
               </legend>
               <div className="flex gap-2">
                 {product.colors.map((c) => (
-                  <label key={c.id} className="cursor-pointer">
+                  <label key={c.key} className="cursor-pointer">
                     <input
                       type="radio"
                       name="finish"
-                      value={c.id}
-                      checked={c.id === color?.id}
-                      onChange={() => setColorId(c.id)}
+                      value={c.key}
+                      checked={c.key === color?.key}
+                      onChange={() => setColorId(c.key)}
                       className="peer sr-only"
                     />
                     <span className="sr-only">{c.label}</span>
@@ -176,9 +201,10 @@ function ProductDetail({ slug }: { slug: string }) {
             <Button className="flex-1" disabled={soldOut}>
               {soldOut ? 'Out of stock' : 'Add to cart'}
             </Button>
+            <SaveButton product={product} />
           </div>
 
-          <p className="max-w-[60ch] text-ink-2">{product.summary}</p>
+          <p className="max-w-[60ch] text-ink-2">{product.description}</p>
 
           {product.specs.length > 0 && (
             <div>
@@ -199,6 +225,22 @@ function ProductDetail({ slug }: { slug: string }) {
             </div>
           )}
         </section>
+      </div>
+    </div>
+  );
+}
+
+function ProductSkeleton() {
+  return (
+    <div aria-busy="true" className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      <div className="grid gap-10 lg:grid-cols-[1.25fr_1fr]">
+        <div className="bg-grid aspect-[4/3] border border-bench" />
+        <div className="space-y-4">
+          <div className="h-3 w-1/4 bg-bench/60" />
+          <div className="h-10 w-3/4 bg-bench/60" />
+          <div className="h-6 w-1/3 bg-bench/60" />
+          <div className="h-12 border border-bench" />
+        </div>
       </div>
     </div>
   );

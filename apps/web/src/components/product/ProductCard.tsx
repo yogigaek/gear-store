@@ -1,21 +1,31 @@
+import type { ProductSummary } from '@gear-store/shared';
 import { Link } from 'react-router';
-import type { Product } from '../../data/catalog';
 import { Label } from '../ui/Label';
 import { Price } from '../ui/Price';
 import { SpecPlate } from '../ui/SpecPlate';
 import { StockNote } from '../ui/StockNote';
 import { ProductArt } from './ProductArt';
+import { SaveButton } from './SaveButton';
 
-export function ProductCard({ product }: { product: Product }) {
+const artFrame =
+  'bg-grid grid h-28 place-items-center border-b border-bench min-[360px]:h-auto min-[360px]:border-b-0 min-[360px]:border-r sm:aspect-[4/3] sm:border-b sm:border-r-0';
+
+export function ProductCard({ product }: { product: ProductSummary }) {
   return (
-    // phones: drawing on the left, details on the right, so four products fit in two screens, not four
-    <article className="group relative grid grid-cols-[6.5rem_minmax(0,1fr)] border border-bench bg-alu-50 transition-colors hover:border-ink sm:flex sm:flex-col">
-      <div className="bg-grid grid place-items-center border-r border-bench sm:aspect-[4/3] sm:border-b sm:border-r-0">
-        <ProductArt category={product.category} className="w-4/5 sm:w-2/5" />
+    // phones: drawing on the left, details on the right, so four products fit in two screens, not four.
+    // Below 360 px that leaves too little room for the spec plate, so the card stacks instead.
+    <article className="group relative flex flex-col border border-bench bg-alu-50 transition-colors hover:border-ink min-[360px]:grid min-[360px]:grid-cols-[6.5rem_minmax(0,1fr)] sm:flex sm:flex-col">
+      <div className={artFrame}>
+        <ProductArt
+          category={product.category}
+          className="h-4/5 min-[360px]:h-auto min-[360px]:w-4/5 sm:w-2/5"
+        />
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-3 p-3 sm:p-4">
         <div className="flex items-baseline justify-between gap-3">
-          <Label>{product.model}</Label>
+          <Label>
+            {product.model} · {product.brand}
+          </Label>
           <StockNote stock={product.stock} />
         </div>
         <h3 className="font-semibold leading-snug">
@@ -28,8 +38,29 @@ export function ProductCard({ product }: { product: Product }) {
           </Link>
         </h3>
         <SpecPlate specs={product.plate} />
-        <Price amount={product.price} className="mt-auto pt-1" />
+        <div className="mt-auto flex items-center justify-between gap-3 pt-1">
+          <Price amount={product.price} />
+          {/* above the card-wide link so it gets its own clicks */}
+          <SaveButton product={product} className="relative z-10" />
+        </div>
       </div>
     </article>
+  );
+}
+
+export function ProductCardSkeleton() {
+  return (
+    <div
+      aria-hidden="true"
+      className="grid grid-cols-[6.5rem_minmax(0,1fr)] border border-bench bg-alu-50 sm:flex sm:flex-col"
+    >
+      <div className="bg-grid border-r border-bench sm:aspect-[4/3] sm:border-b sm:border-r-0" />
+      <div className="flex flex-col gap-3 p-3 sm:p-4">
+        <div className="h-3 w-1/3 bg-bench/60" />
+        <div className="h-4 w-3/4 bg-bench/60" />
+        <div className="h-10 border border-bench" />
+        <div className="h-4 w-1/2 bg-bench/60" />
+      </div>
+    </div>
   );
 }

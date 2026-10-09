@@ -84,3 +84,12 @@ export const errorSchema = z.object({
   issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
 });
 export type ApiError = z.infer<typeof errorSchema>;
+
+export const brandSchema = z.object({ name: z.string(), productCount: z.number().int().nonnegative() });
+export type Brand = z.infer<typeof brandSchema>;
+
+/** Saved products, newest first. Capped so one account cannot grow the table without bound. */
+export const WISHLIST_LIMIT = 100;
+export const wishlistSchema = z.array(productSummarySchema);
+export type Wishlist = z.infer<typeof wishlistSchema>;
+export const productSlugSchema = slug;
