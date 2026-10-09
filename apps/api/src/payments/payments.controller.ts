@@ -1,6 +1,6 @@
 import { Body, Controller, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiExcludeEndpoint, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { orderDetailSchema, orderNumberSchema, type OrderDetail } from '@gear-store/shared';
 import { z } from 'zod';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from '../auth/access-token.guard.js';
@@ -41,7 +41,8 @@ export class PaymentsController {
   /** Midtrans calls this from its own servers; the signature, not a session, proves who sent it. */
   @Post('payments/midtrans/notification')
   @HttpCode(200)
-  @SkipThrottle()
+  // generous for Midtrans' retries, but bounded: every call is written to the audit table
+  @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @ApiExcludeEndpoint()
   async notification(@Body() payload: unknown): Promise<{ outcome: string }> {
     return { outcome: await this.payments.notification(payload) };

@@ -1,0 +1,8 @@
+# Rakit is a demo store. Account, checkout and admin pages hold nothing worth indexing.
+User-agent: *
+Disallow: /account
+Disallow: /checkout
+Disallow: /orders
+Disallow: /wishlist
+Disallow: /admin
+Disallow: /api/

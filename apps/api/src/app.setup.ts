@@ -8,8 +8,10 @@ import type { Env } from './config/env.js';
 /** Everything main.ts applies to the app, shared with the e2e tests so they exercise the same stack. */
 export function configureApp(app: INestApplication, env: Env): void {
   const express = app as NestExpressApplication;
-  // one proxy in front in production (Render); req.ip must be the client, or rate limits hit everyone at once
-  express.set('trust proxy', 1);
+  // req.ip must be the visitor, or every rate limit would count the whole site as one client
+  express.set('trust proxy', env.TRUST_PROXY);
+  // nothing the API accepts comes close to this; a smaller limit makes oversized bodies cheap to refuse
+  express.useBodyParser('json', { limit: '32kb' });
   express.disable('x-powered-by');
   app.use(helmet());
   app.use(cookieParser());

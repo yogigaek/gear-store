@@ -209,8 +209,11 @@ function ProductDetail({ slug }: { slug: string }) {
             />
             <Button
               className="flex-1"
-              disabled={soldOut || addToCart.isPending}
-              onClick={() => addToCart.mutate()}
+              disabled={soldOut}
+              // not `disabled` while adding: a disabled button drops keyboard focus, and the cart drawer then
+              // cannot hand focus back to it when it closes
+              aria-disabled={addToCart.isPending || undefined}
+              onClick={() => !addToCart.isPending && addToCart.mutate()}
             >
               {soldOut ? 'Out of stock' : addToCart.isPending ? 'Adding…' : 'Add to cart'}
             </Button>

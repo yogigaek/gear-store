@@ -18,7 +18,10 @@ export class MailService {
     this.transport = createTransport(env.SMTP_URL);
   }
 
-  /** Plain text on purpose: renders everywhere, nothing to escape, and links stay visible. */
+  /**
+   * Plain text on purpose: renders everywhere, nothing to escape, and links stay visible. Never rejects, so
+   * callers may send without awaiting (account emails do, so the reply time does not reveal whether one went out).
+   */
   async send(mail: Mail): Promise<void> {
     try {
       await this.transport.sendMail({ from: this.env.MAIL_FROM, ...mail });

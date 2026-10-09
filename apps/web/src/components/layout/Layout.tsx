@@ -14,7 +14,8 @@ export function Layout() {
         Skip to content
       </a>
       <SiteHeader />
-      <main id="main">
+      {/* at least a screen tall: while a page's code loads, the footer waits below the fold instead of jumping */}
+      <main id="main" className="min-h-[calc(100dvh-4rem)]">
         <Outlet />
       </main>
       <SiteFooter />

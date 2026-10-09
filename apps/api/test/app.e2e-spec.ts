@@ -28,6 +28,14 @@ describe('API (e2e)', () => {
     );
   });
 
+  it('refuses oversized request bodies before any work is done', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/cart/quote')
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify({ items: [], padding: 'x'.repeat(40_000) }));
+    expect(res.status).toBe(413);
+  });
+
   it('sends security headers and hides the framework', async () => {
     const res = await request(app.getHttpServer()).get('/api/health');
     expect(res.headers['x-powered-by']).toBeUndefined();

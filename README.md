@@ -61,5 +61,6 @@ npm run typecheck
 npm run lint
 npm test                                   # unit tests
 npm run test:e2e -w @gear-store/api        # needs the database from docker compose
+npm run test:browser                       # Playwright: API on :3000, `vite preview --port 5173`, Mailpit
 npm run build
 ```

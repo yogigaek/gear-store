@@ -8,4 +8,6 @@ export default defineConfig({
     // same-origin /api in development, so cookies and CORS behave as they will behind one domain
     proxy: { '/api': 'http://localhost:3000' },
   },
+  // `vite preview` serves the production build the same way, for Lighthouse and the browser e2e tests
+  preview: { proxy: { '/api': 'http://localhost:3000' } },
 });

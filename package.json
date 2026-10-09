@@ -4,7 +4,8 @@
   "type": "module",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "e2e"
   ],
   "engines": {
     "node": ">=22",
@@ -18,7 +19,8 @@
     "typecheck": "npm run build -w @gear-store/shared && npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "test:browser": "npm run test:browser -w @gear-store/e2e"
   },
   "packageManager": "npm@11.21.0",
   "allowScripts": {

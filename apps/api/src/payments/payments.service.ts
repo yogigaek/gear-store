@@ -240,7 +240,10 @@ export class PaymentsService {
         transactionStatus: status?.transaction_status,
         signatureValid: valid,
         outcome,
-        payload: (payload ?? {}) as Prisma.InputJsonValue,
+        // a forged or malformed call keeps only a short excerpt, so junk cannot fill the database
+        payload: (valid
+          ? (payload ?? {})
+          : { excerpt: JSON.stringify(payload ?? null).slice(0, 500) }) as Prisma.InputJsonValue,
       },
     });
   }

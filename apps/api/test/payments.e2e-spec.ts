@@ -148,6 +148,8 @@ describe('Payments (e2e)', () => {
       expect((await o.get()).status).toBe('PENDING_PAYMENT');
       const logged = await prisma.paymentNotification.findMany({ where: { orderNumber: o.order.number } });
       expect(logged.every((n) => !n.signatureValid)).toBe(true);
+      // forged calls keep a short excerpt only, not the whole body
+      expect(logged.every((n) => JSON.stringify(n.payload).length < 700)).toBe(true);
       await o.cancel().expect(200);
     });
 

@@ -23,7 +23,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "npm run build && node dist/seed/seed.js",
-    "admin:grant": "npm run build && node dist/seed/grant-admin.js"
+    "admin:grant": "npm run build && node dist/seed/grant-admin.js",
+    "test-data:clean": "npm run build && node dist/seed/cleanup-test-data.js"
   },
   "dependencies": {
     "@gear-store/shared": "^0.0.0",

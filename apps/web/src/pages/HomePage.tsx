@@ -2,7 +2,7 @@ import { Link } from 'react-router';
 import { ProductCard, ProductCardSkeleton } from '../components/product/ProductCard';
 import { Label } from '../components/ui/Label';
 import { useCategories, useProduct, useProducts } from '../lib/queries';
-import { usePrefersReducedMotion } from '../three/useCanRender3D';
+import { usePrefersReducedMotion, useWideFinePointer } from '../three/useCanRender3D';
 import { Viewer3D } from '../three/Viewer3D';
 
 const HERO_SLUG = 'h-40-anc-headphone';
@@ -10,6 +10,8 @@ const ALUMINIUM = '#b9bfc2';
 
 export function HomePage() {
   const reducedMotion = usePrefersReducedMotion();
+  // phones get the drawing and a "View in 3D" button; three.js is 250 KB they may never need
+  const wide = useWideFinePointer();
   const hero = useProduct(HERO_SLUG).data;
   const categories = useCategories();
   const latest = useProducts({ sort: 'newest', pageSize: 8 });
@@ -51,6 +53,7 @@ export function HomePage() {
             <div className="aspect-[5/4]">
               <Viewer3D
                 category="audio"
+                load={wide ? 'idle' : 'on-request'}
                 explode={0}
                 shellColor={finish?.hex ?? ALUMINIUM}
                 assembleOnMount={!reducedMotion}

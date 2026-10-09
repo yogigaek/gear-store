@@ -191,7 +191,10 @@ export function CatalogPage() {
           </aside>
         </div>
 
-        <section aria-label="Products" className="min-w-0 space-y-6">
+        <section aria-labelledby="results-title" className="min-w-0 space-y-6">
+          <h2 id="results-title" className="sr-only">
+            Products
+          </h2>
           {products.isError && (
             <Notice tone="error">
               {products.error.message}{' '}

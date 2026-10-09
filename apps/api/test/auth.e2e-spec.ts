@@ -3,6 +3,7 @@ import { authResponseSchema, userSchema } from '@gear-store/shared';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp, FakeMail, nextIp, deleteTestUsers } from './setup.js';
 
 const PASSWORD = 'correct horse battery';
@@ -156,6 +157,21 @@ describe('Auth (e2e)', () => {
       const { cookie } = await login(await verifiedUser());
       await refresh(cookie).set('Origin', 'https://evil.example').expect(403);
       await refresh(cookie).set('Origin', WEB_ORIGIN!).expect(200);
+    });
+
+    it('clears sessions that ended over a week ago when the account signs in again', async () => {
+      const email = await verifiedUser();
+      const first = await login(email);
+      const prisma = app.get(PrismaService);
+      const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+      await prisma.session.updateMany({
+        where: { userId: user.id },
+        data: { revokedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000) },
+      });
+      await login(email);
+      const sessions = await prisma.session.findMany({ where: { userId: user.id } });
+      expect(sessions).toHaveLength(1);
+      await refresh(first.cookie).expect(401);
     });
 
     it('signs out: the cookie is cleared and the session is dead', async () => {

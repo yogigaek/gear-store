@@ -43,7 +43,7 @@ export function ProductsAdminPage() {
         />
       </form>
       {products.isError && <Notice tone="error">{products.error.message}</Notice>}
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Products table">
         <table className="w-full min-w-[40rem] text-sm">
           <thead>
             <tr className="border-b border-ink text-left font-mono text-xs uppercase tracking-[0.06em] text-ink-3">

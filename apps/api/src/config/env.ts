@@ -14,6 +14,8 @@ const envSchema = z.object({
   // Midtrans server key (sandbox keys start with "SB-Mid-server-"); signs webhook checks and API calls
   MIDTRANS_SERVER_KEY: z.string().min(10),
   MIDTRANS_PRODUCTION: z.stringbool().default(false),
+  // how many proxies sit in front of the API; req.ip (rate limits) must be the visitor, not the last proxy
+  TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(1),
 });
 
 export type Env = z.infer<typeof envSchema>;

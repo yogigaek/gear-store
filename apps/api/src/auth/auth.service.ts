@@ -78,6 +78,8 @@ export class AuthService {
 
   async register(input: RegisterInput): Promise<Message> {
     const reply = { message: 'Check your inbox to confirm your email address.' };
+    // hashed before the lookup, so a taken address costs the same time as a new one (no timing oracle)
+    const passwordHash = await hash(input.password);
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (existing) {
       // same reply either way: the response must not reveal whether the address has an account
@@ -86,7 +88,7 @@ export class AuthService {
     }
     try {
       const user = await this.prisma.user.create({
-        data: { name: input.name, email: input.email, passwordHash: await hash(input.password) },
+        data: { name: input.name, email: input.email, passwordHash },
       });
       await this.sendVerification(user);
     } catch (error) {
@@ -185,7 +187,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (user && !user.isDemo) {
       const token = await this.issueEmailToken(user.id, EmailTokenPurpose.RESET_PASSWORD, RESET_TTL_MS);
-      await this.mail.send(resetPasswordMail(user.email, user.name, this.link('/reset-password', token)));
+      void this.mail.send(resetPasswordMail(user.email, user.name, this.link('/reset-password', token)));
     }
     return { message: 'If that address has an account, a reset link is on its way.' };
   }
@@ -231,6 +233,7 @@ export class AuthService {
   // ── internals ─────────────────────────────────────────────────────────────
 
   private async startSession(user: UserRow, userAgent: string | undefined): Promise<IssuedSession> {
+    await this.pruneSessions(user.id);
     const refreshToken = randomToken();
     const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
     const session = await this.prisma.session.create({
@@ -255,6 +258,18 @@ export class AuthService {
     };
   }
 
+  /**
+   * Housekeeping on each sign-in, scoped to this account: drop its sessions that ended over a week ago (their
+   * tokens go with them). A week of history keeps reuse detection working for recently rotated tokens.
+   */
+  private async pruneSessions(userId: string): Promise<void> {
+    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    await this.prisma.session.deleteMany({
+      where: { userId, OR: [{ revokedAt: { lt: weekAgo } }, { expiresAt: { lt: weekAgo } }] },
+    });
+    await this.prisma.refreshToken.deleteMany({ where: { session: { userId }, usedAt: { lt: weekAgo } } });
+  }
+
   private async revokeSession(sessionId: string): Promise<void> {
     await this.prisma.session.updateMany({
       where: { id: sessionId, revokedAt: null },
@@ -266,12 +281,12 @@ export class AuthService {
     if (user.isDemo) return;
     if (!user.emailVerifiedAt) return this.sendVerification(user);
     const token = await this.issueEmailToken(user.id, EmailTokenPurpose.RESET_PASSWORD, RESET_TTL_MS);
-    await this.mail.send(accountExistsMail(user.email, this.link('/reset-password', token)));
+    void this.mail.send(accountExistsMail(user.email, this.link('/reset-password', token)));
   }
 
   private async sendVerification(user: UserRow): Promise<void> {
     const token = await this.issueEmailToken(user.id, EmailTokenPurpose.VERIFY_EMAIL, VERIFY_TTL_MS);
-    await this.mail.send(verifyEmailMail(user.email, user.name, this.link('/verify-email', token)));
+    void this.mail.send(verifyEmailMail(user.email, user.name, this.link('/verify-email', token)));
   }
 
   /** A new link replaces any earlier unused one of the same kind. */
