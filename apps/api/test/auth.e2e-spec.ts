@@ -4,10 +4,12 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { loadEnv } from '../src/config/env.js';
 import { createTestApp, FakeMail, nextIp, deleteTestUsers } from './setup.js';
 
 const PASSWORD = 'correct horse battery';
-const WEB_ORIGIN = process.env['WEB_ORIGIN'];
+// through loadEnv, so the value comes from the same place the app reads it (.env locally, CI settings in CI)
+const WEB_ORIGIN = loadEnv().WEB_ORIGIN;
 
 function refreshCookie(res: request.Response): string {
   const cookies = ([] as string[]).concat(res.headers['set-cookie'] ?? []);
@@ -156,7 +158,7 @@ describe('Auth (e2e)', () => {
     it('refuses a refresh from another site', async () => {
       const { cookie } = await login(await verifiedUser());
       await refresh(cookie).set('Origin', 'https://evil.example').expect(403);
-      await refresh(cookie).set('Origin', WEB_ORIGIN!).expect(200);
+      await refresh(cookie).set('Origin', WEB_ORIGIN).expect(200);
     });
 
     it('clears sessions that ended over a week ago when the account signs in again', async () => {

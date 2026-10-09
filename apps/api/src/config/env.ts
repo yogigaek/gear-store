@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { loadDotEnv } from './dotenv.js';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -21,7 +22,11 @@ const envSchema = z.object({
 export type Env = z.infer<typeof envSchema>;
 
 // Read once at startup: a missing or malformed setting stops the API before it serves a request.
-export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
+export function loadEnv(source?: NodeJS.ProcessEnv): Env {
+  if (!source) {
+    loadDotEnv();
+    source = process.env;
+  }
   const parsed = envSchema.safeParse(source);
   if (!parsed.success) {
     // names and reasons only; values may be secrets

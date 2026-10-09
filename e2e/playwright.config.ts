@@ -1,4 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
+import { existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+// the tests sign payment notifications with MIDTRANS_SERVER_KEY, which must match the running API's .env
+const dotEnv = fileURLToPath(new URL('../.env', import.meta.url));
+if (existsSync(dotEnv)) process.loadEnvFile(dotEnv);
 
 // Expects the stack to be running: API on :3000, the web build on :5173 (vite preview), Mailpit on :8025.
 // CI starts them; locally: docker compose up -d, npm run build, then start the API and `vite preview --port 5173`.

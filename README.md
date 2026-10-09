@@ -15,10 +15,10 @@ A rebuild of my 2022 bootcamp capstone (MERN), redone with a modern stack. **Wor
 
 ## Run locally
 
-Requirements: Node.js 22+, npm 11+, Docker, and [direnv](https://direnv.net).
+Requirements: Node.js 22+, npm 11+ and Docker.
 
 ```sh
-cp .envrc.example .envrc && direnv allow
+cp .env.example .env              # settings for local development; never committed
 docker compose up -d --wait       # PostgreSQL on :5436, Mailpit on :8025
 npm ci
 npm run db:deploy -w @gear-store/api
