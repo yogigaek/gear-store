@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: gear
+          POSTGRES_PASSWORD: gear
+          POSTGRES_DB: gear
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gear -d gear"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      DATABASE_URL: postgresql://gear:gear@localhost:5432/gear
+      WEB_ORIGIN: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      # npm 10 crashes resolving this workspace's peer set; the repo pins npm 11 in packageManager
+      - name: use npm 11
+        run: npm install -g npm@11.21.0
+      - run: npm ci
+      - name: format
+        run: npm run format:check
+      - name: typecheck
+        run: npm run typecheck
+      - name: lint
+        run: npm run lint
+      - name: unit tests
+        run: npm test
+      - name: migrate test database
+        run: npm run db:deploy -w @gear-store/api
+      - name: API e2e
+        run: npm run test:e2e -w @gear-store/api
+      - name: build
+        run: npm run build

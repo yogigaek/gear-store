@@ -1,0 +1,9 @@
+/* Placeholder until the design system lands in Phase 1. */
+:root {
+  font-family: system-ui, sans-serif;
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+}

@@ -1,0 +1,37 @@
+{
+  "name": "gear-store",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=22",
+    "npm": ">=11"
+  },
+  "scripts": {
+    "dev:api": "npm run start:dev -w @gear-store/api",
+    "dev:web": "npm run dev -w @gear-store/web",
+    "build": "npm run build -w @gear-store/shared && npm run build -w @gear-store/api -w @gear-store/web",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run build -w @gear-store/shared && npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "packageManager": "npm@11.21.0",
+  "allowScripts": {
+    "prisma@7.10.0": true,
+    "@prisma/engines@7.10.0": true,
+    "fsevents@2.3.3": true
+  },
+  "overrides": {
+    "mysql2": "^3.24.5",
+    "deepmerge-ts": "^8.0.2",
+    "lodash": "^4.18.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.9"
+  }
+}

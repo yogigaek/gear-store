@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+.envrc
+.DS_Store
+
+# Claude Code: local notes and settings, not part of the project
+CLAUDE.md
+/.claude
