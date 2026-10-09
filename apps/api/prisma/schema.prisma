@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +5,135 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ── Accounts ────────────────────────────────────────────────────────────────
+
+enum Role {
+  CUSTOMER
+  ADMIN
+}
+
+model User {
+  id              String    @id @default(uuid(7)) @db.Uuid
+  /// stored lower-cased; uniqueness is case-insensitive in practice
+  email           String    @unique
+  name            String
+  passwordHash    String
+  role            Role      @default(CUSTOMER)
+  emailVerifiedAt DateTime?
+  /// one-click demo accounts: no usable password, reset on a schedule
+  isDemo          Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  sessions    Session[]
+  emailTokens EmailToken[]
+}
+
+/// One signed-in device. Its refresh tokens rotate; presenting a used one revokes the whole session.
+model Session {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  refreshTokens RefreshToken[]
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  sessionId String    @db.Uuid
+  session   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  /// SHA-256 of the opaque token; the token itself is never stored
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  @@index([sessionId])
+}
+
+enum EmailTokenPurpose {
+  VERIFY_EMAIL
+  RESET_PASSWORD
+}
+
+model EmailToken {
+  id        String            @id @default(uuid(7)) @db.Uuid
+  userId    String            @db.Uuid
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose   EmailTokenPurpose
+  tokenHash String            @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, purpose])
+}
+
+// ── Catalogue ───────────────────────────────────────────────────────────────
+
+model Category {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  slug        String    @unique
+  name        String
+  description String
+  sortOrder   Int       @default(0)
+  products    Product[]
+}
+
+model Product {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  slug        String   @unique
+  name        String
+  model       String
+  brand       String
+  description String
+  /// whole Rupiah; CHECK (price >= 0) in the migration
+  price       Int
+  /// CHECK (stock >= 0) in the migration, so no order can oversell
+  stock       Int
+  isActive    Boolean  @default(true)
+  has3d       Boolean  @default(false)
+  categoryId  String   @db.Uuid
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  specs  ProductSpec[]
+  colors ProductColor[]
+
+  @@index([categoryId, isActive])
+  @@index([brand])
+}
+
+model ProductSpec {
+  id        String  @id @default(uuid(7)) @db.Uuid
+  productId String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  label     String
+  value     String
+  position  Int
+  /// one of the three printed on the card's spec plate
+  onPlate   Boolean @default(false)
+
+  @@unique([productId, position])
+}
+
+model ProductColor {
+  id        String  @id @default(uuid(7)) @db.Uuid
+  productId String  @db.Uuid
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  key       String
+  label     String
+  hex       String
+  position  Int
+
+  @@unique([productId, key])
 }

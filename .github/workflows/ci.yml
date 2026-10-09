@@ -28,6 +28,9 @@ jobs:
     env:
       DATABASE_URL: postgresql://gear:gear@localhost:5432/gear
       WEB_ORIGIN: http://localhost:5173
+      # test-only values: the e2e suite replaces the mailer and nothing here protects real data
+      JWT_ACCESS_SECRET: ci-only-access-secret-not-used-anywhere-else
+      SMTP_URL: smtp://localhost:1025
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,6 +50,8 @@ jobs:
         run: npm test
       - name: migrate test database
         run: npm run db:deploy -w @gear-store/api
+      - name: seed demo data
+        run: npm run db:seed -w @gear-store/api
       - name: API e2e
         run: npm run test:e2e -w @gear-store/api
       - name: build

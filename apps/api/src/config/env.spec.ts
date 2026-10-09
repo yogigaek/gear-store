@@ -3,6 +3,8 @@ import { loadEnv } from './env.js';
 const valid = {
   DATABASE_URL: 'postgresql://gear:secret-password@localhost:5436/gear',
   WEB_ORIGIN: 'http://localhost:5173',
+  JWT_ACCESS_SECRET: 'x'.repeat(32),
+  SMTP_URL: 'smtp://localhost:1025',
 };
 
 describe('loadEnv', () => {
@@ -21,11 +23,14 @@ describe('loadEnv', () => {
     ['non-postgres DATABASE_URL', { ...valid, DATABASE_URL: 'mysql://u:p@h/db' }, 'DATABASE_URL'],
     ['missing WEB_ORIGIN', { DATABASE_URL: valid.DATABASE_URL }, 'WEB_ORIGIN'],
     ['bad PORT', { ...valid, PORT: 'eighty' }, 'PORT'],
+    ['short JWT_ACCESS_SECRET', { ...valid, JWT_ACCESS_SECRET: 'short' }, 'JWT_ACCESS_SECRET'],
+    ['non-SMTP SMTP_URL', { ...valid, SMTP_URL: 'https://mail.example' }, 'SMTP_URL'],
   ])('rejects %s', (_, source, field) => {
     expect(() => loadEnv(source)).toThrow(field);
   });
 
   it('never echoes values in the error', () => {
     expect(() => loadEnv({ DATABASE_URL: 'mysql://u:secret-password@h/db' })).not.toThrow(/secret-password/);
+    expect(() => loadEnv({ ...valid, JWT_ACCESS_SECRET: 'tiny-secret' })).not.toThrow(/tiny-secret/);
   });
 });

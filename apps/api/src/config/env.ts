@@ -6,6 +6,11 @@ const envSchema = z.object({
   DATABASE_URL: z.url({ protocol: /^postgres(ql)?$/ }),
   // the web app's origin, the only one CORS lets in
   WEB_ORIGIN: z.url(),
+  // signs 15-minute access tokens; at least 32 characters (openssl rand -base64 48)
+  JWT_ACCESS_SECRET: z.string().min(32),
+  // smtp://localhost:1025 is Mailpit in development; production uses the provider's SMTP URL
+  SMTP_URL: z.url({ protocol: /^smtps?$/ }),
+  MAIL_FROM: z.string().min(3).default('Rakit <no-reply@rakit.example>'),
 });
 
 export type Env = z.infer<typeof envSchema>;

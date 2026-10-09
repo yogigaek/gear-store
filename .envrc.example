@@ -6,3 +6,8 @@ export DATABASE_URL=postgresql://gear:gear@localhost:5436/gear
 # API
 export PORT=3000
 export WEB_ORIGIN=http://localhost:5173
+
+# Auth: generate with `openssl rand -base64 48`
+export JWT_ACCESS_SECRET=change-me-to-at-least-32-random-characters
+# Email: Mailpit from docker compose (inbox at http://localhost:8025)
+export SMTP_URL=smtp://localhost:1025
