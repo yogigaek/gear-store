@@ -17,6 +17,16 @@ const envSchema = z.object({
   MIDTRANS_PRODUCTION: z.stringbool().default(false),
   // how many proxies sit in front of the API; req.ip (rate limits) must be the visitor, not the last proxy
   TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(1),
+  // headers that carry the visitor address, set by the hosting itself (see common/client-ip.ts), comma-separated
+  CLIENT_IP_HEADERS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((h) => h.trim().toLowerCase())
+        .filter(Boolean),
+    ),
 });
 
 export type Env = z.infer<typeof envSchema>;

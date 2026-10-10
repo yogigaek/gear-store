@@ -44,6 +44,8 @@ import { z } from 'zod';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from '../auth/access-token.guard.js';
 import { ApiQueryFrom, openApiSchema } from '../common/openapi.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+import { clientIp } from '../common/client-ip.js';
+import { loadEnv } from '../config/env.js';
 import { AdminCatalogService } from './admin-catalog.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { AdminOrdersService } from './admin-orders.service.js';
@@ -75,6 +77,7 @@ export class AdminController {
   requestInfo(@Req() req: Request) {
     const h = (name: string) => req.headers[name] ?? null;
     return {
+      clientIp: clientIp(req, loadEnv().CLIENT_IP_HEADERS),
       ip: req.ip,
       ips: req.ips,
       trustProxy: req.app.get('trust proxy') as unknown,

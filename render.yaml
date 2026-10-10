@@ -36,8 +36,13 @@ services:
         sync: false
       - key: MIDTRANS_SERVER_KEY
         sync: false
-      # visitor → Vercel → Render: checked after the first deploy (see README, Deploy)
+      # the visitor address for rate limits comes from headers the hosting sets (measured 10 Oct 2026):
+      # Vercel's x-vercel-forwarded-for through the web app, Cloudflare's true-client-ip for direct calls.
+      # X-Forwarded-For is not used: it also carries whatever the visitor sent.
+      - key: CLIENT_IP_HEADERS
+        value: x-vercel-forwarded-for,true-client-ip
+      # only a fallback now; Render's chain is visitor → Cloudflare → load balancer
       - key: TRUST_PROXY
-        value: '2'
+        value: '3'
       - key: ADMIN_EMAIL
         sync: false
