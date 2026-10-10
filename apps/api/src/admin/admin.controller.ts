@@ -9,9 +9,11 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { Request } from 'express';
 import {
   adminCategoryInputSchema,
   adminCategorySchema,
@@ -63,6 +65,26 @@ export class AdminController {
     private readonly orders: AdminOrdersService,
     private readonly users: AdminUsersService,
   ) {}
+
+  /**
+   * What this request looked like on arrival: the client address Express settled on and the forwarding headers
+   * it came with. Used to set TRUST_PROXY to the real number of proxies in front of the API.
+   */
+  @Get('request-info')
+  @ApiOperation({ summary: 'The forwarding headers and client address of this request (diagnostics)' })
+  requestInfo(@Req() req: Request) {
+    const h = (name: string) => req.headers[name] ?? null;
+    return {
+      ip: req.ip,
+      ips: req.ips,
+      trustProxy: req.app.get('trust proxy') as unknown,
+      forwardedFor: h('x-forwarded-for'),
+      realIp: h('x-real-ip'),
+      vercelForwardedFor: h('x-vercel-forwarded-for'),
+      trueClientIp: h('true-client-ip'),
+      cfConnectingIp: h('cf-connecting-ip'),
+    };
+  }
 
   @Get('stats')
   @ApiOperation({ summary: 'Revenue, orders, best sellers and what needs attention' })

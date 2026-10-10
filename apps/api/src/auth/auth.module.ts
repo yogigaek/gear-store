@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
+import { AccountLimiter } from '../common/account-limiter.js';
 import { AccessTokenGuard } from './access-token.guard.js';
 import { AuthController } from './auth.controller.js';
 import { ACCESS_TOKEN_TTL_SECONDS, AuthService } from './auth.service.js';
@@ -20,7 +21,7 @@ import { MeController } from './me.controller.js';
     }),
   ],
   controllers: [AuthController, MeController],
-  providers: [AuthService, AccessTokenGuard],
+  providers: [AuthService, AccessTokenGuard, AccountLimiter],
   exports: [AuthService, AccessTokenGuard, JwtModule],
 })
 export class AuthModule {}

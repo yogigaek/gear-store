@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  HttpException,
   ForbiddenException,
   Inject,
   Injectable,
@@ -22,7 +23,8 @@ import { randomToken, sha256 } from '../common/tokens.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { EmailTokenPurpose, Prisma, type User as UserRow } from '../generated/prisma/client.js';
-import { MailService } from '../mail/mail.service.js';
+import { AccountLimiter } from '../common/account-limiter.js';
+import { type Mail, MailService } from '../mail/mail.service.js';
 import { accountExistsMail, resetPasswordMail, verifyEmailMail } from '../mail/templates.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -30,6 +32,11 @@ export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 30 * 60 * 1000;
+
+const LOGIN_FAILURES_ALLOWED = 10;
+const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
+const EMAILS_PER_ADDRESS = 3;
+const EMAIL_WINDOW_MS = 60 * 60 * 1000;
 
 export const DEMO_EMAILS = { shopper: 'shopper@rakit.example', admin: 'admin@rakit.example' } as const;
 
@@ -71,6 +78,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly mail: MailService,
+    private readonly limiter: AccountLimiter,
     @Inject(ENV) private readonly env: Env,
   ) {}
 
@@ -115,12 +123,30 @@ export class AuthService {
   // ── sign in, refresh, sign out ────────────────────────────────────────────
 
   async login(input: LoginInput, userAgent: string | undefined): Promise<IssuedSession> {
+    // per address, not per IP: holds however many addresses a password guesser rotates through. Applies the
+    // same way to unknown addresses, so it does not reveal which ones have accounts.
+    const key = `login:${input.email}`;
+    if (this.limiter.used(key) >= LOGIN_FAILURES_ALLOWED) {
+      const minutes = Math.ceil(this.limiter.retryAfter(key) / 60);
+      throw new HttpException(
+        {
+          statusCode: 429,
+          message: `Too many failed sign-ins for this address. Try again in ${minutes} min.`,
+        },
+        429,
+      );
+    }
+    const failed = () => {
+      this.limiter.hit(key, LOGIN_FAILURE_WINDOW_MS);
+      return invalidCredentials();
+    };
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (!user || user.isDemo) {
       await verify(await this.dummyHash, input.password);
-      throw invalidCredentials();
+      throw failed();
     }
-    if (!(await verify(user.passwordHash, input.password))) throw invalidCredentials();
+    if (!(await verify(user.passwordHash, input.password))) throw failed();
+    this.limiter.reset(key);
     if (!user.emailVerifiedAt) {
       throw new ForbiddenException({
         statusCode: 403,
@@ -187,7 +213,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (user && !user.isDemo) {
       const token = await this.issueEmailToken(user.id, EmailTokenPurpose.RESET_PASSWORD, RESET_TTL_MS);
-      void this.mail.send(resetPasswordMail(user.email, user.name, this.link('/reset-password', token)));
+      this.sendCapped(resetPasswordMail(user.email, user.name, this.link('/reset-password', token)));
     }
     return { message: 'If that address has an account, a reset link is on its way.' };
   }
@@ -281,12 +307,12 @@ export class AuthService {
     if (user.isDemo) return;
     if (!user.emailVerifiedAt) return this.sendVerification(user);
     const token = await this.issueEmailToken(user.id, EmailTokenPurpose.RESET_PASSWORD, RESET_TTL_MS);
-    void this.mail.send(accountExistsMail(user.email, this.link('/reset-password', token)));
+    this.sendCapped(accountExistsMail(user.email, this.link('/reset-password', token)));
   }
 
   private async sendVerification(user: UserRow): Promise<void> {
     const token = await this.issueEmailToken(user.id, EmailTokenPurpose.VERIFY_EMAIL, VERIFY_TTL_MS);
-    void this.mail.send(verifyEmailMail(user.email, user.name, this.link('/verify-email', token)));
+    this.sendCapped(verifyEmailMail(user.email, user.name, this.link('/verify-email', token)));
   }
 
   /** A new link replaces any earlier unused one of the same kind. */
@@ -313,6 +339,19 @@ export class AuthService {
     });
     if (claimed.count === 0) throw invalidLink();
     return row;
+  }
+
+  /**
+   * Sends without awaiting (the reply time must not show whether an email went out) and at most
+   * EMAILS_PER_ADDRESS per hour to one address, so the sign-up and reset forms cannot flood an inbox.
+   * Over the cap the email is skipped silently: the reply stays the same.
+   */
+  private sendCapped(mail: Mail): void {
+    if (this.limiter.hit(`mail:${mail.to}`, EMAIL_WINDOW_MS) > EMAILS_PER_ADDRESS) {
+      this.logger.warn('Email cap reached for an address; email skipped');
+      return;
+    }
+    void this.mail.send(mail);
   }
 
   private link(path: string, token: string): string {

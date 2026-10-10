@@ -138,6 +138,42 @@ describe('Auth (e2e)', () => {
     });
   });
 
+  describe('per-address limits (independent of the client IP)', () => {
+    it('locks an address after 10 failed sign-ins, however many IPs they come from', async () => {
+      const email = await verifiedUser();
+      for (let i = 0; i < 10; i += 1) {
+        ip = nextIp();
+        await post('/api/auth/login', { email, password: 'not the password' }).expect(401);
+      }
+      ip = nextIp();
+      const locked = await post('/api/auth/login', { email, password: PASSWORD }).expect(429);
+      expect(locked.body.message).toMatch(/Too many failed sign-ins for this address/);
+      // another account is not affected
+      await login(await verifiedUser());
+    });
+
+    it('treats unknown addresses the same way, so the lock reveals nothing', async () => {
+      const email = `nobody-${randomUUID()}@test.example`;
+      for (let i = 0; i < 10; i += 1) {
+        ip = nextIp();
+        await post('/api/auth/login', { email, password: 'whatever' }).expect(401);
+      }
+      ip = nextIp();
+      await post('/api/auth/login', { email, password: 'whatever' }).expect(429);
+    });
+
+    it('sends at most 3 account emails an hour to one address, with the same reply each time', async () => {
+      const email = await verifiedUser(); // the confirmation email is the first of the 3
+      const replies = [];
+      for (let i = 0; i < 5; i += 1) {
+        ip = nextIp();
+        replies.push((await post('/api/auth/forgot-password', { email }).expect(202)).body);
+      }
+      expect(new Set(replies.map((r) => JSON.stringify(r))).size).toBe(1);
+      expect(mail.sent.filter((m) => m.to === email)).toHaveLength(3);
+    });
+  });
+
   describe('sessions', () => {
     it('rotates the refresh token on every use', async () => {
       const { cookie } = await login(await verifiedUser());

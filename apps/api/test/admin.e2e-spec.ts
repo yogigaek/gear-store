@@ -146,6 +146,17 @@ describe('Admin (e2e)', () => {
     });
   });
 
+  describe('diagnostics', () => {
+    it('shows an administrator how a request arrived, and nobody else', async () => {
+      const { api } = await admin();
+      const res = await api.get('/admin/request-info').set('X-Forwarded-For', '203.0.113.9').expect(200);
+      expect(res.body).toMatchObject({ forwardedFor: '203.0.113.9', ip: '203.0.113.9' });
+      const customer = client(await signedInCustomer(app, mail, nextIp()));
+      await customer.get('/admin/request-info').expect(403);
+      await client().get('/admin/request-info').expect(401);
+    });
+  });
+
   describe('overview', () => {
     it('counts a newly paid order in revenue, the daily series and best sellers', async () => {
       const { api } = await admin();
