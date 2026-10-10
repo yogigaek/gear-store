@@ -8,7 +8,8 @@ services:
     region: singapore
     branch: main
     # npm 10 cannot resolve this workspace (see package.json packageManager), so install with npm 11
-    buildCommand: npx -y npm@11.21.0 ci && npm run build -w @gear-store/shared && npm run build -w @gear-store/api
+    # --include=dev: NODE_ENV=production would otherwise skip the Nest and Prisma CLIs that build and migrate need
+    buildCommand: npx -y npm@11.21.0 ci --include=dev && npm run build -w @gear-store/shared && npm run build -w @gear-store/api
     # migrations, then a one-time seed of an empty database and the ADMIN_EMAIL grant, then the server
     startCommand: npm run start:render -w @gear-store/api
     healthCheckPath: /api/health
