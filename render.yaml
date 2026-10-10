@@ -1,0 +1,42 @@
+# Render Blueprint for the API (Dashboard → New → Blueprint → this repository).
+# Values marked `sync: false` are entered in the dashboard and never stored in git.
+services:
+  - type: web
+    name: rakit-api
+    runtime: node
+    plan: free
+    region: singapore
+    branch: main
+    # npm 10 cannot resolve this workspace (see package.json packageManager), so install with npm 11
+    buildCommand: npx -y npm@11.21.0 ci && npm run build -w @gear-store/shared && npm run build -w @gear-store/api
+    # migrations, then a one-time seed of an empty database and the ADMIN_EMAIL grant, then the server
+    startCommand: npm run start:render -w @gear-store/api
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: '22'
+      # Neon: the pooled connection string for the app, the direct one for migrations
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_DATABASE_URL
+        sync: false
+      # the Vercel address of the web app, e.g. https://rakit-store.vercel.app (no trailing slash)
+      - key: WEB_ORIGIN
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      # e.g. smtps://USER:PASSWORD@smtp.example.com:465 from the email provider
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: MIDTRANS_SERVER_KEY
+        sync: false
+      # visitor → Vercel → Render: checked after the first deploy (see README, Deploy)
+      - key: TRUST_PROXY
+        value: '2'
+      - key: ADMIN_EMAIL
+        sync: false

@@ -64,3 +64,14 @@ npm run test:e2e -w @gear-store/api        # needs the database from docker comp
 npm run test:browser                       # Playwright: API on :3000, `vite preview --port 5173`, Mailpit
 npm run build
 ```
+
+## Deploy
+
+| Part     | Host                      | Config                                                                                           |
+| -------- | ------------------------- | ------------------------------------------------------------------------------------------------ |
+| Database | Neon (PostgreSQL 17)      | pooled URL for the app, direct URL for migrations                                                |
+| API      | Render (free web service) | `render.yaml`; starts with migrations, then seeds an **empty** database and grants `ADMIN_EMAIL` |
+| Web      | Vercel                    | `apps/web/vercel.json`; forwards `/api/*` to Render so the refresh cookie stays first-party      |
+
+Security headers (CSP without `unsafe-eval` or inline scripts, HSTS, frame-ancestors none) are set in
+`vercel.json`. After the first deploy, check that rate limits see each visitor's address (`TRUST_PROXY`).
