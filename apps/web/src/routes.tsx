@@ -32,7 +32,7 @@ export const routes: RouteObject[] = [
   {
     element: <Layout />,
     children: [
-      { index: true, element: <HomePage /> },
+      { index: true, handle: { tone: 'dark' }, element: <HomePage /> },
       { path: 'products', ...page(async () => (await import('./pages/CatalogPage')).CatalogPage) },
       { path: 'products/:slug', ...page(async () => (await import('./pages/ProductPage')).ProductPage) },
       { path: 'c/:id', ...page(async () => (await import('./pages/CategoryRedirect')).CategoryRedirect) },

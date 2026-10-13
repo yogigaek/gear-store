@@ -1,117 +1,346 @@
-import { Link } from 'react-router';
-import { ProductCard, ProductCardSkeleton } from '../components/product/ProductCard';
-import { Label } from '../components/ui/Label';
-import { useCategories, useProduct, useProducts } from '../lib/queries';
-import { usePrefersReducedMotion, useWideFinePointer } from '../three/useCanRender3D';
-import { Viewer3D } from '../three/Viewer3D';
+import posterTall from '../assets/e1-poster-tall.jpg';
+import posterWide from '../assets/e1-poster-wide.jpg';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import type { Inspect, View } from '../three/bike/BikeStage';
+import { useCanRender3D, usePrefersReducedMotion } from '../three/useCanRender3D';
+import type { ScrollSource } from '../three/bike/BikeStage';
+import { E1_COLOURS } from '../three/bike/layout';
+import { PART_LIST, type PartCallout } from '../three/bike/parts';
 
-const HERO_SLUG = 'h-40-anc-headphone';
-const ALUMINIUM = '#b9bfc2';
+const BikeStage = lazy(() => import('../three/bike/BikeStage'));
 
+/** example figures: the E-1 is a demo product, not yet in the catalogue */
+const SPECS = [
+  ['Battery', '750 Wh'],
+  ['Motor', '85 Nm mid-drive'],
+  ['Travel', '160 / 150 mm'],
+  ['Wheels', '29 × 2.4″'],
+  ['Drivetrain', '1 × 12, 10–52'],
+  ['Brakes', '4-piston, 203 mm'],
+] as const;
+
+const VIEW_BUTTONS: [View, string][] = [
+  ['right', 'Right'],
+  ['left', 'Left'],
+  ['front', 'Front'],
+  ['rear', 'Rear'],
+  ['top', 'Top'],
+  ['below', 'Below'],
+];
+
+const CLOSED: Inspect = { active: false, view: null, apart: false };
+const INTRO_SEEN = 'rakit-e1-assembled';
+
+/** the opening assembly plays once a session, from the top of the page, unless motion is reduced */
+function shouldAssemble(reducedMotion: boolean) {
+  if (reducedMotion || window.scrollY > 0) return false;
+  try {
+    if (sessionStorage.getItem(INTRO_SEEN)) return false;
+    sessionStorage.setItem(INTRO_SEEN, '1');
+  } catch {
+    // storage blocked: play it, it is short
+  }
+  return true;
+}
+
+/**
+ * The home page: the E-1 on a studio stage, ridden forward by the scroll, then taken apart. "360°" hands the
+ * bike to the visitor: drag to turn it, pick a side, pull it apart.
+ */
 export function HomePage() {
   const reducedMotion = usePrefersReducedMotion();
-  // phones get the drawing and a "View in 3D" button; three.js is 250 KB they may never need
-  const wide = useWideFinePointer();
-  const hero = useProduct(HERO_SLUG).data;
-  const categories = useCategories();
-  const latest = useProducts({ sort: 'newest', pageSize: 8 });
-  // aluminium shows the screws and drivers on the light bench; graphite reads as a silhouette
-  const finish = hero?.colors.find((c) => c.key === 'aluminium');
+  const can3D = useCanRender3D();
+  const story = useRef<HTMLDivElement>(null);
+  const scroll = useMemo<ScrollSource>(() => ({ progress: 0 }), []);
+  const [tall, setTall] = useState(() => window.innerWidth < 1024);
+  const [colour, setColour] = useState<(typeof E1_COLOURS)[number]>(E1_COLOURS[0]);
+  const [inspect, setInspect] = useState<Inspect>(CLOSED);
+  const [assemble] = useState(() => shouldAssemble(reducedMotion));
+  const [ready, setReady] = useState(false);
+  const [picked, setPicked] = useState<PartCallout | null>(null);
+  const pickedRef = useRef(picked);
+  pickedRef.current = picked;
+  const enter = useRef<HTMLButtonElement>(null);
+  const exit = useRef<HTMLButtonElement>(null);
+
+  // while inspecting, the page holds still and Esc hands the scroll back
+  useEffect(() => {
+    if (!inspect.active) return;
+    const root = document.documentElement;
+    root.style.overflow = 'hidden';
+    exit.current?.focus();
+    // Esc closes an open detail panel first, then leaves inspect mode
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (pickedRef.current) setPicked(null);
+      else close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      root.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [inspect.active]);
+
+  function close() {
+    setInspect(CLOSED);
+    setPicked(null);
+    requestAnimationFrame(() => enter.current?.focus());
+  }
+
+  useEffect(() => {
+    const update = () => {
+      const el = story.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const run = rect.height - window.innerHeight;
+      scroll.progress = run > 0 ? Math.min(1, Math.max(0, -rect.top / run)) : 0;
+    };
+    const resize = () => {
+      setTall(window.innerWidth < 1024);
+      update();
+    };
+    update();
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', resize);
+    return () => {
+      window.removeEventListener('scroll', update);
+      window.removeEventListener('resize', resize);
+    };
+  }, [scroll]);
 
   return (
-    <>
-      <section className="border-b border-ink">
-        <div className="mx-auto grid max-w-7xl gap-10 px-4 py-12 sm:px-6 lg:grid-cols-[1.1fr_1fr] lg:items-center lg:py-20">
-          <div className="space-y-6">
-            <Label>Audio · keyboards · power · hubs</Label>
-            <h1 className="font-expanded text-display font-extrabold uppercase">
-              Built to
-              <br />
-              be opened.
-            </h1>
-            <p className="max-w-[44ch] text-lg text-ink-2">
-              Headphones, keyboards and chargers, listed with every spec on the label and the parts you can
-              replace yourself.
-            </p>
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-              <Link
-                to="/products"
-                className="inline-flex min-h-11 items-center border-b-[3px] border-signal bg-ink px-5 text-sm font-semibold uppercase tracking-[0.06em] text-alu-50 hover:bg-ink-2"
+    <div ref={story} id="e1-story" className="relative h-[480vh] bg-stage text-alu-50">
+      <div className="sticky top-16 h-[calc(100dvh-4rem)] overflow-hidden">
+        {/* a still of the stage: shown while the 3D loads, and instead of it where WebGL is missing */}
+        {/* until the 3D is ready: the empty studio it will appear in. A still of the bike would be framed for
+            one screen size and one scroll position, and show two bikes while the 3D fades in over it; it is
+            kept for browsers without WebGL. */}
+        {can3D ? (
+          <div
+            aria-hidden="true"
+            className={`absolute inset-0 bg-[radial-gradient(ellipse_70%_55%_at_62%_68%,#3b3a37_0%,#1d1e1f_55%,#0b0d0e_100%)] transition-opacity duration-700 ${ready ? 'opacity-0' : ''}`}
+          />
+        ) : (
+          <picture>
+            <source media="(max-width: 1023px)" srcSet={posterTall} />
+            <img
+              src={posterWide}
+              fetchPriority="high"
+              alt="The Rakit E-1 electric mountain bike on a dark studio floor"
+              className="absolute inset-0 size-full object-cover object-right-bottom"
+            />
+          </picture>
+        )}
+        {can3D && (
+          <div className={`absolute inset-0 transition-opacity duration-500 ${ready ? '' : 'opacity-0'}`}>
+            <Suspense fallback={null}>
+              <BikeStage
+                scroll={scroll}
+                inspect={inspect}
+                assemble={assemble}
+                onReady={() => setReady(true)}
+                onPick={setPicked}
+                frame={colour.hex}
+                reducedMotion={reducedMotion}
+                tall={tall}
+                label="The Rakit E-1 electric mountain bike on a dark studio floor"
+              />
+            </Suspense>
+          </div>
+        )}
+
+        {can3D &&
+          (inspect.active ? (
+            <>
+              {picked && (
+                <section
+                  aria-label={picked.name}
+                  className="absolute right-4 top-4 z-20 w-[min(22rem,calc(100%-2rem))] border border-signal bg-ink/95 p-5 sm:right-6 sm:top-6"
+                >
+                  <p className="font-mono text-xs uppercase tracking-[0.08em] text-signal">
+                    Module {picked.n} of {PART_LIST.length}
+                  </p>
+                  <h2 className="mt-2 font-expanded text-xl font-extrabold uppercase leading-tight">
+                    {picked.name}
+                  </h2>
+                  <p className="mt-2 text-sm text-bench">{picked.note}</p>
+                  <div className="mt-4 flex items-center justify-between gap-4">
+                    <span className="font-mono text-sm text-alu-50">{picked.price}</span>
+                    <button
+                      type="button"
+                      onClick={() => setPicked(null)}
+                      className="min-h-11 border border-alu-50/60 px-4 font-mono text-xs uppercase tracking-[0.08em] text-alu-50 hover:border-alu-50"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </section>
+              )}
+              <div
+                role="toolbar"
+                aria-label="360° view"
+                className="absolute inset-x-0 bottom-0 z-10 flex flex-wrap items-center justify-center gap-2 px-4 pb-5"
               >
-                Shop the bench
-              </Link>
-              <Link
-                to={`/products/${HERO_SLUG}`}
-                className="min-h-11 content-center text-sm font-semibold underline decoration-bench-strong underline-offset-4 hover:decoration-ink"
-              >
-                Take the H-40 apart
-              </Link>
+                <p className="w-full text-center font-mono text-xs uppercase tracking-[0.08em] text-bench">
+                  Drag to turn · pinch or scroll to zoom · tap a number for details
+                </p>
+                {VIEW_BUTTONS.map(([view, name]) => (
+                  <button
+                    key={view}
+                    type="button"
+                    onClick={() => setInspect((s) => ({ ...s, view: { name: view, at: Date.now() } }))}
+                    aria-pressed={inspect.view?.name === view}
+                    className="min-h-11 border border-ink-2 bg-ink/80 px-3 font-mono text-xs uppercase tracking-[0.08em] text-alu-50 hover:border-alu-50 aria-pressed:border-signal aria-pressed:text-signal"
+                  >
+                    {name}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setInspect((s) => ({ ...s, apart: !s.apart }))}
+                  aria-pressed={inspect.apart}
+                  className="min-h-11 border border-signal bg-ink/80 px-3 font-mono text-xs uppercase tracking-[0.08em] text-signal aria-pressed:bg-signal aria-pressed:text-ink"
+                >
+                  {inspect.apart ? 'Put together' : 'Take apart'}
+                </button>
+                <button
+                  ref={exit}
+                  type="button"
+                  onClick={close}
+                  className="min-h-11 bg-alu-50 px-4 font-mono text-xs font-bold uppercase tracking-[0.08em] text-ink"
+                >
+                  Done
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              ref={enter}
+              type="button"
+              onClick={() => setInspect({ active: true, view: null, apart: false })}
+              className="absolute bottom-5 right-4 z-10 flex min-h-11 items-center gap-2 border border-alu-50/60 bg-ink/70 px-4 font-mono text-xs uppercase tracking-[0.08em] text-alu-50 backdrop-blur-sm hover:border-signal hover:text-signal sm:right-6"
+            >
+              <span aria-hidden="true" className="text-signal">
+                ⟲
+              </span>
+              360° view
+            </button>
+          ))}
+      </div>
+
+      {/* the story: screens of copy scrolling over the stage, set aside while the bike is being inspected */}
+      <div
+        className={`pointer-events-none absolute inset-0 flex flex-col transition-opacity duration-300 ${inspect.active ? 'invisible opacity-0' : ''}`}
+      >
+        <section className="h-[120vh] px-4 sm:px-6">
+          {/* centred in the visible screen below the header, not in the taller scroll section */}
+          <div className="mx-auto flex h-[calc(100dvh-4rem)] w-full max-w-7xl items-start pt-[5vh] lg:items-center lg:pt-0">
+            <div className="pointer-events-auto max-w-xl space-y-4 sm:space-y-6">
+              <p className="font-mono text-[0.72rem] uppercase tracking-[0.08em] text-signal">
+                Rakit E-1 · Full-suspension e-MTB
+              </p>
+              <h1 className="font-expanded text-[clamp(2.6rem,min(7vw,10.5vh),6.2rem)] font-extrabold uppercase leading-[0.9]">
+                <span className="block">Built</span>
+                <span className="block">to be</span>
+                <span className="block">taken</span>
+                <span className="block">apart.</span>
+              </h1>
+              <p className="max-w-md text-base text-bench sm:text-lg">
+                A 29-inch trail bike with a mid-drive motor, every part of it listed, priced, and serviceable
+                with the tools in a home workshop.
+              </p>
+              <div className="flex flex-wrap items-center gap-4">
+                <a
+                  href="#e1-specs"
+                  className="inline-flex min-h-12 items-center bg-signal px-6 font-semibold uppercase tracking-[0.06em] text-ink"
+                >
+                  Configure yours
+                </a>
+                <span className="font-mono text-sm text-alu-50">From Rp 48.900.000</span>
+              </div>
+              <fieldset className="space-y-2">
+                <legend className="font-mono text-xs uppercase tracking-[0.08em] text-bench">
+                  Frame · <span className="text-alu-50">{colour.name}</span>
+                </legend>
+                <div className="flex gap-2">
+                  {E1_COLOURS.map((c) => (
+                    <label
+                      key={c.key}
+                      title={c.name}
+                      className="grid size-11 cursor-pointer place-items-center border border-transparent has-checked:border-alu-50 has-focus-visible:outline-3 has-focus-visible:outline-signal"
+                    >
+                      <input
+                        type="radio"
+                        name="e1-colour"
+                        value={c.key}
+                        checked={colour.key === c.key}
+                        onChange={() => setColour(c)}
+                        className="sr-only"
+                        aria-label={c.name}
+                      />
+                      <span className="size-7 border border-ink-2" style={{ backgroundColor: c.hex }} />
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
             </div>
           </div>
+        </section>
 
-          <figure className="bg-grid relative border border-bench">
-            <div className="aspect-[5/4]">
-              <Viewer3D
-                category="audio"
-                load={wide ? 'idle' : 'on-request'}
-                explode={0}
-                shellColor={finish?.hex ?? ALUMINIUM}
-                assembleOnMount={!reducedMotion}
-                interactive={false}
-                label="Over-ear ANC Headphone H-40, three-quarter view"
-              />
+        <section id="e1-specs" className="flex h-[120vh] items-end px-4 pb-[22vh] sm:px-6">
+          <div className="mx-auto w-full max-w-7xl">
+            <dl className="pointer-events-auto grid grid-cols-2 gap-px border border-ink-2 bg-ink-2 sm:grid-cols-3 lg:grid-cols-6">
+              {SPECS.map(([term, value]) => (
+                <div key={term} className="bg-stage/85 px-4 py-4 backdrop-blur-sm">
+                  <dt className="font-mono text-xs uppercase tracking-[0.08em] text-bench">{term}</dt>
+                  <dd className="mt-1 font-expanded text-base font-bold uppercase xl:text-lg">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </section>
+
+        <section className="flex h-[120vh] items-start px-4 pt-[18vh] sm:px-6 lg:pt-[24vh]">
+          <div className="mx-auto w-full max-w-7xl">
+            <div className="pointer-events-auto max-w-md space-y-3">
+              <p className="font-mono text-[0.72rem] uppercase tracking-[0.08em] text-signal">Teardown</p>
+              <h2 className="font-expanded text-3xl font-extrabold uppercase leading-none sm:text-4xl">
+                Eight modules. Each one sold on its own.
+              </h2>
+              <p className="text-bench max-sm:hidden">
+                Build the E-1 part by part, or replace one when it wears out. Every module has its own price
+                and its own stock.
+              </p>
+              {/* the numbered dots on the bike, spelled out: the only labels on small screens, and the
+                  accessible list everywhere */}
+              <ol className="grid gap-x-4 gap-y-1 font-mono text-xs uppercase tracking-[0.04em] sm:grid-cols-2 lg:sr-only">
+                {PART_LIST.map((p) => (
+                  <li key={p.n} className="flex gap-2">
+                    <span className="text-signal">{p.n}</span>
+                    <span className="text-alu-50">{p.name}</span>
+                    <span className="ml-auto text-bench">{p.price}</span>
+                  </li>
+                ))}
+              </ol>
             </div>
-            <figcaption className="flex flex-wrap items-baseline justify-between gap-2 border-t border-bench bg-alu-50 px-4 py-3">
-              <span className="text-sm font-semibold">
-                {hero ? `${hero.name} · ${hero.model}` : 'H-40'} · {finish?.label ?? 'Aluminium'}
-              </span>
-              <span className="font-mono text-xs text-ink-3">8 parts · 8 screws · no glue</span>
-            </figcaption>
-          </figure>
-        </div>
-      </section>
+          </div>
+        </section>
 
-      <section aria-labelledby="cat-title" className="mx-auto max-w-7xl px-4 pt-14 sm:px-6">
-        <h2 id="cat-title" className="sr-only">
-          Categories
-        </h2>
-        <ul className="grid min-h-[7.5rem] grid-cols-2 border-l border-t border-ink lg:grid-cols-4">
-          {categories.data?.map((c) => (
-            <li key={c.slug} className="border-b border-r border-ink">
-              <Link
-                to={`/products?category=${c.slug}`}
-                className="group flex h-full flex-col gap-1 p-4 hover:bg-alu-50 sm:p-5"
-              >
-                <span className="flex items-baseline justify-between gap-2">
-                  <span className="font-semibold group-hover:underline">{c.name}</span>
-                  <span className="tabular font-mono text-xs text-ink-3">{c.productCount}</span>
-                </span>
-                <span className="text-sm text-ink-2">{c.description}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section aria-labelledby="new-title" className="mx-auto max-w-7xl px-4 pt-14 sm:px-6">
-        <div className="mb-6 flex items-baseline justify-between gap-4">
-          <h2 id="new-title" className="font-expanded text-2xl font-bold uppercase">
-            On the bench
-          </h2>
-          <Link
-            to="/products"
-            className="font-mono text-xs uppercase tracking-[0.08em] underline underline-offset-4"
-          >
-            All {latest.data?.total ?? ''} products
-          </Link>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {latest.isPending && Array.from({ length: 4 }, (_, i) => <ProductCardSkeleton key={i} />)}
-          {latest.data?.items.map((p) => (
-            <ProductCard key={p.slug} product={p} />
-          ))}
-        </div>
-      </section>
-    </>
+        <section className="flex h-[120vh] items-start px-4 pt-[34vh] sm:px-6 lg:items-center lg:pt-0">
+          <div className="mx-auto flex w-full max-w-7xl justify-end">
+            <div className="pointer-events-auto max-w-sm space-y-3 text-right">
+              <p className="font-mono text-[0.72rem] uppercase tracking-[0.08em] text-signal">Drivetrain</p>
+              <h2 className="font-expanded text-4xl font-extrabold uppercase leading-none">
+                Twelve gears. One hex key.
+              </h2>
+              <p className="text-bench">
+                Scroll and the chain runs, the cranks turn, the jockey wheels spin: every link is drawn.
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
   );
 }

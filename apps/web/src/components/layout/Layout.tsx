@@ -1,10 +1,20 @@
+import { useEffect } from 'react';
 import { Outlet, ScrollRestoration } from 'react-router';
 import { CartDrawer } from '../cart/CartDrawer';
 import { CartSync } from '../cart/CartSync';
 import { SiteFooter } from './SiteFooter';
+import { usePageTone } from './page-tone';
 import { SiteHeader } from './SiteHeader';
 
 export function Layout() {
+  const tone = usePageTone();
+  useEffect(() => {
+    document.documentElement.dataset.tone = tone;
+    // the phone's browser bar follows the page
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', tone === 'dark' ? '#0b0d0e' : '#e4e6e6');
+  }, [tone]);
   return (
     <>
       <a

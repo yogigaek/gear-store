@@ -18,6 +18,7 @@
   --color-signal: #f2c230; /* interaction marker only, never text on light */
   --color-danger: #a32a20;
   --color-ok: #24683f;
+  --color-stage: #0b0d0e; /* the dark studio behind the 3D bike */
 
   --font-sans: 'Archivo Variable', 'Arial Narrow', Arial, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
@@ -30,6 +31,11 @@
 }
 
 @layer base {
+  /* a page on the dark stage paints the whole document dark: the overscroll at either end shows no ground */
+  html[data-tone='dark'] {
+    background: var(--color-stage);
+    color-scheme: dark;
+  }
   html {
     background: var(--color-alu);
     color: var(--color-ink);

@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useSearchParams } from 'react-router';
 import { useAuth } from '../../lib/auth-context';
 import { useCart } from '../../lib/cart';
 import { cartDrawer } from '../cart/cart-drawer-store';
+import { usePageTone } from './page-tone';
 import { useCategories, useWishlist } from '../../lib/queries';
 
 export function SiteHeader() {
@@ -16,6 +17,8 @@ export function SiteHeader() {
   const { pathname } = useLocation();
   const [params] = useSearchParams();
   const activeCategory = pathname === '/products' ? params.get('category') : null;
+  const dark = usePageTone() === 'dark';
+  const muted = dark ? 'text-bench hover:text-alu-50' : 'text-ink-2 hover:text-ink';
 
   const categoryLinks = (categories.data ?? []).map((c) => ({
     to: `/products?category=${c.slug}`,
@@ -26,18 +29,21 @@ export function SiteHeader() {
   const accountTo = status === 'signed-in' ? '/account' : '/sign-in';
 
   return (
-    <header className="sticky top-0 z-20 border-b border-ink bg-alu">
+    <header
+      className={`sticky top-0 z-20 border-b ${dark ? 'border-ink-2 bg-ink text-alu-50' : 'border-ink bg-alu'}`}
+    >
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-8 px-4 sm:px-6">
         <Link to="/" className="font-expanded text-xl font-extrabold uppercase tracking-tight">
           Rakit
         </Link>
-        <nav aria-label="Categories" className="hidden gap-6 text-sm lg:flex">
+        {/* the gadget categories belong to the catalogue; the E-1's stage keeps the bar clear */}
+        <nav aria-label="Categories" className={`hidden gap-6 text-sm ${dark ? '' : 'lg:flex'}`}>
           {categoryLinks.map((l) => (
             <Link
               key={l.to}
               to={l.to}
               aria-current={l.active ? 'page' : undefined}
-              className={`py-1 ${l.active ? 'border-b-2 border-ink font-semibold' : 'text-ink-2 hover:text-ink'}`}
+              className={`py-1 ${l.active ? 'border-b-2 border-current font-semibold' : muted}`}
             >
               {l.label}
             </Link>
@@ -45,22 +51,19 @@ export function SiteHeader() {
         </nav>
         <div className="ml-auto flex items-center gap-4 text-sm sm:gap-5">
           {status === 'signed-in' && (
-            <Link
-              to="/wishlist"
-              className="hidden min-h-11 items-center gap-2 text-ink-2 hover:text-ink sm:flex"
-            >
+            <Link to="/wishlist" className={`hidden min-h-11 items-center gap-2 sm:flex ${muted}`}>
               Saved <span className="tabular font-mono text-xs">{wishlist.data?.length ?? 0}</span>
             </Link>
           )}
           {user?.role === 'ADMIN' && (
             <Link
               to="/admin"
-              className="hidden min-h-11 items-center font-mono text-xs uppercase tracking-[0.08em] text-ink-2 hover:text-ink sm:flex"
+              className={`hidden min-h-11 items-center font-mono text-xs uppercase tracking-[0.08em] sm:flex ${muted}`}
             >
               Admin
             </Link>
           )}
-          <Link to={accountTo} className="hidden min-h-11 items-center text-ink-2 hover:text-ink sm:flex">
+          <Link to={accountTo} className={`hidden min-h-11 items-center sm:flex ${muted}`}>
             {status === 'restoring' ? '…' : accountLabel}
           </Link>
           <button
@@ -70,14 +73,16 @@ export function SiteHeader() {
             className="flex min-h-11 items-center gap-2 font-semibold"
           >
             Cart{' '}
-            <span className="tabular bg-ink px-1.5 font-mono text-xs text-alu-50">
+            <span
+              className={`tabular px-1.5 font-mono text-xs ${dark ? 'bg-alu-50 text-ink' : 'bg-ink text-alu-50'}`}
+            >
               {cart?.itemCount ?? 0}
             </span>
           </button>
           <button
             type="button"
             onClick={() => menu.current?.showModal()}
-            className="min-h-11 border border-ink px-3 font-mono text-xs uppercase tracking-[0.08em] lg:hidden"
+            className={`min-h-11 border px-3 font-mono text-xs uppercase tracking-[0.08em] lg:hidden ${dark ? 'border-alu-50' : 'border-ink'}`}
             aria-haspopup="dialog"
           >
             Menu
