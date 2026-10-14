@@ -18,13 +18,12 @@ const PRODUCT = {
   slug: TEMP,
   name: 'Admin Test Product',
   model: 'AT-1',
-  brand: 'Test',
-  category: 'power',
+  category: 'accessories',
+  module: 'ACCESSORY',
   description: 'Created by the admin e2e suite.',
   price: 120000,
   stock: 7,
   isActive: true,
-  has3d: false,
   specs: [
     { label: 'Output', value: '20 W' },
     { label: 'Ports', value: '1' },
@@ -57,7 +56,7 @@ describe('Admin (e2e)', () => {
     return { token, id: me.body.id as string, api: client(token) };
   }
 
-  async function paidOrder(slug = 'c-65-gan-charger') {
+  async function paidOrder(slug = 'battery-charger-4a') {
     const token = await signedInCustomer(app, mail, nextIp());
     const api = client(token);
     const address = addressSchema.parse(
@@ -122,7 +121,13 @@ describe('Admin (e2e)', () => {
       const refused = await demo.post('/admin/products', PRODUCT).expect(403);
       expect(refused.body.message).toMatch(/demo administrator/);
       await demo
-        .post('/admin/categories', { slug: 'e2e-cat-demo', name: 'Nope', description: 'Nope', sortOrder: 9 })
+        .post('/admin/categories', {
+          slug: 'e2e-cat-demo',
+          name: 'Nope',
+          description: 'Nope',
+          sortOrder: 9,
+          slot: null,
+        })
         .expect(403);
     });
 
@@ -169,7 +174,7 @@ describe('Admin (e2e)', () => {
       expect(after.paidOrders - before.paidOrders).toBe(1);
       expect(after.daily.at(-1)!.revenue - before.daily.at(-1)!.revenue).toBe(order.total);
       expect(after.awaitingShipment - before.awaitingShipment).toBe(1);
-      expect(after.topProducts.some((p) => p.slug === 'c-65-gan-charger')).toBe(true);
+      expect(after.topProducts.some((p) => p.slug === 'battery-charger-4a')).toBe(true);
       await api.get('/admin/stats?days=365').expect(400);
     });
   });
@@ -216,11 +221,11 @@ describe('Admin (e2e)', () => {
     it('refuses an edit when an order took stock after the form was opened', async () => {
       const { api } = await admin();
       const opened = adminProductSchema.parse(
-        (await api.get('/admin/products/cb-2-usb-c-cable').expect(200)).body,
+        (await api.get('/admin/products/workshop-hex-set').expect(200)).body,
       );
-      const buyer = await paidOrder('cb-2-usb-c-cable');
+      const buyer = await paidOrder('workshop-hex-set');
       await api
-        .put('/admin/products/cb-2-usb-c-cable', { ...opened, expectedUpdatedAt: opened.updatedAt })
+        .put('/admin/products/workshop-hex-set', { ...opened, expectedUpdatedAt: opened.updatedAt })
         .expect(409);
       await buyer.api.post(`/me/orders/${buyer.order.number}/cancel`).expect(200);
     });
@@ -231,17 +236,20 @@ describe('Admin (e2e)', () => {
       const { api } = await admin();
       const cat = {
         slug: `e2e-cat-${Date.now()}`,
-        name: 'Cables',
+        name: 'Mudguards',
         description: 'Test category',
         sortOrder: 50,
+        slot: null,
       };
       await api.post('/admin/categories', cat).expect(201);
       await api.post('/admin/categories', cat).expect(409);
+      // a build slot belongs to one part type
+      await api.put(`/admin/categories/${cat.slug}`, { ...cat, slot: 0 }).expect(409);
       const edited = await api
-        .put(`/admin/categories/${cat.slug}`, { ...cat, name: 'Cables & adapters' })
+        .put(`/admin/categories/${cat.slug}`, { ...cat, name: 'Mudguards & racks' })
         .expect(200);
-      expect(edited.body).toMatchObject({ name: 'Cables & adapters', productCount: 0 });
-      await api.del('/admin/categories/audio').expect(409);
+      expect(edited.body).toMatchObject({ name: 'Mudguards & racks', slot: null, productCount: 0 });
+      await api.del('/admin/categories/accessories').expect(409);
       await api.del(`/admin/categories/${cat.slug}`).expect(204);
     });
   });

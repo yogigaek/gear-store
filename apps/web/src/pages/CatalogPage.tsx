@@ -6,7 +6,7 @@ import { Button } from '../components/ui/Button';
 import { Notice } from '../components/ui/Field';
 import { Label } from '../components/ui/Label';
 import { readCatalogQuery, writeCatalogQuery } from '../lib/catalog-query';
-import { useBrands, useCategories, useProducts } from '../lib/queries';
+import { useCategories, useProducts } from '../lib/queries';
 
 const sortLabels: Record<(typeof productSorts)[number], string> = {
   newest: 'Newest',
@@ -23,7 +23,6 @@ export function CatalogPage() {
   const query = readCatalogQuery(params);
   const products = useProducts(query);
   const categories = useCategories();
-  const brands = useBrands();
 
   // any filter change starts again from page 1
   const update = (patch: Partial<ProductQuery>) =>
@@ -44,19 +43,14 @@ export function CatalogPage() {
   const category = categories.data?.find((c) => c.slug === query.category);
   const page = products.data;
   const pages = page ? Math.max(1, Math.ceil(page.total / page.pageSize)) : 1;
-  const activeFilters = [
-    query.q,
-    query.category,
-    query.brand,
-    query.minPrice,
-    query.maxPrice,
-    query.inStock,
-  ].filter((v) => v !== undefined).length;
+  const activeFilters = [query.q, query.category, query.minPrice, query.maxPrice, query.inStock].filter(
+    (v) => v !== undefined,
+  ).length;
 
   const filters = (
     <div className="space-y-6">
       <fieldset className="space-y-2">
-        <legend className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-ink-3">Category</legend>
+        <legend className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-ink-3">Part type</legend>
         {[{ slug: undefined, name: 'All', productCount: undefined }, ...(categories.data ?? [])].map((c) => (
           <label key={c.slug ?? 'all'} className="flex min-h-9 cursor-pointer items-center gap-2 text-sm">
             <input
@@ -73,25 +67,6 @@ export function CatalogPage() {
           </label>
         ))}
       </fieldset>
-
-      <div className="space-y-2">
-        <label htmlFor="brand" className="font-mono text-xs uppercase tracking-[0.08em] text-ink-3">
-          Brand
-        </label>
-        <select
-          id="brand"
-          value={query.brand ?? ''}
-          onChange={(e) => update({ brand: e.target.value || undefined })}
-          className={controlClass}
-        >
-          <option value="">All brands</option>
-          {brands.data?.map((b) => (
-            <option key={b.name} value={b.name}>
-              {b.name} ({b.productCount})
-            </option>
-          ))}
-        </select>
-      </div>
 
       <PriceRange
         key={`${query.minPrice}-${query.maxPrice}`}
@@ -126,27 +101,25 @@ export function CatalogPage() {
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-ink pb-4">
         <div className="space-y-1">
-          <Label>{category?.description ?? 'Audio, keyboards, power, hubs'}</Label>
-          <h1 className="font-expanded text-4xl font-extrabold uppercase">
-            {category?.name ?? 'All products'}
-          </h1>
+          <Label>{category?.description ?? 'Every module of the E-1, and the accessories'}</Label>
+          <h1 className="font-expanded text-4xl font-extrabold uppercase">{category?.name ?? 'All parts'}</h1>
         </div>
         <p className="font-mono text-xs uppercase tracking-[0.08em] text-ink-3" aria-live="polite">
-          {page ? `${page.total} ${page.total === 1 ? 'product' : 'products'}` : ' '}
+          {page ? `${page.total} ${page.total === 1 ? 'part' : 'parts'}` : ' '}
         </p>
       </div>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-[minmax(0,1fr)_14rem]">
         <div>
           <label htmlFor="search" className="sr-only">
-            Search products
+            Search parts
           </label>
           <input
             id="search"
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name, model or brand"
+            placeholder="Search name or part code"
             className={controlClass}
           />
         </div>
@@ -193,7 +166,7 @@ export function CatalogPage() {
 
         <section aria-labelledby="results-title" className="min-w-0 space-y-6">
           <h2 id="results-title" className="sr-only">
-            Products
+            Parts
           </h2>
           {products.isError && (
             <Notice tone="error">
@@ -209,7 +182,7 @@ export function CatalogPage() {
           )}
           {page?.items.length === 0 && (
             <div className="space-y-2 border border-bench bg-alu-50 p-6">
-              <p className="font-semibold">No products match these filters.</p>
+              <p className="font-semibold">No parts match these filters.</p>
               <p className="text-sm text-ink-2">Try a shorter search or remove a filter.</p>
             </div>
           )}

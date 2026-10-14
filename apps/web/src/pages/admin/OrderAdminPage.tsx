@@ -10,6 +10,7 @@ import { Price } from '../../components/ui/Price';
 import { useAdminOrder, useAdminOrderActions } from '../../lib/admin';
 import { formatDateTime } from '../../lib/date';
 import { statusLabels } from '../../lib/order-status';
+import { groupOrderLines } from '../../lib/order-lines';
 
 export function OrderAdminPage() {
   const { number = '' } = useParams();
@@ -70,7 +71,28 @@ export function OrderAdminPage() {
             <h2 className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-ink-3">Items</h2>
             <table className="w-full text-sm">
               <tbody>
-                {o.items.map((i) => (
+                {groupOrderLines(o).bikes.map(({ build, parts }) => (
+                  <tr key={build.id} className="border-b border-bench align-top">
+                    <td className="py-2">
+                      {build.label}
+                      <span className="block font-mono text-xs text-ink-3">
+                        {build.colorLabel ?? 'No colour'}
+                      </span>
+                      <ul className="mt-1 font-mono text-xs text-ink-2">
+                        {parts.map((p) => (
+                          <li key={p.slug}>
+                            {p.model} · {p.name}
+                          </li>
+                        ))}
+                      </ul>
+                    </td>
+                    <td className="tabular py-2 text-right font-mono">{build.quantity} ×</td>
+                    <td className="py-2 text-right">
+                      <Price amount={build.lineTotal} className="font-normal" />
+                    </td>
+                  </tr>
+                ))}
+                {groupOrderLines(o).singles.map((i) => (
                   <tr key={`${i.slug}:${i.colorLabel}`} className="border-b border-bench">
                     <td className="py-2">
                       {i.name}

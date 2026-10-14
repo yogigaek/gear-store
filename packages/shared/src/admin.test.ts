@@ -3,15 +3,14 @@ import { adminProductInputSchema, adminStatsQuerySchema, shipInputSchema } from 
 
 const product = {
   slug: 'x-1-test',
-  name: 'Test product',
+  name: 'Test part',
   model: 'X-1',
-  brand: 'Rakit Lab',
-  category: 'audio',
-  description: 'A product used in tests.',
+  category: 'batteries',
+  module: 'BATTERY',
+  description: 'A part used in tests.',
   price: 150000,
   stock: 3,
   isActive: true,
-  has3d: false,
   specs: [
     { label: 'A', value: '1' },
     { label: 'B', value: '2' },

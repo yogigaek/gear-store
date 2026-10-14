@@ -21,10 +21,11 @@ export default function AuthScene({ frame, reducedMotion, label }: AuthSceneProp
   const motion = useMemo<Motion>(() => ({ angle: 0, explode: 0, intro: 1 }), []);
   return (
     <Canvas
-      shadows
+      // it shares the screen with a form: no shadow maps, and a modest resolution, so the page stays quick
+      // on a weak device
       // a turntable needs every frame; without motion one drawn frame is enough
       frameloop={reducedMotion ? 'demand' : 'always'}
-      dpr={[1, 1.5]}
+      dpr={[1, 1.25]}
       camera={{ position: [2.3, 1.05, 2.6], fov: 32, near: 0.05, far: 20 }}
       role="img"
       aria-label={label}
@@ -54,17 +55,7 @@ export default function AuthScene({ frame, reducedMotion, label }: AuthSceneProp
           scale={[0.4, 3, 1]}
         />
       </Environment>
-      <spotLight
-        position={[1, 4, 2]}
-        angle={0.5}
-        penumbra={0.9}
-        intensity={45}
-        decay={2}
-        color="#fff6ea"
-        castShadow
-        shadow-mapSize={[1024, 1024]}
-        shadow-bias={-0.0002}
-      />
+      <spotLight position={[1, 4, 2]} angle={0.5} penumbra={0.9} intensity={45} decay={2} color="#fff6ea" />
       <directionalLight position={[-3, 2.6, -2.5]} intensity={1.4} color="#ffe9c4" />
       <directionalLight position={[3, 1.4, -2.5]} intensity={1.2} color="#9fc4ff" />
 

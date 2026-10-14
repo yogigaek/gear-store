@@ -54,7 +54,7 @@ describe('Payments (e2e)', () => {
   const notify = (body: object) =>
     request(app.getHttpServer()).post('/api/payments/midtrans/notification').send(body);
 
-  async function placedOrder(slug = 'c-65-gan-charger', quantity = 1) {
+  async function placedOrder(slug = 'battery-charger-4a', quantity = 1) {
     const token = await signedInCustomer(app, mail, nextIp());
     const auth = { Authorization: `Bearer ${token}` };
     const server = app.getHttpServer();
@@ -113,7 +113,7 @@ describe('Payments (e2e)', () => {
 
   describe('starting a payment', () => {
     it('sends the order’s own amounts to Midtrans and reuses the payment page', async () => {
-      const o = await placedOrder('c-65-gan-charger', 2);
+      const o = await placedOrder('battery-charger-4a', 2);
       const before = midtrans.snapCalls.length;
       const first = await o.pay().expect(200);
       const again = await o.pay().expect(200);
@@ -185,9 +185,9 @@ describe('Payments (e2e)', () => {
 
     it('closes the order and releases stock when the payment expires', async () => {
       const stock = async () =>
-        (await prisma.product.findUniqueOrThrow({ where: { slug: 'p-20-power-bank' } })).stock;
+        (await prisma.product.findUniqueOrThrow({ where: { slug: 'lights-front-rear' } })).stock;
       const before = await stock();
-      const o = await placedOrder('p-20-power-bank', 2);
+      const o = await placedOrder('lights-front-rear', 2);
       expect(await stock()).toBe(before - 2);
       expect((await notify(signed(o.order, 'expire')).expect(200)).body.outcome).toBe('closed');
       expect((await o.get()).status).toBe('EXPIRED');

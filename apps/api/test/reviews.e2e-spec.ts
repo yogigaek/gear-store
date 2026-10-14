@@ -12,7 +12,7 @@ import type { App } from 'supertest/types.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp, deleteTestUsers, FakeMail, nextIp, signedInCustomer } from './setup.js';
 
-const SLUG = 'kc-1-pbt-keycap-set';
+const SLUG = 'workshop-hex-set';
 const REVIEW = {
   rating: 4,
   title: 'Crisp legends',

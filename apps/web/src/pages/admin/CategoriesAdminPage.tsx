@@ -36,6 +36,7 @@ export function CategoriesAdminPage() {
                   {c.name}{' '}
                   <span className="font-mono text-xs text-ink-3">
                     /{c.slug} · order {c.sortOrder}
+                    {c.slot !== null && ` · build slot ${c.slot}`}
                   </span>
                 </p>
                 <p className="text-ink-2">{c.description}</p>
@@ -75,8 +76,9 @@ function CategoryForm({ category, onDone }: { category?: AdminCategory; onDone: 
           name: category.name,
           description: category.description,
           sortOrder: category.sortOrder,
+          slot: category.slot,
         }
-      : { slug: '', name: '', description: '', sortOrder: 10 },
+      : { slug: '', name: '', description: '', sortOrder: 10, slot: null },
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   return (
@@ -129,6 +131,17 @@ function CategoryForm({ category, onDone }: { category?: AdminCategory; onDone: 
           value={String(v.sortOrder)}
           error={errors.sortOrder}
           onChange={(e) => setV({ ...v, sortOrder: Number(e.target.value.replace(/\D/g, '')) || 0 })}
+        />
+        <Field
+          label="Build slot"
+          inputMode="numeric"
+          value={v.slot === null ? '' : String(v.slot)}
+          error={errors.slot}
+          hint="Its place in the E-1 build, 0 first. Leave empty for accessories."
+          onChange={(e) => {
+            const digits = e.target.value.replace(/\D/g, '');
+            setV({ ...v, slot: digits === '' ? null : Number(digits) });
+          }}
         />
       </div>
       <div className="flex gap-3">

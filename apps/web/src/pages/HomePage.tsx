@@ -4,6 +4,9 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Inspect, View } from '../three/bike/BikeStage';
 import { useCanRender3D, usePrefersReducedMotion } from '../three/useCanRender3D';
 import type { ScrollSource } from '../three/bike/BikeStage';
+import { Configurator } from '../components/build/Configurator';
+import { Price } from '../components/ui/Price';
+import { useBuildCatalog } from '../lib/queries';
 import { E1_COLOURS } from '../three/bike/layout';
 import { PART_LIST, type PartCallout } from '../three/bike/parts';
 
@@ -53,7 +56,21 @@ export function HomePage() {
   const story = useRef<HTMLDivElement>(null);
   const scroll = useMemo<ScrollSource>(() => ({ progress: 0 }), []);
   const [tall, setTall] = useState(() => window.innerWidth < 1024);
-  const [colour, setColour] = useState<(typeof E1_COLOURS)[number]>(E1_COLOURS[0]);
+  const catalog = useBuildCatalog();
+  // the finishes the frame is sold in; the launch colours stand in until the catalogue answers
+  const colours = useMemo(() => {
+    const frames = catalog.data?.slots.find((s) => s.options.some((o) => o.module === 'FRAME'));
+    const frame = frames?.options.find((o) => o.slug === frames.defaultSlug) ?? frames?.options[0];
+    return frame?.colors.length
+      ? frame.colors.map((c) => ({ key: c.key, name: c.label, hex: c.hex }))
+      : E1_COLOURS.map((c) => ({ ...c }));
+  }, [catalog.data]);
+  const [colorKey, setColorKey] = useState<string>(E1_COLOURS[0].key);
+  // a finish the catalogue no longer has falls back to its first
+  const colour = colours.find((c) => c.key === colorKey) ?? colours[0]!;
+  const fromPrice = catalog.data?.fromPrice ?? null;
+  const configure = useRef<HTMLElement>(null);
+  const [configuring, setConfiguring] = useState(false);
   const [inspect, setInspect] = useState<Inspect>(CLOSED);
   const [assemble] = useState(() => shouldAssemble(reducedMotion));
   const [ready, setReady] = useState(false);
@@ -88,6 +105,17 @@ export function HomePage() {
     requestAnimationFrame(() => enter.current?.focus());
   }
 
+  // the 360° button steps aside while the configurator is on screen
+  useEffect(() => {
+    const el = configure.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([entry]) => setConfiguring(entry?.isIntersecting ?? false), {
+      threshold: 0.2,
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+
   useEffect(() => {
     const update = () => {
       const el = story.current;
@@ -110,7 +138,7 @@ export function HomePage() {
   }, [scroll]);
 
   return (
-    <div ref={story} id="e1-story" className="relative h-[480vh] bg-stage text-alu-50">
+    <div ref={story} id="e1-story" className="relative h-[600vh] bg-stage text-alu-50">
       <div className="sticky top-16 h-[calc(100dvh-4rem)] overflow-hidden">
         {/* a still of the stage: shown while the 3D loads, and instead of it where WebGL is missing */}
         {/* until the 3D is ready: the empty studio it will appear in. A still of the bike would be framed for
@@ -214,7 +242,7 @@ export function HomePage() {
                 </button>
               </div>
             </>
-          ) : (
+          ) : configuring ? null : (
             <button
               ref={enter}
               type="button"
@@ -252,19 +280,23 @@ export function HomePage() {
               </p>
               <div className="flex flex-wrap items-center gap-4">
                 <a
-                  href="#e1-specs"
+                  href="#configure"
                   className="inline-flex min-h-12 items-center bg-signal px-6 font-semibold uppercase tracking-[0.06em] text-ink"
                 >
                   Configure yours
                 </a>
-                <span className="font-mono text-sm text-alu-50">From Rp 48.900.000</span>
+                {fromPrice !== null && (
+                  <span className="font-mono text-sm text-alu-50">
+                    From <Price amount={fromPrice} className="font-normal" />
+                  </span>
+                )}
               </div>
               <fieldset className="space-y-2">
                 <legend className="font-mono text-xs uppercase tracking-[0.08em] text-bench">
                   Frame · <span className="text-alu-50">{colour.name}</span>
                 </legend>
                 <div className="flex gap-2">
-                  {E1_COLOURS.map((c) => (
+                  {colours.map((c) => (
                     <label
                       key={c.key}
                       title={c.name}
@@ -275,7 +307,7 @@ export function HomePage() {
                         name="e1-colour"
                         value={c.key}
                         checked={colour.key === c.key}
-                        onChange={() => setColour(c)}
+                        onChange={() => setColorKey(c.key)}
                         className="sr-only"
                         aria-label={c.name}
                       />
@@ -337,6 +369,28 @@ export function HomePage() {
               <p className="text-bench">
                 Scroll and the chain runs, the cranks turn, the jockey wheels spin: every link is drawn.
               </p>
+            </div>
+          </div>
+        </section>
+
+        {/* the end of the story: the bike stays on the stage, the configurator beside it */}
+        <section
+          ref={configure}
+          id="configure"
+          aria-label="Configure your E-1"
+          className="h-[120vh] scroll-mt-16 px-4 sm:px-6"
+        >
+          <div className="sticky top-[calc(25dvh+2rem)] mx-auto flex h-[calc(75dvh-3rem)] w-full max-w-7xl justify-end lg:top-[5.5rem] lg:h-[calc(100dvh-7rem)]">
+            <div className="pointer-events-auto flex w-full max-w-md min-h-0">
+              {catalog.data ? (
+                <Configurator catalog={catalog.data} colorKey={colour.key} onColor={setColorKey} />
+              ) : (
+                <p className="self-start border border-ink-2 bg-stage/90 p-5 font-mono text-sm text-bench">
+                  {catalog.isError
+                    ? 'The parts list did not load. Reload the page to try again.'
+                    : 'Loading parts…'}
+                </p>
+              )}
             </div>
           </div>
         </section>

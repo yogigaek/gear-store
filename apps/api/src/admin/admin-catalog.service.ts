@@ -24,13 +24,12 @@ function toAdminProduct(p: ProductRow): AdminProduct {
     slug: p.slug,
     name: p.name,
     model: p.model,
-    brand: p.brand,
     category: p.category.slug,
+    module: p.module,
     description: p.description,
     price: p.price,
     stock: p.stock,
     isActive: p.isActive,
-    has3d: p.has3d,
     specs: p.specs.map(({ label, value }) => ({ label, value })),
     colors: p.colors.map(({ key, label, hex }) => ({ key, label, hex })),
     updatedAt: p.updatedAt.toISOString(),
@@ -47,7 +46,7 @@ export class AdminCatalogService {
   async products(query: AdminListQuery & { category?: string }) {
     const where: Prisma.ProductWhereInput = {
       ...(query.q && {
-        OR: (['name', 'model', 'brand', 'slug'] as const).map((f) => ({
+        OR: (['name', 'model', 'slug'] as const).map((f) => ({
           [f]: { contains: query.q, mode: 'insensitive' as const },
         })),
       }),
@@ -66,12 +65,11 @@ export class AdminCatalogService {
       slug: p.slug,
       name: p.name,
       model: p.model,
-      brand: p.brand,
       category: p.category.slug,
+      module: p.module,
       price: p.price,
       stock: p.stock,
       isActive: p.isActive,
-      has3d: p.has3d,
       updatedAt: p.updatedAt.toISOString(),
     }));
     return { items, page: query.page, pageSize: query.pageSize, total };
@@ -79,7 +77,7 @@ export class AdminCatalogService {
 
   async product(slug: string): Promise<AdminProduct> {
     const p = await this.prisma.product.findUnique({ where: { slug }, include: productInclude });
-    if (!p) throw new NotFoundException('Product not found');
+    if (!p) throw new NotFoundException('Part not found');
     return toAdminProduct(p);
   }
 
@@ -98,7 +96,7 @@ export class AdminCatalogService {
       return toAdminProduct(created);
     } catch (error) {
       if (isUniqueViolation(error))
-        throw new ConflictException(`A product with the slug "${input.slug}" exists`);
+        throw new ConflictException(`A part with the slug "${input.slug}" exists`);
       throw error;
     }
   }
@@ -109,7 +107,7 @@ export class AdminCatalogService {
     const categoryId = await this.categoryId(input.category);
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.product.findUnique({ where: { slug }, select: { id: true } });
-      if (!current) throw new NotFoundException('Product not found');
+      if (!current) throw new NotFoundException('Part not found');
       const moved = await tx.product.updateMany({
         where: { id: current.id, updatedAt: new Date(input.expectedUpdatedAt) },
         data: this.fields(input, categoryId),
@@ -150,7 +148,7 @@ export class AdminCatalogService {
       await this.prisma.category.create({ data: input });
     } catch (error) {
       if (isUniqueViolation(error))
-        throw new ConflictException(`A category with the slug "${input.slug}" exists`);
+        throw new ConflictException(`The slug "${input.slug}" or that build slot is already taken`);
       throw error;
     }
     return this.category(input.slug);
@@ -158,7 +156,14 @@ export class AdminCatalogService {
 
   async updateCategory(slug: string, input: AdminCategoryInput): Promise<AdminCategory> {
     if (input.slug !== slug) throw new BadRequestException('The slug cannot change: links use it');
-    const updated = await this.prisma.category.updateMany({ where: { slug }, data: input });
+    let updated: { count: number };
+    try {
+      updated = await this.prisma.category.updateMany({ where: { slug }, data: input });
+    } catch (error) {
+      if (isUniqueViolation(error))
+        throw new ConflictException('Another part type already holds that build slot');
+      throw error;
+    }
     if (updated.count === 0) throw new NotFoundException('Category not found');
     return this.category(slug);
   }
@@ -196,12 +201,11 @@ export class AdminCatalogService {
     return {
       name: input.name,
       model: input.model,
-      brand: input.brand,
+      module: input.module,
       description: input.description,
       price: input.price,
       stock: input.stock,
       isActive: input.isActive,
-      has3d: input.has3d,
       categoryId,
     };
   }

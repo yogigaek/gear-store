@@ -15,17 +15,25 @@ import {
 } from '@gear-store/shared';
 import { OrderStatus, Prisma } from '../generated/prisma/client.js';
 import { AddressesService } from '../addresses/addresses.service.js';
+import { carriesColour, checkBuild } from '../build/build-rules.js';
+import { BUILD_NAME, BuildService } from '../build/build.service.js';
+import { CartService } from '../cart/cart.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { newOrderNumber } from './order-number.js';
 
 export const detailInclude = {
   items: {
     orderBy: { id: 'asc' },
-    include: { product: { select: { category: { select: { slug: true } } } } },
+    include: { product: { select: { module: true, category: { select: { slug: true } } } } },
   },
+  builds: { orderBy: { id: 'asc' } },
   events: { orderBy: { createdAt: 'asc' } },
   payment: true,
 } satisfies Prisma.OrderInclude;
+
+/** what an order list counts: each single part, and each bike as one, not its parts */
+export const countItems = (o: { items: { quantity: number }[]; builds: { quantity: number }[] }) =>
+  [...o.items, ...o.builds].reduce((sum, i) => sum + i.quantity, 0);
 
 export type OrderRow = Prisma.OrderGetPayload<{ include: typeof detailInclude }>;
 type Tx = Prisma.TransactionClient;
@@ -37,11 +45,15 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly addresses: AddressesService,
+    private readonly cart: CartService,
+    private readonly builds: BuildService,
   ) {}
 
   /**
-   * Turns the signed-in cart into an order. Prices come from the database; stock is taken with a guarded
-   * UPDATE (stock >= quantity) inside one transaction, so two buyers can never both get the last unit.
+   * Turns the signed-in cart into an order: single parts and bikes alike. Each bike is checked again against
+   * today's catalogue and broken down into its parts; prices come from the database; every part's stock is
+   * taken with a guarded UPDATE (stock >= quantity) inside one transaction, so two buyers can never both get the
+   * last unit, and a bike is never sold with one of its parts missing.
    */
   async checkout(userId: string, input: CheckoutInput): Promise<OrderDetail> {
     const existing = await this.findByKey(userId, input.idempotencyKey);
@@ -52,13 +64,17 @@ export class OrdersService {
     const shipping = shippingFor(address.province as Province);
 
     try {
-      const order = await this.prisma.$transaction(async (tx) => {
-        const lines = await tx.cartItem.findMany({
-          where: { userId },
-          orderBy: { createdAt: 'asc' },
-          include: { product: { include: { colors: true } } },
-        });
-        if (lines.length === 0) throw new BadRequestException('Your cart is empty');
+      const orderId = await this.prisma.$transaction(async (tx) => {
+        const [lines, held] = await Promise.all([
+          tx.cartItem.findMany({
+            where: { userId },
+            orderBy: { createdAt: 'asc' },
+            include: { product: { include: { colors: true } } },
+          }),
+          this.cart.heldBuilds(userId, tx),
+        ]);
+        const book = await this.builds.bookFor(held.length, tx);
+        if (lines.length === 0 && held.length === 0) throw new BadRequestException('Your cart is empty');
 
         const inactive = lines.find((l) => !l.product.isActive);
         if (inactive)
@@ -66,16 +82,28 @@ export class OrdersService {
             `${inactive.product.name} is no longer sold. Remove it from your cart.`,
           );
 
-        // one decrement per product (two finishes of one product share its stock), in id order to avoid deadlocks
-        const perProduct = new Map<string, { name: string; quantity: number }>();
-        for (const l of lines) {
-          const entry = perProduct.get(l.productId) ?? { name: l.product.name, quantity: 0 };
-          entry.quantity += l.quantity;
-          perProduct.set(l.productId, entry);
+        const bikes = held.map((b) => {
+          const checked = checkBuild(book, b.selection, b.quantity);
+          const blocker = checked.problems.find((p) => p.kind !== 'OUT_OF_STOCK');
+          if (blocker)
+            throw new ConflictException(`A bike in your cart can no longer be built: ${blocker.message}`);
+          return { ...checked, quantity: b.quantity };
+        });
+
+        // what the order takes from each part's stock: single parts and bike parts together
+        const demand = new Map<string, { name: string; quantity: number }>();
+        const take = (id: string, name: string, quantity: number) => {
+          const entry = demand.get(id) ?? { name, quantity: 0 };
+          entry.quantity += quantity;
+          demand.set(id, entry);
+        };
+        for (const l of lines) take(l.productId, l.product.name, l.quantity);
+        for (const bike of bikes) {
+          for (const { part } of bike.parts) take(part.id, part.summary.name, bike.quantity);
         }
-        for (const [productId, { name, quantity }] of [...perProduct].sort(([a], [b]) =>
-          a.localeCompare(b),
-        )) {
+
+        // one guarded decrement per part, in id order so two checkouts never lock rows in opposite orders
+        for (const [productId, { name, quantity }] of [...demand].sort(([a], [b]) => a.localeCompare(b))) {
           const taken = await tx.product.updateMany({
             where: { id: productId, isActive: true, stock: { gte: quantity } },
             data: { stock: { decrement: quantity } },
@@ -103,7 +131,9 @@ export class OrdersService {
           quantity: l.quantity,
           lineTotal: l.product.price * l.quantity,
         }));
-        const subtotal = items.reduce((sum, i) => sum + i.lineTotal, 0);
+        const subtotal =
+          items.reduce((sum, i) => sum + i.lineTotal, 0) +
+          bikes.reduce((sum, b) => sum + b.unitPrice * b.quantity, 0);
 
         const created = await tx.order.create({
           data: {
@@ -130,12 +160,42 @@ export class OrdersService {
               },
             },
           },
-          include: detailInclude,
+          select: { id: true },
         });
+        for (const bike of bikes) {
+          await tx.orderBuild.create({
+            data: {
+              orderId: created.id,
+              label: BUILD_NAME,
+              colorKey: bike.colorKey,
+              colorLabel: bike.colorLabel,
+              quantity: bike.quantity,
+              unitPrice: bike.unitPrice,
+              lineTotal: bike.unitPrice * bike.quantity,
+              items: {
+                create: bike.parts.map(({ part }) => ({
+                  orderId: created.id,
+                  productId: part.id,
+                  slug: part.summary.slug,
+                  name: part.summary.name,
+                  model: part.summary.model,
+                  colorKey: carriesColour(part) ? bike.colorKey : '',
+                  colorLabel: carriesColour(part) ? bike.colorLabel : null,
+                  unitPrice: part.summary.price,
+                  quantity: bike.quantity,
+                  lineTotal: part.summary.price * bike.quantity,
+                })),
+              },
+            },
+          });
+        }
         await tx.cartItem.deleteMany({ where: { userId } });
-        return created;
+        await tx.cartBuild.deleteMany({ where: { userId } });
+        return created.id;
       });
-      return this.toDetail(order);
+      return this.toDetail(
+        await this.prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: detailInclude }),
+      );
     } catch (error) {
       // the same checkout sent twice at once: the second insert loses on the unique key and returns the first
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -157,14 +217,15 @@ export class OrdersService {
         status: true,
         total: true,
         createdAt: true,
-        items: { select: { quantity: true } },
+        items: { where: { buildId: null }, select: { quantity: true } },
+        builds: { select: { quantity: true } },
       },
     });
     return rows.map((o) => ({
       number: o.number,
       status: o.status,
       total: o.total,
-      itemCount: o.items.reduce((sum, i) => sum + i.quantity, 0),
+      itemCount: countItems(o),
       createdAt: o.createdAt.toISOString(),
     }));
   }
@@ -261,10 +322,20 @@ export class OrdersService {
         name: i.name,
         model: i.model,
         category: i.product?.category.slug ?? null,
+        module: i.product?.module ?? null,
         colorLabel: i.colorLabel,
         unitPrice: i.unitPrice,
         quantity: i.quantity,
         lineTotal: i.lineTotal,
+        buildId: i.buildId,
+      })),
+      builds: o.builds.map((b) => ({
+        id: b.id,
+        label: b.label,
+        colorLabel: b.colorLabel,
+        quantity: b.quantity,
+        unitPrice: b.unitPrice,
+        lineTotal: b.lineTotal,
       })),
       events: o.events.map((e) => ({ status: e.status, note: e.note, at: e.createdAt.toISOString() })),
       createdAt: o.createdAt.toISOString(),

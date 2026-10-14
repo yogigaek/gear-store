@@ -19,10 +19,30 @@ export const colorSchema = z.object({
 });
 export type Color = z.infer<typeof colorSchema>;
 
+/**
+ * The 3D module that draws a part: the configurator and the product page show the part as it sits on the
+ * E-1. Accessories have no place on the bike.
+ */
+export const partModules = [
+  'FRAME',
+  'BATTERY',
+  'SHOCK',
+  'FORK',
+  'WHEELSET',
+  'DRIVETRAIN',
+  'COCKPIT',
+  'SEAT',
+  'ACCESSORY',
+] as const;
+export const partModuleSchema = z.enum(partModules);
+export type PartModule = z.infer<typeof partModuleSchema>;
+
+/** A part type. `slot` is its place in the E-1 build (0 first), or null for accessories outside the build. */
 export const categorySchema = z.object({
   slug,
   name: z.string(),
   description: z.string(),
+  slot: z.number().int().nonnegative().nullable(),
   productCount: z.number().int().nonnegative(),
 });
 export type Category = z.infer<typeof categorySchema>;
@@ -31,13 +51,12 @@ export const productSummarySchema = z.object({
   slug,
   name: z.string(),
   model: z.string(),
-  brand: z.string(),
   category: slug,
+  module: partModuleSchema,
   price: rupiahSchema,
   stock: z.number().int().nonnegative(),
   /** the three specs printed on the card's spec plate */
   plate: z.array(specSchema).max(3),
-  has3d: z.boolean(),
 });
 export type ProductSummary = z.infer<typeof productSummarySchema>;
 
@@ -56,7 +75,6 @@ export const productQuerySchema = z
   .object({
     category: slug.optional(),
     q: z.string().trim().min(1).max(80).optional(),
-    brand: z.string().trim().min(1).max(40).optional(),
     minPrice: z.coerce.number().pipe(rupiahSchema).optional(),
     maxPrice: z.coerce.number().pipe(rupiahSchema).optional(),
     inStock: z.stringbool().optional(),
@@ -84,9 +102,6 @@ export const errorSchema = z.object({
   issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
 });
 export type ApiError = z.infer<typeof errorSchema>;
-
-export const brandSchema = z.object({ name: z.string(), productCount: z.number().int().nonnegative() });
-export type Brand = z.infer<typeof brandSchema>;
 
 /** Saved products, newest first. Capped so one account cannot grow the table without bound. */
 export const WISHLIST_LIMIT = 100;

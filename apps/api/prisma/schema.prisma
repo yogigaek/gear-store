@@ -31,6 +31,7 @@ model User {
   emailTokens EmailToken[]
   wishlist    WishlistItem[]
   cartItems   CartItem[]
+  cartBuilds  CartBuild[]
   addresses   Address[]
   orders      Order[]
   reviews     Review[]
@@ -84,42 +85,74 @@ model EmailToken {
 
 // ── Catalogue ───────────────────────────────────────────────────────────────
 
+/// A part type. Those with a `slot` are the E-1's build slots, in that order; the rest are accessories.
 model Category {
   id          String    @id @default(uuid(7)) @db.Uuid
   slug        String    @unique
   name        String
   description String
   sortOrder   Int       @default(0)
+  /// its place in the build, 0 first; null for accessories
+  slot        Int?      @unique
   products    Product[]
 }
 
+/// The 3D module that draws a part on the E-1.
+enum PartModule {
+  FRAME
+  BATTERY
+  SHOCK
+  FORK
+  WHEELSET
+  DRIVETRAIN
+  COCKPIT
+  SEAT
+  ACCESSORY
+}
+
+/// A part. A part in a slot category is an option for that slot of the build.
 model Product {
-  id          String   @id @default(uuid(7)) @db.Uuid
-  slug        String   @unique
+  id          String     @id @default(uuid(7)) @db.Uuid
+  slug        String     @unique
   name        String
+  /// part code printed on the spec plate, e.g. E1-FR-M
   model       String
-  brand       String
   description String
+  module      PartModule
   /// whole Rupiah; CHECK (price >= 0) in the migration
   price       Int
   /// CHECK (stock >= 0) in the migration, so no order can oversell
   stock       Int
-  isActive    Boolean  @default(true)
-  has3d       Boolean  @default(false)
-  categoryId  String   @db.Uuid
-  category    Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  isActive    Boolean    @default(true)
+  categoryId  String     @db.Uuid
+  category    Category   @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
-  specs      ProductSpec[]
-  colors     ProductColor[]
-  wishlistBy WishlistItem[]
-  inCarts    CartItem[]
-  orderItems OrderItem[]
-  reviews    Review[]
+  specs        ProductSpec[]
+  colors       ProductColor[]
+  wishlistBy   WishlistItem[]
+  inCarts      CartItem[]
+  inBuilds     CartBuildPart[]
+  orderItems   OrderItem[]
+  reviews      Review[]
+  conflictsAsA PartConflict[] @relation("conflictA")
+  conflictsAsB PartConflict[] @relation("conflictB")
 
   @@index([categoryId, isActive])
-  @@index([brand])
+}
+
+/// Two parts that cannot go on the same bike. Stored once per pair: CHECK ("aId" < "bId") in the migration.
+model PartConflict {
+  aId    String  @db.Uuid
+  a      Product @relation("conflictA", fields: [aId], references: [id], onDelete: Cascade)
+  bId    String  @db.Uuid
+  b      Product @relation("conflictB", fields: [bId], references: [id], onDelete: Cascade)
+  /// shown to the buyer, e.g. "The 750 Wh battery does not fit the small frame's down tube."
+  reason String
+
+  @@id([aId, bId])
+  @@index([bId])
 }
 
 model ProductSpec {
@@ -170,6 +203,31 @@ model CartItem {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, productId, colorKey])
+}
+
+/// A bike in a cart: one part per slot and the frame's colour. Checked and priced again at every read.
+model CartBuild {
+  id        String          @id @default(uuid(7)) @db.Uuid
+  userId    String          @db.Uuid
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  colorKey  String
+  /// CHECK (quantity BETWEEN 1 AND 10) in the migration
+  quantity  Int
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  parts     CartBuildPart[]
+
+  @@index([userId])
+}
+
+model CartBuildPart {
+  cartBuildId String    @db.Uuid
+  cartBuild   CartBuild @relation(fields: [cartBuildId], references: [id], onDelete: Cascade)
+  productId   String    @db.Uuid
+  product     Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([cartBuildId, productId])
+  @@index([productId])
 }
 
 // ── Checkout ────────────────────────────────────────────────────────────────
@@ -246,6 +304,7 @@ model Order {
   updatedAt        DateTime     @updatedAt
 
   items   OrderItem[]
+  builds  OrderBuild[]
   events  OrderEvent[]
   payment Payment?
 
@@ -269,9 +328,31 @@ model OrderItem {
   quantity   Int
   /// CHECK (lineTotal = unitPrice * quantity) in the migration
   lineTotal  Int
+  /// the bike this part went into; null for a part bought on its own
+  buildId    String?     @db.Uuid
+  build      OrderBuild? @relation(fields: [buildId], references: [id], onDelete: Cascade)
 
   @@index([orderId])
   @@index([productId])
+  @@index([buildId])
+}
+
+/// A bike as bought: its parts are the order items pointing at it, each at quantity × this build's quantity.
+model OrderBuild {
+  id         String      @id @default(uuid(7)) @db.Uuid
+  orderId    String      @db.Uuid
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  label      String
+  colorKey   String
+  colorLabel String?
+  quantity   Int
+  /// one bike: the sum of its parts' prices at checkout
+  unitPrice  Int
+  /// CHECK (lineTotal = unitPrice * quantity) in the migration
+  lineTotal  Int
+  items      OrderItem[]
+
+  @@index([orderId])
 }
 
 /// The order's timeline, oldest first.

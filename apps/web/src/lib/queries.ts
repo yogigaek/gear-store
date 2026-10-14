@@ -1,5 +1,7 @@
 import {
-  brandSchema,
+  buildCatalogSchema,
+  buildQuoteSchema,
+  type BuildQuoteInput,
   myReviewSchema,
   productReviewsSchema,
   reviewSchema,
@@ -24,11 +26,23 @@ export function useCategories() {
   });
 }
 
-export function useBrands() {
+/** the E-1 build: slots, parts, conflicts. Prices change rarely; the quote re-checks them anyway. */
+export function useBuildCatalog() {
   return useQuery({
-    queryKey: ['brands'],
-    queryFn: ({ signal }) => api('/brands', { schema: z.array(brandSchema), signal }),
-    staleTime: 5 * 60_000,
+    queryKey: ['build'],
+    queryFn: ({ signal }) => api('/build', { schema: buildCatalogSchema, signal }),
+    staleTime: 60_000,
+  });
+}
+
+/** the server's check and price of a chosen build; keeps showing the last answer while the next one loads */
+export function useBuildQuote(input: BuildQuoteInput | null) {
+  return useQuery({
+    queryKey: ['build', 'quote', input],
+    queryFn: ({ signal }) =>
+      api('/build/quote', { method: 'POST', body: input, schema: buildQuoteSchema, signal }),
+    enabled: input !== null,
+    placeholderData: keepPreviousData,
   });
 }
 

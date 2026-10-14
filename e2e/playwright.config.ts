@@ -13,12 +13,17 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: process.env['CI'] ? 1 : 0,
-  timeout: 60_000,
+  // the home page draws the bike with software WebGL here (SwiftShader): slow, so waits get more room
+  timeout: 120_000,
+  expect: { timeout: 15_000 },
   reporter: process.env['CI'] ? [['list'], ['html', { open: 'never' }]] : 'list',
   globalTeardown: './tests/teardown.ts',
   use: {
     baseURL: process.env['WEB_URL'] ?? 'http://localhost:5173',
     trace: 'retain-on-failure',
+    // the 3D scenes hold still: these tests are about shopping, and software WebGL redrawing every frame
+    // would starve the page
+    contextOptions: { reducedMotion: 'reduce' },
     screenshot: 'only-on-failure',
   },
   projects: [

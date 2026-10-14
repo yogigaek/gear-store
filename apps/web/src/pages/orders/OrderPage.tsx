@@ -3,13 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { AddressLines } from '../../components/checkout/AddressForm';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
-import { ProductArt } from '../../components/product/ProductArt';
+import { PartImage } from '../../components/product/PartImage';
 import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
 import { Price } from '../../components/ui/Price';
 import { ApiError } from '../../lib/api';
 import { formatDateTime } from '../../lib/date';
+import { groupOrderLines } from '../../lib/order-lines';
 import { statusLabels } from '../../lib/order-status';
 import { useOrder, useOrderActions } from '../../lib/orders';
 import { NotFoundPage } from '../NotFoundPage';
@@ -139,13 +140,44 @@ export function OrderPage() {
               Items
             </h2>
             <ul className="border-t border-ink">
-              {o.items.map((i) => (
+              {groupOrderLines(o).bikes.map(({ build, parts }) => (
+                <li key={build.id} className="border-b border-bench py-3">
+                  <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3">
+                    <div className="aspect-square overflow-hidden border border-bench">
+                      <PartImage
+                        slug={parts.find((p) => p.module === 'FRAME')?.slug ?? ''}
+                        module="FRAME"
+                        className="size-full"
+                      />
+                    </div>
+                    <div className="min-w-0 text-sm">
+                      <p className="font-semibold">{build.label}</p>
+                      <p className="font-mono text-xs text-ink-3">
+                        {build.quantity} × <Price amount={build.unitPrice} className="font-normal" />
+                        {build.colorLabel && ` · ${build.colorLabel}`}
+                      </p>
+                    </div>
+                    <Price amount={build.lineTotal} className="text-sm" />
+                  </div>
+                  <ul className="mt-2 ml-[4.25rem] space-y-0.5 font-mono text-xs text-ink-2">
+                    {parts.map((p) => (
+                      <li key={p.slug} className="flex justify-between gap-3">
+                        <Link to={`/products/${p.slug}`} className="truncate hover:underline">
+                          {p.name}
+                        </Link>
+                        <span className="shrink-0 text-ink-3">{p.model}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+              {groupOrderLines(o).singles.map((i) => (
                 <li
                   key={`${i.slug}:${i.colorLabel}`}
                   className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-bench py-3"
                 >
-                  <div className="bg-grid grid aspect-square place-items-center border border-bench">
-                    <ProductArt category={i.category ?? ''} className="w-4/5" />
+                  <div className="aspect-square overflow-hidden border border-bench">
+                    <PartImage slug={i.slug} className="size-full" />
                   </div>
                   <div className="min-w-0 text-sm">
                     <Link to={`/products/${i.slug}`} className="font-semibold hover:underline">

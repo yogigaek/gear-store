@@ -2,6 +2,7 @@
 export * from './address.js';
 export * from './admin.js';
 export * from './auth.js';
+export * from './build.js';
 export * from './cart.js';
 export * from './catalog.js';
 export * from './health.js';

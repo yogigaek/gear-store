@@ -8,18 +8,17 @@ import type { ProductSummary } from '@gear-store/shared';
 
 // a fixed sample, so this page documents the components without depending on the API
 const sample: ProductSummary = {
-  slug: 'h-40-anc-headphone',
-  name: 'Over-ear ANC Headphone',
-  model: 'H-40',
-  brand: 'Rakit Lab',
-  category: 'audio',
-  price: 1249000,
-  stock: 14,
-  has3d: true,
+  slug: 'e1-battery-750',
+  name: 'Battery 750 Wh',
+  model: 'BT-750',
+  category: 'batteries',
+  module: 'BATTERY',
+  price: 11_900_000,
+  stock: 6,
   plate: [
-    { label: 'Driver', value: '40 mm' },
-    { label: 'Battery', value: '60 h' },
-    { label: 'Latency', value: '45 ms' },
+    { label: 'Capacity', value: '750 Wh' },
+    { label: 'Range', value: 'up to 135 km' },
+    { label: 'Charge', value: '0–80 % in 4 h' },
   ],
 };
 

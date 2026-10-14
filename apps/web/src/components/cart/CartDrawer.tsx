@@ -1,25 +1,35 @@
-import type { CartLine } from '@gear-store/shared';
+import type { CartBuild, CartLine } from '@gear-store/shared';
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../lib/auth-context';
 import { useCart } from '../../lib/cart';
-import { ProductArt } from '../product/ProductArt';
+import { PartImage } from '../product/PartImage';
 import { Notice } from '../ui/Field';
 import { Price } from '../ui/Price';
 import { cartDrawer, useCartDrawerOpen } from './cart-drawer-store';
 import { QuantityStepper } from './QuantityStepper';
 
-const problemText: Record<NonNullable<CartLine['problem']>, (line: CartLine) => string> = {
+const lineProblem: Record<NonNullable<CartLine['problem']>, (line: CartLine) => string> = {
   OUT_OF_STOCK: () => 'Out of stock. Remove it to check out.',
   NOT_ENOUGH_STOCK: (line) => `Only ${line.product.stock} left. Lower the quantity to check out.`,
 };
 
+/** the reason a bike in the cart cannot be bought as it stands, in the server's words */
+function buildProblem(build: CartBuild): string | null {
+  if (!build.problem) return null;
+  const reason = build.quote.problems[0]?.message ?? '';
+  return build.problem === 'CANNOT_BUILD'
+    ? `${reason} Remove this bike and build it again.`
+    : `${reason} Lower the quantity to check out.`;
+}
+
 export function CartDrawer() {
   const open = useCartDrawerOpen();
   const dialog = useRef<HTMLDialogElement>(null);
-  const { cart, isLoading, isUpdating, error, setQuantity } = useCart();
+  const { cart, isLoading, isUpdating, error, setQuantity, setBuildQuantity } = useCart();
   const { status } = useAuth();
   const { pathname } = useLocation();
+  const empty = !cart || cart.items.length + cart.builds.length === 0;
 
   useEffect(() => {
     const d = dialog.current;
@@ -65,22 +75,78 @@ export function CartDrawer() {
             </div>
           )}
           {isLoading && <p className="p-4 font-mono text-sm text-ink-3">Loading cart…</p>}
-          {!isLoading && cart?.items.length === 0 && (
+          {!isLoading && empty && (
             <div className="space-y-3 p-4">
               <p className="text-ink-2">Your cart is empty.</p>
-              <Link to="/products" className="font-semibold underline underline-offset-4">
-                Browse the catalogue
-              </Link>
+              <div className="flex flex-wrap gap-x-5 gap-y-2">
+                <Link to="/#configure" className="font-semibold underline underline-offset-4">
+                  Build an E-1
+                </Link>
+                <Link to="/products" className="font-semibold underline underline-offset-4">
+                  Browse parts
+                </Link>
+              </div>
             </div>
           )}
+
           <ul>
+            {cart?.builds.map((build) => {
+              const frame = build.quote.parts.find((p) => p.product.module === 'FRAME')?.product;
+              const problem = buildProblem(build);
+              return (
+                <li
+                  key={build.id}
+                  className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-bench p-4"
+                >
+                  <div className="aspect-square overflow-hidden border border-bench">
+                    <PartImage slug={frame?.slug ?? ''} module="FRAME" className="size-full" />
+                  </div>
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="font-semibold leading-snug">{build.quote.label}</p>
+                      <Price amount={build.lineTotal} className="shrink-0 text-sm" />
+                    </div>
+                    <p className="font-mono text-xs text-ink-3">
+                      {build.quote.colorLabel ?? 'No colour'} · {build.quote.parts.length} parts
+                    </p>
+                    <details className="text-sm">
+                      <summary className="min-h-8 cursor-pointer text-ink-2">What it is built from</summary>
+                      <ul className="mt-1 space-y-0.5 font-mono text-xs text-ink-2">
+                        {build.quote.parts.map((p) => (
+                          <li key={p.slot} className="flex justify-between gap-2">
+                            <span className="truncate">{p.product.name}</span>
+                            <Price amount={p.product.price} className="shrink-0" />
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                    {problem && <p className="text-sm text-danger">{problem}</p>}
+                    <div className="flex items-center justify-between gap-2">
+                      <QuantityStepper
+                        label={`Number of ${build.quote.label} bikes`}
+                        value={build.quantity}
+                        disabled={isUpdating}
+                        onChange={(q) => void setBuildQuantity(build.id, q)}
+                      />
+                      <button
+                        type="button"
+                        className="min-h-11 text-sm underline underline-offset-4"
+                        onClick={() => void setBuildQuantity(build.id, 0)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
             {cart?.items.map((line) => (
               <li
                 key={`${line.product.slug}:${line.colorKey}`}
                 className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-bench p-4"
               >
-                <div className="bg-grid grid aspect-square place-items-center border border-bench">
-                  <ProductArt category={line.product.category} className="w-4/5" />
+                <div className="aspect-square overflow-hidden border border-bench">
+                  <PartImage slug={line.product.slug} module={line.product.module} className="size-full" />
                 </div>
                 <div className="min-w-0 space-y-2">
                   <div className="flex items-baseline justify-between gap-2">
@@ -96,7 +162,7 @@ export function CartDrawer() {
                     {line.product.model}
                     {line.colorLabel && ` · ${line.colorLabel}`}
                   </p>
-                  {line.problem && <p className="text-sm text-danger">{problemText[line.problem](line)}</p>}
+                  {line.problem && <p className="text-sm text-danger">{lineProblem[line.problem](line)}</p>}
                   <div className="flex items-center justify-between gap-2">
                     <QuantityStepper
                       label={`Quantity of ${line.product.name}`}
@@ -118,7 +184,7 @@ export function CartDrawer() {
           </ul>
         </div>
 
-        {cart && cart.items.length > 0 && (
+        {cart && !empty && (
           <div className="shrink-0 space-y-3 border-t border-ink p-4">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-xs uppercase tracking-[0.08em]">Subtotal</span>

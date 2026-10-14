@@ -1,12 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type {
-  Brand,
-  Category,
-  ProductDetail,
-  ProductPage,
-  ProductQuery,
-  ProductSummary,
-} from '@gear-store/shared';
+import type { Category, ProductDetail, ProductPage, ProductQuery, ProductSummary } from '@gear-store/shared';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -14,10 +7,9 @@ export const summarySelect = {
   slug: true,
   name: true,
   model: true,
-  brand: true,
+  module: true,
   price: true,
   stock: true,
-  has3d: true,
   category: { select: { slug: true } },
   specs: { where: { onPlate: true }, orderBy: { position: 'asc' }, select: { label: true, value: true } },
 } satisfies Prisma.ProductSelect;
@@ -47,34 +39,24 @@ export class CatalogService {
         slug: true,
         name: true,
         description: true,
+        slot: true,
         _count: { select: { products: { where: { isActive: true } } } },
       },
     });
     return rows.map(({ _count, ...c }) => ({ ...c, productCount: _count.products }));
   }
 
-  async brands(): Promise<Brand[]> {
-    const rows = await this.prisma.product.groupBy({
-      by: ['brand'],
-      where: { isActive: true },
-      _count: { _all: true },
-      orderBy: { brand: 'asc' },
-    });
-    return rows.map((r) => ({ name: r.brand, productCount: r._count._all }));
-  }
-
   async products(query: ProductQuery): Promise<ProductPage> {
     const where: Prisma.ProductWhereInput = {
       isActive: true,
       ...(query.category && { category: { slug: query.category } }),
-      ...(query.brand && { brand: { equals: query.brand, mode: 'insensitive' } }),
       ...(query.inStock === true && { stock: { gt: 0 } }),
       ...(query.inStock === false && { stock: 0 }),
       ...((query.minPrice !== undefined || query.maxPrice !== undefined) && {
         price: { gte: query.minPrice, lte: query.maxPrice },
       }),
       ...(query.q && {
-        OR: (['name', 'model', 'brand'] as const).map((field) => ({
+        OR: (['name', 'model'] as const).map((field) => ({
           [field]: { contains: query.q, mode: 'insensitive' as const },
         })),
       }),

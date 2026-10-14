@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { AdminOrder, AdminOrderQuery, AdminOrderRow, ShipInput } from '@gear-store/shared';
 import { OrderStatus, RefundStatus, type Prisma } from '../generated/prisma/client.js';
-import { detailInclude, OrdersService } from '../orders/orders.service.js';
+import { countItems, detailInclude, OrdersService } from '../orders/orders.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 @Injectable()
@@ -37,7 +37,8 @@ export class AdminOrdersService {
           createdAt: true,
           refundStatus: true,
           user: { select: { name: true, email: true } },
-          items: { select: { quantity: true } },
+          items: { where: { buildId: null }, select: { quantity: true } },
+          builds: { select: { quantity: true } },
         },
       }),
       this.prisma.order.count({ where }),
@@ -46,7 +47,7 @@ export class AdminOrdersService {
       number: o.number,
       status: o.status,
       total: o.total,
-      itemCount: o.items.reduce((sum, i) => sum + i.quantity, 0),
+      itemCount: countItems(o),
       customer: o.user,
       createdAt: o.createdAt.toISOString(),
       refundStatus: o.refundStatus,

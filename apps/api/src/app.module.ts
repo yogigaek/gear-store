@@ -5,6 +5,7 @@ import { ClientIpThrottlerGuard } from './common/client-ip-throttler.guard.js';
 import { AddressesModule } from './addresses/addresses.module.js';
 import { AdminModule } from './admin/admin.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { BuildModule } from './build/build.module.js';
 import { CartModule } from './cart/cart.module.js';
 import { CatalogModule } from './catalog/catalog.module.js';
 import { ConfigModule } from './config/config.module.js';
@@ -23,6 +24,7 @@ import { ReviewsModule } from './reviews/reviews.module.js';
     PrismaModule,
     MailModule,
     CatalogModule,
+    BuildModule,
     AuthModule,
     CartModule,
     AddressesModule,

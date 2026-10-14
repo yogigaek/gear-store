@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { colorSchema, rupiahSchema, specSchema } from './catalog.js';
+import { colorSchema, partModuleSchema, rupiahSchema, specSchema } from './catalog.js';
 import { orderDetailSchema, orderStatuses, orderStatusSchema } from './order.js';
 import { roles } from './auth.js';
 
@@ -66,9 +66,9 @@ export const LOW_STOCK_THRESHOLD = 5;
 export const adminProductInputSchema = z.object({
   slug,
   name: z.string().trim().min(2, 'Enter a name').max(80, 'Use at most 80 characters'),
-  model: z.string().trim().min(1, 'Enter the model code').max(20, 'Use at most 20 characters'),
-  brand: z.string().trim().min(1, 'Enter the brand').max(40, 'Use at most 40 characters'),
-  category: z.string().min(1, 'Choose a category').pipe(slug),
+  model: z.string().trim().min(1, 'Enter the part code').max(20, 'Use at most 20 characters'),
+  category: z.string().min(1, 'Choose a part type').pipe(slug),
+  module: partModuleSchema,
   description: z
     .string()
     .trim()
@@ -77,7 +77,6 @@ export const adminProductInputSchema = z.object({
   price: z.number().int().min(1000, 'At least Rp 1.000').max(1_000_000_000),
   stock: z.number().int().min(0).max(100_000, 'At most 100.000 units'),
   isActive: z.boolean(),
-  has3d: z.boolean(),
   /** the first three are printed on the spec plate */
   specs: z
     .array(
@@ -111,13 +110,12 @@ export const adminProductSchema = z.object({
   slug: z.string(),
   name: z.string(),
   model: z.string(),
-  brand: z.string(),
   category: z.string(),
+  module: partModuleSchema,
   description: z.string(),
   price: rupiahSchema,
   stock: z.number().int(),
   isActive: z.boolean(),
-  has3d: z.boolean(),
   specs: z.array(specSchema),
   colors: z.array(colorSchema),
   updatedAt: z.string(),
@@ -136,6 +134,8 @@ export const adminCategoryInputSchema = z.object({
   name: z.string().trim().min(2, 'Enter a name').max(40, 'Use at most 40 characters'),
   description: z.string().trim().min(2, 'Describe the category').max(120, 'Use at most 120 characters'),
   sortOrder: z.number().int().min(0).max(1000),
+  /** its place in the E-1 build, or null for accessories */
+  slot: z.number().int().min(0).max(20).nullable(),
 });
 export type AdminCategoryInput = z.infer<typeof adminCategoryInputSchema>;
 

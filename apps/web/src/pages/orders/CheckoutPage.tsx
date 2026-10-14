@@ -35,13 +35,13 @@ export function CheckoutPage() {
       <p className="mx-auto max-w-7xl px-4 py-16 font-mono text-sm text-ink-3 sm:px-6">Loading checkout…</p>
     );
   }
-  if (!cart || cart.items.length === 0) {
+  if (!cart || cart.items.length + cart.builds.length === 0) {
     return (
       <div className="mx-auto max-w-7xl space-y-3 px-4 py-16 sm:px-6">
         <h1 className="font-expanded text-3xl font-extrabold uppercase">Checkout</h1>
         <p className="text-ink-2">Your cart is empty.</p>
-        <Link to="/products" className="font-semibold underline underline-offset-4">
-          Browse the catalogue
+        <Link to="/#configure" className="font-semibold underline underline-offset-4">
+          Build an E-1
         </Link>
       </div>
     );
@@ -137,6 +137,18 @@ export function CheckoutPage() {
             Order summary
           </h2>
           <ul className="divide-y divide-bench">
+            {cart.builds.map((b) => (
+              <li key={b.id} className="flex justify-between gap-3 py-2 text-sm">
+                <span className="min-w-0">
+                  {b.quote.label}
+                  <span className="block font-mono text-xs text-ink-3">
+                    {b.quantity} × {b.quote.parts.length} parts
+                    {b.quote.colorLabel && ` · ${b.quote.colorLabel}`}
+                  </span>
+                </span>
+                <Price amount={b.lineTotal} className="shrink-0" />
+              </li>
+            ))}
             {cart.items.map((i) => (
               <li key={`${i.product.slug}:${i.colorKey}`} className="flex justify-between gap-3 py-2 text-sm">
                 <span className="min-w-0">

@@ -10,12 +10,21 @@ import {
 
 test.use({ extraHTTPHeaders: { 'x-forwarded-for': visitorIp() } });
 
-test('a guest fills a cart, signs up, pays and reviews what they bought', async ({ page }) => {
-  // as a guest: the cart lives in the browser
-  await page.goto('/products/kc-1-pbt-keycap-set');
-  await page.getByRole('button', { name: 'Add to cart' }).click();
+test('a guest builds an E-1, signs up, pays and reviews a part of it', async ({ page }) => {
+  // as a guest: the configurator offers only what can be built, and the cart lives in the browser
+  await page.goto('/#configure');
+  const configurator = page.getByRole('form', { name: /Build your E-1/ });
+  await configurator.getByRole('radio', { name: /E-1 Frame S/ }).check();
+  // the long battery does not fit the small frame: offered, but disabled with the reason
+  await expect(configurator.getByRole('radio', { name: /Battery 750 Wh/ })).toBeDisabled();
+  await expect(configurator.getByText('longer than the S frame’s down tube')).toBeVisible();
+  // the swatch is the label around a visually hidden radio: click it as a person would
+  await configurator.getByTitle('Moss green').click();
+  await expect(configurator.getByRole('radio', { name: 'Moss green' })).toBeChecked();
+  await configurator.getByRole('button', { name: 'Add to cart' }).click();
   const drawer = page.getByRole('dialog', { name: /Cart/ });
-  await expect(drawer.getByText('PBT Keycap Set')).toBeVisible();
+  await expect(drawer.getByText('Rakit E-1')).toBeVisible();
+  await expect(drawer.getByText(/Moss green · 8 parts/)).toBeVisible();
   await drawer.getByRole('link', { name: 'Checkout' }).click();
   await expect(page).toHaveURL(/\/sign-in\?next=%2Fcheckout/);
 
@@ -36,7 +45,7 @@ test('a guest fills a cart, signs up, pays and reviews what they bought', async 
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page).toHaveURL(/\/checkout$/);
-  await expect(page.getByRole('region', { name: 'Order summary' }).getByText('PBT Keycap Set')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Order summary' }).getByText('Rakit E-1')).toBeVisible();
 
   // first address, priced by province
   await page.getByLabel('Recipient').fill('Ana Putri');
@@ -56,7 +65,9 @@ test('a guest fills a cart, signs up, pays and reviews what they bought', async 
   await expect(page.getByText('Waiting for payment').first()).toBeVisible();
   const totalText = await page.locator('dl dd').last().textContent();
   const total = Number(totalText!.replace(/\D/g, ''));
-  expect(total).toBe(349000 + 35000);
+  // the cheapest part in every slot but the frame, which is any size at one price
+  expect(total).toBe(61_500_000 + 35000);
+  await expect(page.getByText('E-1 Frame S')).toBeVisible();
 
   // Midtrans confirms the payment
   await settlePayment(number, total);
@@ -64,15 +75,15 @@ test('a guest fills a cart, signs up, pays and reviews what they bought', async 
   await expect(page.getByText('Payment received via QRIS.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Pay now' })).toHaveCount(0);
 
-  // a buyer may now review the product
-  await page.goto('/products/kc-1-pbt-keycap-set#reviews');
+  // the parts of a paid bike count as bought: the buyer may review the frame
+  await page.goto('/products/e1-frame-s#reviews');
   await page.getByRole('button', { name: 'Write a review' }).click();
   await page.locator('label').filter({ hasText: '5 out of 5' }).click();
   const title = `Exactly as described ${Date.now()}`;
   await page.getByLabel('Title').fill(title);
   await page
     .getByRole('textbox', { name: 'Review' })
-    .fill('Thick keycaps, crisp legends, arrived in two days.');
+    .fill('Stiff, quiet, and the battery drops out with one key.');
   await page.getByRole('button', { name: 'Post review' }).click();
   await expect(page.getByText('You rated this 5 out of 5.')).toBeVisible();
   const mine = page.locator('#reviews li').filter({ hasText: title });
@@ -84,12 +95,12 @@ test('the catalogue filters through the URL and Back undoes them', async ({ page
   // phones fold the filters behind a button; wide screens show them
   const toggle = page.getByRole('button', { name: /^Filters/ });
   if (await toggle.isVisible()) await toggle.click();
-  await page.getByRole('radio', { name: /Power/ }).click();
-  await expect(page).toHaveURL(/category=power/);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Power');
-  await page.getByRole('searchbox', { name: 'Search products' }).fill('charger');
+  await page.getByRole('radio', { name: /Accessories/ }).click();
+  await expect(page).toHaveURL(/category=accessories/);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Accessories');
+  await page.getByRole('searchbox', { name: 'Search parts' }).fill('charger');
   await expect(page).toHaveURL(/q=charger/);
-  await expect(page.locator('article h3')).toHaveText(['GaN Charger 65 W']);
+  await expect(page.locator('article h3')).toHaveText(['Fast charger 4 A']);
   await page.goBack();
   await expect(page).not.toHaveURL(/q=charger/);
 });

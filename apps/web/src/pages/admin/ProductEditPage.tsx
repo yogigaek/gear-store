@@ -1,4 +1,10 @@
-import { adminProductInputSchema, type AdminProduct, type AdminProductInput } from '@gear-store/shared';
+import {
+  adminProductInputSchema,
+  partModules,
+  type AdminProduct,
+  type AdminProductInput,
+  type PartModule,
+} from '@gear-store/shared';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
@@ -13,13 +19,12 @@ const blank: AdminProductInput = {
   slug: '',
   name: '',
   model: '',
-  brand: '',
   category: '',
+  module: 'ACCESSORY',
   description: '',
   price: 0,
   stock: 0,
   isActive: false,
-  has3d: false,
   specs: [
     { label: '', value: '' },
     { label: '', value: '' },
@@ -59,7 +64,7 @@ function ProductForm({ product, onReload }: { product?: AdminProduct; onReload?:
 
   const set = <K extends keyof AdminProductInput>(key: K, value: AdminProductInput[K]) =>
     setV((x) => ({ ...x, [key]: value }));
-  const text = (key: 'slug' | 'name' | 'model' | 'brand') => ({
+  const text = (key: 'slug' | 'name' | 'model') => ({
     value: v[key],
     onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(key, e.target.value),
     error: errors[key],
@@ -124,13 +129,12 @@ function ProductForm({ product, onReload }: { product?: AdminProduct; onReload?:
             label="Slug (used in the URL)"
             {...text('slug')}
             disabled={!!product}
-            hint={product ? 'Fixed once created: links and orders use it.' : 'e.g. h-40-anc-headphone'}
+            hint={product ? 'Fixed once created: links and orders use it.' : 'e.g. e1-battery-625'}
           />
-          <Field label="Model" {...text('model')} />
-          <Field label="Brand" {...text('brand')} />
+          <Field label="Part code" {...text('model')} />
           <div className="flex flex-col gap-1.5">
             <label htmlFor="category" className="font-mono text-xs uppercase tracking-[0.08em] text-ink-2">
-              Category
+              Part type
             </label>
             <select
               id="category"
@@ -146,6 +150,24 @@ function ProductForm({ product, onReload }: { product?: AdminProduct; onReload?:
               ))}
             </select>
             {errors.category && <p className="text-sm text-danger">{errors.category}</p>}
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="module" className="font-mono text-xs uppercase tracking-[0.08em] text-ink-2">
+              3D module
+            </label>
+            <select
+              id="module"
+              value={v.module}
+              onChange={(e) => set('module', e.target.value as PartModule)}
+              className="min-h-11 border border-bench-strong bg-alu-50 px-3 text-base sm:text-sm"
+            >
+              {partModules.map((m) => (
+                <option key={m} value={m}>
+                  {m.charAt(0) + m.slice(1).toLowerCase()}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-ink-3">Which part of the E-1 model draws it on the product page.</p>
           </div>
         </fieldset>
 
@@ -180,15 +202,6 @@ function ProductForm({ product, onReload }: { product?: AdminProduct; onReload?:
               className="size-4 accent-ink"
             />
             On sale (shown in the store)
-          </label>
-          <label className="flex min-h-11 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={v.has3d}
-              onChange={(e) => set('has3d', e.target.checked)}
-              className="size-4 accent-ink"
-            />
-            Show the 3D model (headphones only for now)
           </label>
         </fieldset>
 

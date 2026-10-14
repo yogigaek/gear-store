@@ -52,20 +52,20 @@ describe('Wishlist (e2e)', () => {
 
   it('requires sign-in', async () => {
     await request(app.getHttpServer()).get('/api/me/wishlist').expect(401);
-    await request(app.getHttpServer()).put('/api/me/wishlist/h-40-anc-headphone').expect(401);
+    await request(app.getHttpServer()).put('/api/me/wishlist/e1-frame-m').expect(401);
   });
 
   it('saves products newest first, idempotently, and removes them', async () => {
     const me = as(await signedInUser());
-    await me.put('h-40-anc-headphone').expect(204);
-    await me.put('k-75-mechanical-keyboard').expect(204);
-    await me.put('h-40-anc-headphone').expect(204);
+    await me.put('e1-frame-m').expect(204);
+    await me.put('e1-battery-750').expect(204);
+    await me.put('e1-frame-m').expect(204);
     const saved = wishlistSchema.parse((await me.list().expect(200)).body).map((p) => p.slug);
-    expect(saved).toEqual(['k-75-mechanical-keyboard', 'h-40-anc-headphone']);
-    await me.del('h-40-anc-headphone').expect(204);
-    await me.del('h-40-anc-headphone').expect(204);
+    expect(saved).toEqual(['e1-battery-750', 'e1-frame-m']);
+    await me.del('e1-frame-m').expect(204);
+    await me.del('e1-frame-m').expect(204);
     expect(wishlistSchema.parse((await me.list().expect(200)).body).map((p) => p.slug)).toEqual([
-      'k-75-mechanical-keyboard',
+      'e1-battery-750',
     ]);
   });
 
@@ -78,9 +78,9 @@ describe('Wishlist (e2e)', () => {
   it('keeps each account’s list to itself', async () => {
     const ana = as(await signedInUser());
     const budi = as(await signedInUser());
-    await ana.put('p-20-power-bank').expect(204);
+    await ana.put('lights-front-rear').expect(204);
     expect((await budi.list().expect(200)).body).toEqual([]);
-    await budi.del('p-20-power-bank').expect(204);
+    await budi.del('lights-front-rear').expect(204);
     expect((await ana.list().expect(200)).body).toHaveLength(1);
   });
 });

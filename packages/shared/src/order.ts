@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { rupiahSchema } from './catalog.js';
+import { partModuleSchema, rupiahSchema } from './catalog.js';
 
 /** How long a placed order holds its stock while waiting for payment. */
 export const PAYMENT_WINDOW_MINUTES = 60;
@@ -49,15 +49,31 @@ export const orderDetailSchema = z.object({
     postalCode: z.string(),
     zone: z.string(),
   }),
+  /** every part bought, single parts and the parts of each build alike */
   items: z.array(
     z.object({
       slug: z.string(),
       name: z.string(),
       model: z.string(),
       category: z.string().nullable(),
+      /** the 3D module that draws the part; null once the part is gone from the catalogue */
+      module: partModuleSchema.nullable(),
       colorLabel: z.string().nullable(),
       unitPrice: rupiahSchema,
       quantity: z.number().int().positive(),
+      lineTotal: rupiahSchema,
+      /** the build this part went into; null for a part bought on its own */
+      buildId: z.string().nullable(),
+    }),
+  ),
+  /** the bikes in the order; their parts are the items carrying their id */
+  builds: z.array(
+    z.object({
+      id: z.string(),
+      label: z.string(),
+      colorLabel: z.string().nullable(),
+      quantity: z.number().int().positive(),
+      unitPrice: rupiahSchema,
       lineTotal: rupiahSchema,
     }),
   ),

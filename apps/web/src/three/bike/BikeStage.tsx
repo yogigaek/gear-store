@@ -462,19 +462,23 @@ function Lights({
   );
 }
 
-/** camera framings along the story: hero three-quarter, full profile, the bike apart, the drivetrain */
+/** camera framings along the story: hero, full profile, the bike apart, the drivetrain, the configurator */
 const SHOTS = {
   wide: [
     { pos: [1.3, 0.8, 3.75], look: [-0.62, 0.62, 0] },
     { pos: [0.05, 0.66, 3.3], look: [0.05, 0.56, 0] },
     { pos: [1.55, 1.55, 4.4], look: [-0.28, 0.62, 0.12] },
     { pos: [-0.55, 0.62, 1.15], look: [-0.38, 0.38, 0.05] },
+    // the configurator: the bike whole again, on the left of the screen, the panel on the right
+    { pos: [2.2, 0.95, 4.1], look: [0.85, 0.58, 0] },
   ],
   tall: [
     { pos: [2.4, 1.55, 4.4], look: [0.1, 1.68, 0] },
     { pos: [0.05, 0.75, 5.2], look: [0.05, 0.72, 0] },
     { pos: [2.6, 2.2, 5.6], look: [0.0, 1.55, 0.12] },
     { pos: [-0.6, 0.8, 1.7], look: [-0.38, 0.66, 0.05] },
+    // phones: the bike small in the strip above the configurator sheet
+    { pos: [2.4, 1.3, 6.4], look: [0.05, -0.55, 0] },
   ],
 } as const;
 
@@ -603,7 +607,8 @@ function Rig({
     const angle = scroll.progress * Math.PI * 12;
     // apart around the third framing, back together before the drivetrain close-up
     const explode = smooth(clamp01((p - 1.25) / 0.6)) * (1 - smooth(clamp01((p - 2.35) / 0.5)));
-    const dark = smooth(clamp01((p - 2.3) / 0.6));
+    // dim for the drivetrain close-up, lit again for the configurator
+    const dark = smooth(clamp01((p - 2.3) / 0.6)) * (1 - smooth(clamp01((p - 3.2) / 0.5)));
     // the camera starts a little further back and settles in as the bike assembles
     goal.pos
       .sub(goal.look)

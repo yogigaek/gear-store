@@ -1,14 +1,21 @@
 import type { INestApplication } from '@nestjs/common';
-import { brandSchema, categorySchema, productDetailSchema, productPageSchema } from '@gear-store/shared';
+import {
+  buildCatalogSchema,
+  buildQuoteSchema,
+  categorySchema,
+  productDetailSchema,
+  productPageSchema,
+} from '@gear-store/shared';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { z } from 'zod';
 import { createTestApp } from './setup.js';
 
 // Runs against the seeded demo catalogue (npm run db:seed).
-describe('Catalogue (e2e)', () => {
+describe('Catalogue and build (e2e)', () => {
   let app: INestApplication<App>;
   const get = (url: string) => request(app.getHttpServer()).get(url);
+  const quote = (body: object) => request(app.getHttpServer()).post('/api/build/quote').send(body);
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -18,48 +25,51 @@ describe('Catalogue (e2e)', () => {
     await app.close();
   });
 
-  it('lists categories in display order with product counts', async () => {
-    const res = await get('/api/categories').expect(200);
-    const categories = z.array(categorySchema).parse(res.body);
-    expect(categories.map((c) => c.slug)).toEqual(['audio', 'keyboards', 'power', 'hubs']);
+  it('lists part types in build order, accessories last, with part counts', async () => {
+    const categories = z.array(categorySchema).parse((await get('/api/categories').expect(200)).body);
+    expect(categories.map((c) => c.slug)).toEqual([
+      'frames',
+      'batteries',
+      'shocks',
+      'forks',
+      'wheelsets',
+      'drivetrains',
+      'cockpits',
+      'seats',
+      'accessories',
+    ]);
+    expect(categories.map((c) => c.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, null]);
     expect(categories.every((c) => c.productCount > 0)).toBe(true);
   });
 
-  it('lists brands alphabetically with counts that add up to the catalogue', async () => {
-    const brands = z.array(brandSchema).parse((await get('/api/brands').expect(200)).body);
-    const names = brands.map((b) => b.name);
-    expect(names).toEqual([...names].sort());
-    const total = productPageSchema.parse((await get('/api/products').expect(200)).body).total;
-    expect(brands.reduce((sum, b) => sum + b.productCount, 0)).toBe(total);
-  });
-
   it('returns a page that matches the shared contract', async () => {
-    const res = await get('/api/products').expect(200);
-    const page = productPageSchema.parse(res.body);
+    const page = productPageSchema.parse((await get('/api/products').expect(200)).body);
     expect(page).toMatchObject({ page: 1, pageSize: 12 });
     expect(page.items.every((p) => p.plate.length === 3)).toBe(true);
   });
 
-  it('filters by category and sorts by price', async () => {
-    const res = await get('/api/products?category=audio&sort=price-asc').expect(200);
-    const prices = productPageSchema.parse(res.body).items.map((p) => p.price);
-    expect(prices.length).toBeGreaterThan(0);
-    expect(prices).toEqual([...prices].sort((a, b) => a - b));
+  it('filters by part type and sorts by price', async () => {
+    const res = await get('/api/products?category=batteries&sort=price-asc').expect(200);
+    const items = productPageSchema.parse(res.body).items;
+    expect(items.map((p) => p.slug)).toEqual(['e1-battery-625', 'e1-battery-750']);
+    expect(items.every((p) => p.module === 'BATTERY')).toBe(true);
   });
 
   it('applies the price range on both ends', async () => {
-    const res = await get('/api/products?minPrice=300000&maxPrice=500000&pageSize=48').expect(200);
-    for (const p of productPageSchema.parse(res.body).items) {
-      expect(p.price).toBeGreaterThanOrEqual(300000);
-      expect(p.price).toBeLessThanOrEqual(500000);
+    const res = await get('/api/products?minPrice=1000000&maxPrice=5000000&pageSize=48').expect(200);
+    const items = productPageSchema.parse(res.body).items;
+    expect(items.length).toBeGreaterThan(0);
+    for (const p of items) {
+      expect(p.price).toBeGreaterThanOrEqual(1000000);
+      expect(p.price).toBeLessThanOrEqual(5000000);
     }
   });
 
-  it('searches name, model and brand without regard to case', async () => {
-    const res = await get('/api/products?q=USB-C&pageSize=48').expect(200);
-    const page = productPageSchema.parse(res.body);
-    expect(page.total).toBeGreaterThan(0);
-    expect(page.items.every((p) => /usb-c/i.test(`${p.name} ${p.model} ${p.brand}`))).toBe(true);
+  it('searches name and part code without regard to case', async () => {
+    const page = productPageSchema.parse((await get('/api/products?q=dropper&pageSize=48').expect(200)).body);
+    expect(page.items.map((p) => p.slug).sort()).toEqual(['e1-seat-150', 'e1-seat-200']);
+    const byCode = productPageSchema.parse((await get('/api/products?q=bt-750').expect(200)).body);
+    expect(byCode.items.map((p) => p.slug)).toEqual(['e1-battery-750']);
   });
 
   it('treats query text as data, not SQL', async () => {
@@ -81,15 +91,73 @@ describe('Catalogue (e2e)', () => {
     expect(res.body.issues.map((i: { path: string }) => i.path).sort()).toEqual(['minPrice', 'pageSize']);
   });
 
-  it('returns a product with all specs and finishes', async () => {
-    const res = await get('/api/products/h-40-anc-headphone').expect(200);
-    const product = productDetailSchema.parse(res.body);
+  it('returns a part with all specs and its finishes', async () => {
+    const product = productDetailSchema.parse((await get('/api/products/e1-frame-m').expect(200)).body);
+    expect(product.module).toBe('FRAME');
     expect(product.specs.length).toBeGreaterThan(product.plate.length);
-    expect(product.colors.length).toBeGreaterThan(0);
+    expect(product.colors.map((c) => c.key)).toContain('signal');
   });
 
-  it('answers 404 for an unknown product and 400 for a malformed slug', async () => {
+  it('answers 404 for an unknown part and 400 for a malformed slug', async () => {
     await get('/api/products/does-not-exist').expect(404);
     await get('/api/products/Not%20A%20Slug').expect(400);
+  });
+
+  describe('build', () => {
+    const startingBuild = async () => {
+      const book = buildCatalogSchema.parse((await get('/api/build').expect(200)).body);
+      return { book, start: Object.fromEntries(book.slots.map((s) => [s.category, s.defaultSlug!])) };
+    };
+
+    it('offers every slot with its parts, a buildable start, and the conflicts', async () => {
+      const { book, start } = await startingBuild();
+      expect(book.slots).toHaveLength(8);
+      expect(book.slots.every((s) => s.options.length >= 2 && s.defaultSlug !== null)).toBe(true);
+      expect(book.conflicts).toContainEqual(
+        expect.objectContaining({ reason: expect.stringContaining('750 Wh') }),
+      );
+      const priced = buildQuoteSchema.parse(
+        (await quote({ parts: start, colorKey: 'signal' }).expect(200)).body,
+      );
+      expect(priced.problems).toEqual([]);
+      const options = book.slots.flatMap((s) => s.options);
+      const sum = Object.values(start).reduce(
+        (t, slug) => t + options.find((o) => o.slug === slug)!.price,
+        0,
+      );
+      expect(priced.unitPrice).toBe(sum);
+      // the advertised "from" price is that starting bike, which can be bought
+      expect(book.fromPrice).toBe(sum);
+    });
+
+    it('checks stock for the number of bikes asked for', async () => {
+      const { start } = await startingBuild();
+      const parts = { ...start, wheelsets: 'e1-wheelset-carbon' };
+      const one = buildQuoteSchema.parse((await quote({ parts, colorKey: 'signal' }).expect(200)).body);
+      expect(one.problems).toEqual([]);
+      const four = buildQuoteSchema.parse(
+        (await quote({ parts, colorKey: 'signal', quantity: 4 }).expect(200)).body,
+      );
+      expect(four.problems).toEqual([
+        expect.objectContaining({ kind: 'OUT_OF_STOCK', slots: ['wheelsets'] }),
+      ]);
+      await quote({ parts, colorKey: 'signal', quantity: 11 }).expect(400);
+    });
+
+    it('explains why a build cannot be made instead of pricing it quietly', async () => {
+      const { start } = await startingBuild();
+      const { seats: _left, ...withoutSeat } = start;
+      const res = await quote({
+        parts: { ...withoutSeat, frames: 'e1-frame-s', batteries: 'e1-battery-750' },
+        colorKey: 'pink',
+      }).expect(200);
+      const kinds = buildQuoteSchema.parse(res.body).problems.map((p) => p.kind);
+      expect(kinds.sort()).toEqual(['CONFLICT', 'MISSING_PART', 'UNKNOWN_COLOR']);
+    });
+
+    it('validates the selection before looking anything up', async () => {
+      await quote({ parts: { frames: 'Frame M' }, colorKey: 'signal' }).expect(400);
+      await quote({ colorKey: 'signal' }).expect(400);
+    });
   });
 });

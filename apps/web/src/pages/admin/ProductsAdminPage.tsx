@@ -38,7 +38,7 @@ export function ProductsAdminPage() {
           type="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Name, model, brand or slug"
+          placeholder="Name, model or slug"
           className={searchClass}
         />
       </form>
@@ -68,7 +68,7 @@ export function ProductsAdminPage() {
                     {p.name}
                   </Link>
                   <span className="block font-mono text-xs text-ink-3">
-                    {p.model} · {p.brand}
+                    {p.model} · {p.module.toLowerCase()}
                   </span>
                 </td>
                 <td className="py-3">{p.category}</td>

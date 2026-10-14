@@ -266,10 +266,21 @@ function paintDecal(ctx: CanvasRenderingContext2D, w: number, h: number, ink: st
   ctx.fillText('RAKIT', w * 0.02, h * 0.54);
   brandFont(ctx, h * 0.3, 600);
   ctx.textAlign = 'right';
-  ctx.fillText('E-1 · 750', w * 0.98, h * 0.54);
+  ctx.fillText('E-1 · 85 Nm', w * 0.98, h * 0.54);
 }
 
-function Frame({ m, motion, frame }: { m: Materials; motion: Motion; frame: string }) {
+/** the front triangle, decals, motor and (unless `battery` is false) the battery in the down tube */
+export function Frame({
+  m,
+  motion,
+  frame,
+  battery = true,
+}: {
+  m: Materials;
+  motion: Motion;
+  frame: string;
+  battery?: boolean;
+}) {
   // lettering in ink on light paint, in aluminium on dark
   const ink = lightness(frame) > 0.45 ? '#15181a' : '#e4e6e6';
   const paint = useCallback(
@@ -319,16 +330,13 @@ function Frame({ m, motion, frame }: { m: Materials; motion: Motion; frame: stri
       {/* down tube with the battery: x runs from the motor to the head tube, local -y is the underside */}
       <Beam from={at(DOWN_TUBE.from)} to={at(DOWN_TUBE.to)} h={DT.h} w={DT.w} material={m.paint}>
         {/* the battery drops out of the underside */}
-        <Part motion={motion} offset={[0, -0.24, 0]} order={3}>
-          <RoundedBox
-            args={[down.length * 0.72, 0.034, DT.w * 0.86]}
-            radius={0.014}
-            smoothness={4}
-            position={[-down.length * 0.04, -DT.h / 2 - 0.006, 0]}
-            material={m.shell}
-            castShadow
-          />
-        </Part>
+        {battery && (
+          <Part motion={motion} offset={[0, -0.24, 0]} order={3}>
+            <group position={[-down.length * 0.04, -DT.h / 2 - 0.006, 0]}>
+              <BatteryPack m={m} length={down.length * 0.72} width={DT.w * 0.86} />
+            </group>
+          </Part>
+        )}
         {/* charge level, five cells, on the top of the tube */}
         {[0, 1, 2, 3, 4].map((i) => (
           <mesh
@@ -365,6 +373,34 @@ function Frame({ m, motion, frame }: { m: Materials; motion: Motion; frame: stri
       <Part motion={motion} offset={[0.16, -0.18, 0]} order={3} callout={PARTS.battery}>
         {null}
       </Part>
+    </group>
+  );
+}
+
+/** the battery's shell, centred on its own middle: in the down tube or on its own on a product page */
+export function BatteryPack({
+  m,
+  length = 0.42,
+  width = 0.062,
+}: {
+  m: Materials;
+  length?: number;
+  width?: number;
+}) {
+  return (
+    <group>
+      <RoundedBox args={[length, 0.034, width]} radius={0.014} smoothness={4} material={m.shell} castShadow />
+      {/* the key lock and charge port at the motor end */}
+      <mesh material={m.anodised} position={[-length / 2 + 0.03, 0, width / 2 + 0.001]}>
+        <cylinderGeometry args={[0.007, 0.007, 0.004, 20]} />
+      </mesh>
+      <mesh
+        material={m.steel}
+        position={[-length / 2 + 0.055, 0, width / 2 + 0.001]}
+        rotation-x={Math.PI / 2}
+      >
+        <cylinderGeometry args={[0.004, 0.004, 0.003, 16]} />
+      </mesh>
     </group>
   );
 }
@@ -409,7 +445,7 @@ const derailleurHousing = new TubeGeometry(
   8,
 );
 
-function RearEnd({ m }: { m: Materials }) {
+export function RearEnd({ m }: { m: Materials }) {
   const brace = lerp(REAR_AXLE, ROCKER_REAR, 0.55);
   const caliper: P2 = [REAR_AXLE[0] + Math.cos(2.2) * 0.1, REAR_AXLE[1] + Math.sin(2.2) * 0.1];
   return (
@@ -504,7 +540,7 @@ class Helix extends Curve<Vector3> {
 }
 
 /** coil shock: body at the down tube, gold shaft, a yellow spring, piggyback reservoir */
-function Shock({ m }: { m: Materials }) {
+export function Shock({ m }: { m: Materials }) {
   const { position, quaternion, length } = useMemo(() => span(at(SHOCK_MOUNT), at(ROCKER_FRONT)), []);
   const coil = useMemo(
     () => new TubeGeometry(new Helix(0.026, length * 0.62, 8.5), 600, 0.0042, 8),
@@ -539,7 +575,7 @@ function Shock({ m }: { m: Materials }) {
 }
 
 /** 160 mm fork: crown, gold stanchions, lowers with the arch in front, and the headlight on the crown */
-function Fork({ m, light }: { m: Materials; light: boolean }) {
+export function Fork({ m, light }: { m: Materials; light: boolean }) {
   const arch = useMemo(
     () =>
       new TubeGeometry(
@@ -633,7 +669,7 @@ function paintDisplay(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.globalAlpha = 1;
 }
 
-function Cockpit({ m }: { m: Materials }) {
+export function Cockpit({ m }: { m: Materials }) {
   const bar = useMemo(() => {
     const pts = [-0.39, -0.3, -0.18, -0.07, 0, 0.07, 0.18, 0.3, 0.39].map((z) => {
       const t = Math.max(0, (Math.abs(z) - 0.07) / 0.32);
@@ -698,7 +734,7 @@ function Cockpit({ m }: { m: Materials }) {
   );
 }
 
-function Seat({ m }: { m: Materials }) {
+export function Seat({ m }: { m: Materials }) {
   // a sphere pressed into a saddle: narrow nose, wide rear, domed on top and nearly flat underneath
   const saddle = useMemo(() => {
     const g = new SphereGeometry(1, 64, 32);
@@ -748,7 +784,7 @@ function Seat({ m }: { m: Materials }) {
 }
 
 /** brake hoses from the levers: the front one down the fork, the rear into the head tube port */
-function Hoses({ m }: { m: Materials }) {
+export function Hoses({ m }: { m: Materials }) {
   const geometries = useMemo(() => {
     const lever = new Vector3(BAR[0] - 0.01, BAR[1] + 0.02, -0.26);
     const front = new TubeGeometry(

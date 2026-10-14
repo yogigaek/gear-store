@@ -27,7 +27,7 @@ async function paidOrder() {
     province: 'DI Yogyakarta',
     postalCode: '55271',
   });
-  await call('/me/cart/items', 'PUT', { slug: 'c-65-gan-charger', quantity: 1 });
+  await call('/me/cart/items', 'PUT', { slug: 'battery-charger-4a', quantity: 1 });
   const order = await call('/me/orders', 'POST', {
     addressId: address.id,
     idempotencyKey: crypto.randomUUID(),
@@ -67,7 +67,7 @@ test('the demo administrator can look at everything but change nothing', async (
   await page.goto('/sign-in');
   await page.getByRole('button', { name: 'Try as admin' }).click();
   await page.waitForURL('**/account');
-  await page.goto('/admin/products/c-65-gan-charger');
+  await page.goto('/admin/products/battery-charger-4a');
   await expect(page.getByText('Demo administrator, read-only.')).toBeVisible();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('alert')).toContainText('can look around but not change anything');

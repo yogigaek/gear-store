@@ -13,11 +13,11 @@ export function CartSync() {
 
   useEffect(() => {
     if (status !== 'signed-in' || merging.current) return;
-    const items = guestCart.lines();
-    if (items.length === 0) return;
+    const held = guestCart.read();
+    if (held.items.length + held.builds.length === 0) return;
     merging.current = true;
     authed((accessToken) =>
-      api('/me/cart/merge', { method: 'POST', body: { items }, accessToken, schema: cartSchema }),
+      api('/me/cart/merge', { method: 'POST', body: held, accessToken, schema: cartSchema }),
     )
       .then((cart) => {
         guestCart.clear();
