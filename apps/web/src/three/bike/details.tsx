@@ -42,13 +42,16 @@ const SPAN = WHEEL.r * 2;
 const PX = RING / SPAN;
 
 /** sidewall and rim lettering, on both sides of a wheel; place inside the wheel so it turns with it */
-export function WheelLettering() {
+export function WheelLettering({ rim: code = 'AL30', accent = false }: { rim?: string; accent?: boolean }) {
   const tyre = useCallback((ctx: CanvasRenderingContext2D, w: number) => {
     paintRing(ctx, w, 'RAKIT  TRAIL  29 × 2.4  ·  TUBELESS READY', (WHEEL.r - 0.021) * PX, 44, '#8c9396');
   }, []);
-  const rim = useCallback((ctx: CanvasRenderingContext2D, w: number) => {
-    paintRing(ctx, w, 'RAKIT  AL30  ·  29″', 0.2925 * PX, 22, '#d9dcdd');
-  }, []);
+  const rim = useCallback(
+    (ctx: CanvasRenderingContext2D, w: number) => {
+      paintRing(ctx, w, `RAKIT  ${code}  ·  29″`, 0.2925 * PX, 22, accent ? '#f2c230' : '#d9dcdd');
+    },
+    [code, accent],
+  );
   const tyreText = usePaintedTexture(RING, RING, tyre);
   const rimText = usePaintedTexture(RING, RING, rim);
   // the tyre's sidewall bulges to the tread width; the rim's flat face sits further in
@@ -78,17 +81,20 @@ export function WheelLettering() {
 }
 
 /** "RAKIT 160" down the outside of each fork lower; `axle` is the lower's end in the fork's frame */
-export function ForkDecals({ axle }: { axle: number }) {
-  const paint = useCallback((ctx: CanvasRenderingContext2D, w: number, h: number) => {
-    brandFont(ctx, h * 0.7);
-    ctx.fillStyle = '#f2c230';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('RAKIT', w * 0.04, h * 0.52);
-    brandFont(ctx, h * 0.42, 600);
-    ctx.fillStyle = '#d9dcdd';
-    ctx.textAlign = 'right';
-    ctx.fillText('160', w * 0.96, h * 0.52);
-  }, []);
+export function ForkDecals({ axle, travel = 160 }: { axle: number; travel?: number }) {
+  const paint = useCallback(
+    (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+      brandFont(ctx, h * 0.7);
+      ctx.fillStyle = '#f2c230';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('RAKIT', w * 0.04, h * 0.52);
+      brandFont(ctx, h * 0.42, 600);
+      ctx.fillStyle = '#d9dcdd';
+      ctx.textAlign = 'right';
+      ctx.fillText(String(travel), w * 0.96, h * 0.52);
+    },
+    [travel],
+  );
   const texture = usePaintedTexture(512, 96, paint);
   const y = (axle - 0.19) / 2 + 0.01;
   return (

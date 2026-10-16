@@ -68,6 +68,16 @@ export function makeMaterials(frame: string) {
       roughness: 0.38,
       roughnessMap: grain(256, true, 6),
     }),
+    /** satin aluminium of the alloy rims: light enough to tell from carbon at a glance */
+    alloy: new MeshStandardMaterial({ color: '#a3aaae', metalness: 0.9, roughness: 0.32 }),
+    /** gloss carbon of the carbon bar and rims: near black under a clear coat */
+    carbon: new MeshPhysicalMaterial({
+      color: '#0e1011',
+      metalness: 0.1,
+      roughness: 0.3,
+      clearcoat: 1,
+      clearcoatRoughness: 0.06,
+    }),
     /** matte composite of the motor and battery shells */
     shell: new MeshStandardMaterial({ color: '#202427', metalness: 0.2, roughness: 0.62 }),
     rubber: new MeshStandardMaterial({ color: '#111213', metalness: 0, roughness: 0.92 }),

@@ -26,17 +26,20 @@ const moduleNames: Record<PartModule, string> = {
 /** A part's studio still; while a part has none yet, its module name on engineering paper. */
 export function PartImage({
   slug,
+  colorKey,
   module,
   className = '',
   eager = false,
 }: {
   slug: string;
+  /** the finish chosen: its own still when one was rendered, else the part's default */
+  colorKey?: string;
   /** names the part on its placeholder while it has no still */
   module?: PartModule;
   className?: string;
   eager?: boolean;
 }) {
-  const src = bySlug.get(slug);
+  const src = (colorKey && bySlug.get(`${slug}--${colorKey}`)) || bySlug.get(slug);
   if (!src) {
     return (
       <div className={`bg-grid grid place-items-center ${className}`}>

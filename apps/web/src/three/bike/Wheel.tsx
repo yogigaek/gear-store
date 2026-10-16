@@ -103,20 +103,34 @@ const Y = new Vector3(0, 1, 0);
  * A 29-inch wheel turning about its own z axis: knobbed tyre, rim, 32 spokes laced two-cross, hub, and a
  * drilled 203 mm rotor on the left. The rear wheel takes the cassette as `children`.
  */
-export function Wheel({ m, ref, children }: { m: Materials; ref?: Ref<Group>; children?: ReactNode }) {
+export function Wheel({
+  m,
+  ref,
+  rim,
+  accent = false,
+  children,
+}: {
+  m: Materials;
+  ref?: Ref<Group>;
+  /** the rim's model code, printed on it */
+  rim?: string;
+  /** rim lettering in signal yellow, as carbon rims have it */
+  accent?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <group ref={ref}>
-      <Turned m={m} />
+      <Turned m={m} carbon={accent} />
       <Knobs m={m} />
       <Spokes m={m} />
       <Rotor m={m} />
-      <WheelLettering />
+      <WheelLettering rim={rim} accent={accent} />
       {children}
     </group>
   );
 }
 
-function Turned({ m }: { m: Materials }) {
+function Turned({ m, carbon }: { m: Materials; carbon: boolean }) {
   const geometry = useMemo(
     () => ({ tyre: turned(TYRE_SECTION, 160), rim: turned(RIM_SECTION, 160), hub: turned(HUB_SECTION, 48) }),
     [],
@@ -125,7 +139,7 @@ function Turned({ m }: { m: Materials }) {
   return (
     <>
       <mesh geometry={geometry.tyre} material={m.tyre} castShadow receiveShadow />
-      <mesh geometry={geometry.rim} material={m.anodised} castShadow receiveShadow />
+      <mesh geometry={geometry.rim} material={carbon ? m.carbon : m.alloy} castShadow receiveShadow />
       <mesh geometry={geometry.hub} material={m.anodised} castShadow />
     </>
   );

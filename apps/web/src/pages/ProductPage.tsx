@@ -1,7 +1,7 @@
 import { MAX_LINE_QUANTITY } from '@gear-store/shared';
 import { useMutation } from '@tanstack/react-query';
 import { lazy, Suspense, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { Button } from '../components/ui/Button';
 import { Label } from '../components/ui/Label';
 import { Price } from '../components/ui/Price';
@@ -29,6 +29,8 @@ export function ProductPage() {
 }
 
 function ProductDetail({ slug }: { slug: string }) {
+  // ?still=1: scripts/render-parts.mjs photographing the part for the catalogue
+  const [params] = useSearchParams();
   const query = useProduct(slug);
   const product = query.data;
   const categories = useCategories();
@@ -45,9 +47,11 @@ function ProductDetail({ slug }: { slug: string }) {
   });
   const coarsePointer = useCoarsePointer();
   const reducedMotion = usePrefersReducedMotion();
-  const can3D = useCanRender3D();
   // on touch screens the model only takes the finger while this is on, so the page keeps scrolling
   const [rotating, setRotating] = useState(false);
+  // phones show the still and load three.js (and probe WebGL) only once "Turn in 3D" is tapped
+  const [opened, setOpened] = useState(false);
+  const can3D = useCanRender3D(!coarsePointer || opened);
 
   if (query.error instanceof ApiError && query.error.status === 404) return <NotFoundPage />;
   if (query.isError) {
@@ -91,6 +95,7 @@ function ProductDetail({ slug }: { slug: string }) {
             {/* the still first: it is there at once, and stays where WebGL is missing */}
             <PartImage
               slug={product.slug}
+              colorKey={color?.key}
               module={product.module}
               className="absolute inset-0 size-full"
               eager
@@ -101,6 +106,9 @@ function ProductDetail({ slug }: { slug: string }) {
                   <PartStage
                     module={product.module}
                     slug={product.slug}
+                    plate={product.plate}
+                    name={product.name}
+                    still={params.get('still') === '1'}
                     frame={color?.hex ?? '#f2c230'}
                     spin={!reducedMotion && !rotating}
                     label={`${product.name}, ${product.model}. Drag to turn it.`}
@@ -116,12 +124,15 @@ function ProductDetail({ slug }: { slug: string }) {
                 Drag to turn · scroll to zoom
               </span>
             )}
-            {has3D && coarsePointer && (
+            {coarsePointer && (has3D || !opened) && (
               <button
                 type="button"
                 data-overlay
                 aria-pressed={rotating}
-                onClick={() => setRotating((r) => !r)}
+                onClick={() => {
+                  setOpened(true);
+                  setRotating((r) => !r);
+                }}
                 className={`absolute right-2 top-2 min-h-11 border px-3 font-mono text-xs uppercase tracking-[0.08em] ${
                   rotating ? 'border-alu-50 bg-alu-50 text-ink' : 'border-alu-50 bg-ink/70 text-alu-50'
                 }`}
@@ -133,7 +144,14 @@ function ProductDetail({ slug }: { slug: string }) {
           {product.module !== 'ACCESSORY' && (
             <p className="border-x border-b border-bench bg-alu-50 px-4 py-3 text-sm text-ink-2">
               One of the eight modules of the E-1.{' '}
-              <Link to="/#configure" className="font-semibold text-ink underline underline-offset-4">
+              {/* the configurator opens with this part in its slot, and a frame in the finish chosen here */}
+              <Link
+                to={`/?${new URLSearchParams({
+                  part: product.slug,
+                  ...(product.module === 'FRAME' && color ? { colour: color.key } : {}),
+                })}#configure`}
+                className="font-semibold text-ink underline underline-offset-4"
+              >
                 Build a bike with it
               </Link>
             </p>

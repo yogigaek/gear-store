@@ -31,8 +31,9 @@ import {
   type P2,
   type P3,
 } from './layout';
+import { STARTING_VARIANT, type BikeVariant } from '../parts/variants';
 import { ForkDecals, HeadBadge } from './details';
-import { ASSEMBLY, PARTS, type PartCallout, type TagMode } from './parts';
+import { ASSEMBLY, labelled, PARTS, type ModuleLabels, type PartCallout, type TagMode } from './parts';
 import { brandFont, lightness, usePaintedTexture } from './canvas';
 import { span } from './geometry';
 import { disposeMaterials, makeMaterials, type Materials } from './materials';
@@ -77,18 +78,33 @@ export interface EBikeProps {
   /** inspect mode: the numbered dots stay up and can be picked */
   hotspots?: boolean;
   onPick?: (part: PartCallout) => void;
+  /** the catalogue's names and prices for the callouts */
+  labels?: ModuleLabels;
+  /** what sets the chosen parts apart: the shock's spring, the rim code, the fork's travel */
+  variant?: BikeVariant;
 }
 
 interface Callouts {
   tags: TagMode;
   hotspots: boolean;
   onPick?: (part: PartCallout) => void;
+  labels: ModuleLabels;
 }
-const CalloutContext = createContext<Callouts>({ tags: 'off', hotspots: false });
+const NO_LABELS: ModuleLabels = {};
+const CalloutContext = createContext<Callouts>({ tags: 'off', hotspots: false, labels: NO_LABELS });
 
 /** The Rakit E-1: a 29-inch full-suspension trail e-bike with a mid-drive motor. Every part is its own mesh. */
-export function EBike({ frame, motion, light = true, tags = 'off', hotspots = false, onPick }: EBikeProps) {
-  const callouts = useMemo(() => ({ tags, hotspots, onPick }), [tags, hotspots, onPick]);
+export function EBike({
+  frame,
+  motion,
+  light = true,
+  tags = 'off',
+  hotspots = false,
+  onPick,
+  labels = NO_LABELS,
+  variant = STARTING_VARIANT,
+}: EBikeProps) {
+  const callouts = useMemo(() => ({ tags, hotspots, onPick, labels }), [tags, hotspots, onPick, labels]);
   // made once: a new colour is eased into the paint rather than swapping materials, which would recompile
   // their shaders and flash the bike
   const [m] = useState(() => makeMaterials(frame));
@@ -97,6 +113,10 @@ export function EBike({ frame, motion, light = true, tags = 'off', hotspots = fa
   const front = useRef<Group>(null);
 
   const target = useMemo(() => new Color(frame), [frame]);
+  // the paint eases towards a new colour frame by frame: on a stage that draws only on demand (reduced
+  // motion, or a bike at rest) the first of those frames has to be asked for
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => invalidate(), [target, invalidate]);
   useFrame(({ invalidate }, delta) => {
     easing.dampC(m.paint.color, target, 0.25, Math.min(delta, 1 / 20));
     const c = m.paint.color;
@@ -109,37 +129,40 @@ export function EBike({ frame, motion, light = true, tags = 'off', hotspots = fa
 
   return (
     <CalloutContext value={callouts}>
-      <Part motion={motion} offset={[-0.46, 0, 0]} order={5} callout={PARTS.rearWheel}>
+      <Part motion={motion} offset={[-0.46, 0, 0]} order={5} callout={PARTS.wheelset}>
         <group position={at(REAR_AXLE)}>
-          <Wheel ref={rear} m={m}>
+          <Wheel ref={rear} m={m} rim={variant.rim} accent={variant.carbonRims}>
             <Cassette m={m} />
           </Wheel>
         </group>
       </Part>
-      <Part motion={motion} offset={[0.46, 0, 0]} order={5} callout={PARTS.frontWheel}>
+      <Part motion={motion} offset={[0.46, 0, 0]} order={5}>
         <group position={at(FRONT_AXLE)}>
-          <Wheel ref={front} m={m} />
+          <Wheel ref={front} m={m} rim={variant.rim} accent={variant.carbonRims} />
         </group>
       </Part>
-      <Frame m={m} motion={motion} frame={frame} />
+      <Frame m={m} motion={motion} frame={frame} size={variant.size} capacity={variant.battery} />
       <Part motion={motion} offset={[-0.22, -0.05, 0]} order={0}>
-        <RearEnd m={m} />
+        <RearEnd m={m} wireless={variant.wireless} />
       </Part>
       <Part motion={motion} offset={[0, 0.08, 0.32]} order={1} callout={PARTS.shock}>
-        <Shock m={m} />
+        <Shock m={m} kind={variant.shock} />
       </Part>
+      {/* the fork and the cockpit leave together, so the brake hoses between them stay whole */}
       <Part motion={motion} offset={[0.22, 0.16, 0]} order={6} callout={PARTS.fork}>
-        <Fork m={m} light={light} />
-        <Cockpit m={m} />
-        <Hoses m={m} />
+        <Fork m={m} light={light} travel={variant.travel} />
+        <Hoses m={m} wireless={variant.wireless} />
+      </Part>
+      <Part motion={motion} offset={[0.22, 0.16, 0]} order={6} callout={PARTS.cockpit}>
+        <Cockpit m={m} carbon={variant.carbonBar} />
       </Part>
       <Part motion={motion} offset={[-0.05, 0.22, 0]} order={7} callout={PARTS.seat}>
-        <Seat m={m} />
+        <Seat m={m} drop={variant.drop} />
       </Part>
       <Part motion={motion} offset={[0, -0.05, 0.46]} order={4} callout={PARTS.drivetrain}>
         <Crankset m={m} motion={motion} />
         <Chain m={m} motion={motion} />
-        <Derailleur m={m} motion={motion} />
+        <Derailleur m={m} motion={motion} wireless={variant.wireless} />
       </Part>
     </CalloutContext>
   );
@@ -169,10 +192,11 @@ function Part({
   offset: P3;
   /** its turn in the opening assembly */
   order?: number;
-  callout?: PartCallout;
+  callout?: (typeof PARTS)[keyof typeof PARTS];
   children: ReactNode;
 }) {
-  const { tags, hotspots, onPick } = use(CalloutContext);
+  const { tags, hotspots, onPick, labels } = use(CalloutContext);
+  const shown = useMemo(() => callout && labelled(callout, labels), [callout, labels]);
   const group = useRef<Group>(null);
   const tag = useRef<{ root: HTMLDivElement; label: HTMLSpanElement | null; dot: HTMLButtonElement } | null>(
     null,
@@ -184,13 +208,13 @@ function Part({
 
   useEffect(() => {
     const host = gl.domElement.parentElement;
-    if (!callout || tags === 'off' || !host) return;
+    if (!shown || tags === 'off' || !host) return;
     const root = document.createElement('div');
     root.className = 'pointer-events-none absolute left-0 top-0';
     root.style.visibility = 'hidden';
     let label: HTMLSpanElement | null = null;
     if (tags === 'full') {
-      const [dx, dy] = callout.to;
+      const [dx, dy] = shown.to;
       label = document.createElement('span');
       label.setAttribute('aria-hidden', 'true');
       const line = document.createElement('span');
@@ -203,11 +227,11 @@ function Part({
       box.style.left = `${dx}px`;
       box.style.top = `${dy}px`;
       box.style.transform = 'translate(-50%, -50%)';
-      box.textContent = callout.name;
+      box.textContent = shown.name;
       const price = document.createElement('span');
       price.className = 'ml-2 text-signal';
-      price.textContent = callout.price;
-      box.append(price);
+      price.textContent = shown.price;
+      if (shown.price) box.append(price);
       label.append(line, box);
       root.append(label);
     }
@@ -215,9 +239,9 @@ function Part({
     dot.type = 'button';
     dot.className =
       'absolute grid size-6 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full bg-signal font-mono text-[11px] font-bold text-ink ring-4 ring-signal/25 hover:ring-8 focus-visible:outline-3 focus-visible:outline-alu-50';
-    dot.textContent = String(callout.n);
-    dot.setAttribute('aria-label', `${callout.name}, ${callout.price}: details`);
-    dot.addEventListener('click', () => pick.current?.(callout));
+    dot.textContent = String(shown.n);
+    dot.setAttribute('aria-label', `${[shown.name, shown.price].filter(Boolean).join(', ')}: details`);
+    dot.addEventListener('click', () => pick.current?.(shown));
     root.append(dot);
     host.append(root);
     tag.current = { root, label, dot };
@@ -225,7 +249,7 @@ function Part({
       root.remove();
       tag.current = null;
     };
-  }, [gl, callout, tags]);
+  }, [gl, shown, tags]);
 
   useFrame(({ camera, size }) => {
     const intro = Math.min(
@@ -259,14 +283,14 @@ function Part({
   return <group ref={group}>{children}</group>;
 }
 
-function paintDecal(ctx: CanvasRenderingContext2D, w: number, h: number, ink: string) {
+function paintDecal(ctx: CanvasRenderingContext2D, w: number, h: number, ink: string, size: string) {
   brandFont(ctx, h * 0.78);
   ctx.fillStyle = ink;
   ctx.textBaseline = 'middle';
   ctx.fillText('RAKIT', w * 0.02, h * 0.54);
   brandFont(ctx, h * 0.3, 600);
   ctx.textAlign = 'right';
-  ctx.fillText('E-1 · 85 Nm', w * 0.98, h * 0.54);
+  ctx.fillText(`E-1 ${size} · 85 Nm`, w * 0.98, h * 0.54);
 }
 
 /** the front triangle, decals, motor and (unless `battery` is false) the battery in the down tube */
@@ -275,17 +299,23 @@ export function Frame({
   motion,
   frame,
   battery = true,
+  size = 'M',
+  capacity = 625,
 }: {
   m: Materials;
   motion: Motion;
   frame: string;
   battery?: boolean;
+  /** frame size, in the decal */
+  size?: string;
+  /** the fitted battery's capacity, Wh */
+  capacity?: number;
 }) {
   // lettering in ink on light paint, in aluminium on dark
   const ink = lightness(frame) > 0.45 ? '#15181a' : '#e4e6e6';
   const paint = useCallback(
-    (ctx: CanvasRenderingContext2D, w: number, h: number) => paintDecal(ctx, w, h, ink),
-    [ink],
+    (ctx: CanvasRenderingContext2D, w: number, h: number) => paintDecal(ctx, w, h, ink, size),
+    [ink, size],
   );
   const decal = usePaintedTexture(1024, 160, paint);
   const down = useMemo(() => span(at(DOWN_TUBE.from), at(DOWN_TUBE.to), 'x'), []);
@@ -333,7 +363,7 @@ export function Frame({
         {battery && (
           <Part motion={motion} offset={[0, -0.24, 0]} order={3}>
             <group position={[-down.length * 0.04, -DT.h / 2 - 0.006, 0]}>
-              <BatteryPack m={m} length={down.length * 0.72} width={DT.w * 0.86} />
+              <BatteryPack m={m} length={down.length * 0.72} width={DT.w * 0.86} capacity={capacity} />
             </group>
           </Part>
         )}
@@ -366,8 +396,12 @@ export function Frame({
         ))}
       </Beam>
 
-      <Part motion={motion} offset={[0.12, -0.26, 0.12]} order={2} callout={PARTS.motor}>
+      <Part motion={motion} offset={[0.12, -0.26, 0.12]} order={2}>
         <Motor m={m} />
+      </Part>
+      {/* the frame's tag, on the top tube: the frame stays put while its parts move away */}
+      <Part motion={motion} offset={[0, 0, 0]} order={2} callout={PARTS.frame}>
+        {null}
       </Part>
       {/* the battery's tag, kept in bike coordinates so it reads level */}
       <Part motion={motion} offset={[0.16, -0.18, 0]} order={3} callout={PARTS.battery}>
@@ -382,13 +416,36 @@ export function BatteryPack({
   m,
   length = 0.42,
   width = 0.062,
+  capacity = 625,
 }: {
   m: Materials;
   length?: number;
   width?: number;
+  /** Wh, printed on the drive side of the pack */
+  capacity?: number;
 }) {
+  const paint = useCallback(
+    (ctx: CanvasRenderingContext2D, w: number, h: number) => {
+      brandFont(ctx, h * 0.7, 600);
+      ctx.fillStyle = '#c3c8ca';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${capacity} Wh`, w * 0.04, h * 0.54);
+    },
+    [capacity],
+  );
+  const label = usePaintedTexture(256, 64, paint);
   return (
     <group>
+      <mesh position={[length * 0.12, 0, width / 2 + 0.0008]}>
+        <planeGeometry args={[0.1, 0.025]} />
+        <meshStandardMaterial
+          map={label}
+          transparent
+          roughness={0.6}
+          polygonOffset
+          polygonOffsetFactor={-1}
+        />
+      </mesh>
       <RoundedBox args={[length, 0.034, width]} radius={0.014} smoothness={4} material={m.shell} castShadow />
       {/* the key lock and charge port at the motor end */}
       <mesh material={m.anodised} position={[-length / 2 + 0.03, 0, width / 2 + 0.001]}>
@@ -445,7 +502,7 @@ const derailleurHousing = new TubeGeometry(
   8,
 );
 
-export function RearEnd({ m }: { m: Materials }) {
+export function RearEnd({ m, wireless = false }: { m: Materials; wireless?: boolean }) {
   const brace = lerp(REAR_AXLE, ROCKER_REAR, 0.55);
   const caliper: P2 = [REAR_AXLE[0] + Math.cos(2.2) * 0.1, REAR_AXLE[1] + Math.sin(2.2) * 0.1];
   return (
@@ -496,7 +553,8 @@ export function RearEnd({ m }: { m: Materials }) {
         </mesh>
       ))}
       <Caliper m={m} at={caliper} angle={2.2} />
-      <mesh geometry={derailleurHousing} material={m.rubber} castShadow />
+      {/* a wireless derailleur has no gear housing to run */}
+      {!wireless && <mesh geometry={derailleurHousing} material={m.rubber} castShadow />}
     </group>
   );
 }
@@ -540,7 +598,8 @@ class Helix extends Curve<Vector3> {
 }
 
 /** coil shock: body at the down tube, gold shaft, a yellow spring, piggyback reservoir */
-export function Shock({ m }: { m: Materials }) {
+/** a coil shock shows its spring; an air shock hides the same body in a smooth air can */
+export function Shock({ m, kind = 'coil' }: { m: Materials; kind?: BikeVariant['shock'] }) {
   const { position, quaternion, length } = useMemo(() => span(at(SHOCK_MOUNT), at(ROCKER_FRONT)), []);
   const coil = useMemo(
     () => new TubeGeometry(new Helix(0.026, length * 0.62, 8.5), 600, 0.0042, 8),
@@ -556,14 +615,35 @@ export function Shock({ m }: { m: Materials }) {
       <mesh material={m.kashima} position-y={base + 0.17} castShadow>
         <cylinderGeometry args={[0.0085, 0.0085, 0.12, 20]} />
       </mesh>
-      <mesh geometry={coil} material={m.spring} position-y={base + 0.035} castShadow />
-      {[base + 0.03, base + length * 0.66].map((y) => (
-        <mesh key={y} material={m.anodised} position-y={y}>
-          <cylinderGeometry args={[0.032, 0.032, 0.008, 32]} />
-        </mesh>
-      ))}
+      {kind === 'coil' ? (
+        <>
+          <mesh geometry={coil} material={m.spring} position-y={base + 0.035} castShadow />
+          {[base + 0.03, base + length * 0.66].map((y) => (
+            <mesh key={y} material={m.anodised} position-y={y}>
+              <cylinderGeometry args={[0.032, 0.032, 0.008, 32]} />
+            </mesh>
+          ))}
+        </>
+      ) : (
+        <>
+          {/* the air can over the body, its gold seal, and the wiper where the shaft goes in */}
+          <mesh material={m.anodised} position-y={base + 0.16} castShadow>
+            <cylinderGeometry args={[0.024, 0.024, 0.15, 36]} />
+          </mesh>
+          <mesh material={m.spring} position-y={base + 0.236}>
+            <cylinderGeometry args={[0.0245, 0.0245, 0.006, 36]} />
+          </mesh>
+          <mesh material={m.anodised} position-y={base + 0.03}>
+            <cylinderGeometry args={[0.026, 0.026, 0.01, 32]} />
+          </mesh>
+        </>
+      )}
       <mesh material={m.anodised} position={[0.032, base + 0.08, 0]} castShadow>
         <cylinderGeometry args={[0.012, 0.012, 0.09, 24]} />
+      </mesh>
+      {/* the upper mount: from the shaft's end up to the top eyelet */}
+      <mesh material={m.anodised} position-y={-base - 0.035} castShadow>
+        <cylinderGeometry args={[0.012, 0.012, 0.07, 24]} />
       </mesh>
       {[base, -base].map((y) => (
         <mesh key={y} material={m.steel} position-y={y} rotation-x={Math.PI / 2}>
@@ -575,7 +655,7 @@ export function Shock({ m }: { m: Materials }) {
 }
 
 /** 160 mm fork: crown, gold stanchions, lowers with the arch in front, and the headlight on the crown */
-export function Fork({ m, light }: { m: Materials; light: boolean }) {
+export function Fork({ m, light, travel }: { m: Materials; light: boolean; travel?: number }) {
   const arch = useMemo(
     () =>
       new TubeGeometry(
@@ -622,7 +702,7 @@ export function Fork({ m, light }: { m: Materials; light: boolean }) {
         </group>
       ))}
       <mesh geometry={arch} material={m.anodised} castShadow />
-      <ForkDecals axle={axle} />
+      <ForkDecals axle={axle} travel={travel} />
       <Caliper m={m} at={[-0.055, axle + 0.075]} angle={2.2} />
 
       {/* headlight on the crown, pointing along the trail */}
@@ -669,14 +749,17 @@ function paintDisplay(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.globalAlpha = 1;
 }
 
-export function Cockpit({ m }: { m: Materials }) {
+export function Cockpit({ m, carbon = false }: { m: Materials; carbon?: boolean }) {
+  // the carbon bar is the wider one: 800 mm against the alloy's 780
+  const half = carbon ? 0.4 : 0.39;
   const bar = useMemo(() => {
-    const pts = [-0.39, -0.3, -0.18, -0.07, 0, 0.07, 0.18, 0.3, 0.39].map((z) => {
-      const t = Math.max(0, (Math.abs(z) - 0.07) / 0.32);
+    const pts = [-1, -0.77, -0.46, -0.18, 0, 0.18, 0.46, 0.77, 1].map((f) => {
+      const z = f * half;
+      const t = Math.max(0, (Math.abs(z) - 0.07) / (half - 0.07));
       return new Vector3(BAR[0] - 0.024 * t * t, BAR[1] + 0.03 * Math.sin((t * Math.PI) / 2), z);
     });
     return new TubeGeometry(new CatmullRomCurve3(pts), 80, 0.011, 16);
-  }, []);
+  }, [half]);
   useEffect(() => () => bar.dispose(), [bar]);
   const screen = usePaintedTexture(256, 128, paintDisplay);
 
@@ -698,9 +781,10 @@ export function Cockpit({ m }: { m: Materials }) {
           </mesh>
         </group>
       </Beam>
-      <mesh geometry={bar} material={m.anodised} castShadow />
+      <mesh geometry={bar} material={carbon ? m.carbon : m.anodised} castShadow />
+      {/* grips, collars and levers sit at the bar's ends, so a wider bar carries them outwards */}
       {[-1, 1].map((side) => (
-        <group key={side}>
+        <group key={side} position-z={side * (half - 0.39)}>
           <mesh
             material={m.rubber}
             position={[BAR[0] - 0.022, BAR[1] + 0.029, side * 0.345]}
@@ -734,7 +818,7 @@ export function Cockpit({ m }: { m: Materials }) {
   );
 }
 
-export function Seat({ m }: { m: Materials }) {
+export function Seat({ m, drop = 150 }: { m: Materials; drop?: number }) {
   // a sphere pressed into a saddle: narrow nose, wide rear, domed on top and nearly flat underneath
   const saddle = useMemo(() => {
     const g = new SphereGeometry(1, 64, 32);
@@ -757,34 +841,48 @@ export function Seat({ m }: { m: Materials }) {
   useEffect(() => () => saddle.dispose(), [saddle]);
   const tilt = Math.atan2(-SEAT_AXIS[0], SEAT_AXIS[1]);
   const lower = lerp(SEAT_TOP, POST_TOP, 0.25);
+  // a longer dropper stands the saddle higher by the difference, along the seat tube
+  const rise = (drop - 150) / 1000;
+  const up: P3 = [SEAT_AXIS[0] * rise, SEAT_AXIS[1] * rise, 0];
   return (
     <group>
       <mesh material={m.anodised} position={at(lower)} rotation-z={tilt} castShadow>
         <cylinderGeometry args={[0.0165, 0.0165, 0.1, 28]} />
       </mesh>
-      <mesh material={m.anodised} position={at(lerp(SEAT_TOP, POST_TOP, 0.72))} rotation-z={tilt} castShadow>
-        <cylinderGeometry args={[0.0152, 0.0152, 0.1, 28]} />
+      <mesh
+        material={m.anodised}
+        position={at(lerp(SEAT_TOP, POST_TOP, 0.72 + rise / 0.4))}
+        rotation-z={tilt}
+        castShadow
+      >
+        <cylinderGeometry args={[0.0152, 0.0152, 0.1 + rise, 28]} />
       </mesh>
       <mesh material={m.anodised} position={at(lerp(SEAT_TOP, POST_TOP, 0.5))} rotation-z={tilt}>
         <cylinderGeometry args={[0.019, 0.019, 0.012, 28]} />
       </mesh>
-      <group position={[POST_TOP[0] + 0.01, POST_TOP[1] + 0.026, 0]}>
-        <mesh material={m.anodised}>
-          <boxGeometry args={[0.04, 0.016, 0.03]} />
+      <group position={up}>
+        {/* the head that holds the rails, so the saddle sits on the post rather than above it */}
+        <mesh material={m.anodised} position={at(lerp(SEAT_TOP, POST_TOP, 0.98))} rotation-z={tilt}>
+          <cylinderGeometry args={[0.0135, 0.0152, 0.03, 28]} />
         </mesh>
-        {[-1, 1].map((side) => (
-          <mesh key={side} material={m.steel} position={[0, 0.012, side * 0.018]} rotation-z={Math.PI / 2}>
-            <cylinderGeometry args={[0.0035, 0.0035, 0.15, 12]} />
+        <group position={[POST_TOP[0] + 0.01, POST_TOP[1] + 0.022, 0]}>
+          <mesh material={m.anodised}>
+            <boxGeometry args={[0.04, 0.016, 0.03]} />
           </mesh>
-        ))}
-        <mesh geometry={saddle} material={m.leather} position={[0, 0.03, 0]} castShadow />
+          {[-1, 1].map((side) => (
+            <mesh key={side} material={m.steel} position={[0, 0.012, side * 0.018]} rotation-z={Math.PI / 2}>
+              <cylinderGeometry args={[0.0035, 0.0035, 0.15, 12]} />
+            </mesh>
+          ))}
+          <mesh geometry={saddle} material={m.leather} position={[0, 0.03, 0]} castShadow />
+        </group>
       </group>
     </group>
   );
 }
 
 /** brake hoses from the levers: the front one down the fork, the rear into the head tube port */
-export function Hoses({ m }: { m: Materials }) {
+export function Hoses({ m, wireless = false }: { m: Materials; wireless?: boolean }) {
   const geometries = useMemo(() => {
     const lever = new Vector3(BAR[0] - 0.01, BAR[1] + 0.02, -0.26);
     const front = new TubeGeometry(
@@ -828,9 +926,10 @@ export function Hoses({ m }: { m: Materials }) {
   useEffect(() => () => geometries.forEach((g) => g.dispose()), [geometries]);
   return (
     <>
-      {geometries.map((g, i) => (
-        <mesh key={i} geometry={g} material={m.rubber} castShadow />
-      ))}
+      {/* the third is the gear housing, which a wireless derailleur does without */}
+      {geometries.map((g, i) =>
+        wireless && i === 2 ? null : <mesh key={i} geometry={g} material={m.rubber} castShadow />,
+      )}
     </>
   );
 }

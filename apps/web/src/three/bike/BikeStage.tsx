@@ -18,8 +18,9 @@ import {
 } from 'three';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import type { Motion } from './Drivetrain';
+import type { BikeVariant } from '../parts/variants';
 import { EBike } from './EBike';
-import { ASSEMBLY, type PartCallout } from './parts';
+import { ASSEMBLY, type ModuleLabels, type PartCallout } from './parts';
 
 // The E-1's stage: a photo studio's cyclorama, the floor curving up into the back wall without a seam, lit
 // like a product shoot. The page's scroll position (0 → 1) rides the bike forward and moves the camera round
@@ -49,6 +50,10 @@ export interface BikeStageProps {
   /** called once the first frame is on screen, so the page can drop its poster */
   onReady: () => void;
   onPick: (part: PartCallout) => void;
+  /** the catalogue's names and prices for the teardown callouts */
+  labels: ModuleLabels;
+  /** what sets the configured parts apart on the bike */
+  variant: BikeVariant;
   frame: string;
   reducedMotion: boolean;
   /** narrow screens frame the bike from further back */
@@ -94,6 +99,8 @@ export default function BikeStage({
   assemble,
   onReady,
   onPick,
+  labels,
+  variant,
   frame,
   reducedMotion,
   tall,
@@ -116,7 +123,8 @@ export default function BikeStage({
   const [flying, setFlying] = useState(assemble);
   return (
     <Canvas
-      shadows
+      // PCF: three.js has dropped the soft variant and falls back to this with a warning
+      shadows="percentage"
       dpr={flying ? dpr * 0.6 : dpr}
       // while the page scrolls the canvas renders at 60 % resolution and sharpens again once it stops
       performance={{ min: 0.6, debounce: 250 }}
@@ -163,6 +171,8 @@ export default function BikeStage({
           tags={tall ? 'dots' : 'full'}
           hotspots={inspect.active}
           onPick={onPick}
+          labels={labels}
+          variant={variant}
         />
       </group>
 

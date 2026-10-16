@@ -1,6 +1,6 @@
 import type { BuildCatalog, BuildSelection } from '@gear-store/shared';
 import { useMutation } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useCart } from '../../lib/cart';
 import { useBuildQuote } from '../../lib/queries';
 import { cartDrawer } from '../cart/cart-drawer-store';
@@ -32,15 +32,26 @@ export function Configurator({
   catalog,
   colorKey,
   onColor,
+  onParts,
+  start,
 }: {
   catalog: BuildCatalog;
   colorKey: string;
   onColor: (key: string) => void;
+  /** the parts chosen so far, so the bike on the stage can show them */
+  onParts?: (parts: Record<string, string>) => void;
+  /** a part to start from in its slot, e.g. the one whose page linked here */
+  start?: string | null;
 }) {
-  const [parts, setParts] = useState<Record<string, string>>(() =>
-    Object.fromEntries(catalog.slots.flatMap((s) => (s.defaultSlug ? [[s.category, s.defaultSlug]] : []))),
-  );
+  const [parts, setParts] = useState<Record<string, string>>(() => {
+    const defaults = Object.fromEntries(
+      catalog.slots.flatMap((s) => (s.defaultSlug ? [[s.category, s.defaultSlug]] : [])),
+    );
+    const slot = catalog.slots.find((s) => s.options.some((o) => o.slug === start));
+    return slot && start ? { ...defaults, [slot.category]: start } : defaults;
+  });
   const [quantity, setQuantity] = useState(1);
+  useEffect(() => onParts?.(parts), [onParts, parts]);
   const selection = useMemo<BuildSelection>(() => ({ parts, colorKey }), [parts, colorKey]);
   // checked for the number of bikes wanted, so a quantity beyond the stock shows before adding
   const quote = useBuildQuote(useMemo(() => ({ ...selection, quantity }), [selection, quantity]));
@@ -54,7 +65,9 @@ export function Configurator({
     },
   });
 
-  const frame = catalog.slots[0]?.options.find((o) => o.slug === parts[catalog.slots[0]!.category]);
+  // the colour is the frame's: found by its module, wherever the frame slot sits in the build order
+  const frameSlot = catalog.slots.find((s) => s.options.some((o) => o.module === 'FRAME'));
+  const frame = frameSlot?.options.find((o) => o.slug === parts[frameSlot.category]);
   const problems = quote.data?.problems ?? [];
   const ready = quote.data !== undefined && problems.length === 0 && !quote.isPlaceholderData;
 

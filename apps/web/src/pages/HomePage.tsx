@@ -4,22 +4,25 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import type { Inspect, View } from '../three/bike/BikeStage';
 import { useCanRender3D, usePrefersReducedMotion } from '../three/useCanRender3D';
 import type { ScrollSource } from '../three/bike/BikeStage';
+import { Link, useSearchParams } from 'react-router';
 import { Configurator } from '../components/build/Configurator';
 import { Price } from '../components/ui/Price';
 import { useBuildCatalog } from '../lib/queries';
 import { E1_COLOURS } from '../three/bike/layout';
-import { PART_LIST, type PartCallout } from '../three/bike/parts';
+import { formatRupiah } from '../lib/format';
+import { variantOf } from '../three/parts/variants';
+import { labelled, PART_LIST, type ModuleLabels, type PartCallout } from '../three/bike/parts';
 
 const BikeStage = lazy(() => import('../three/bike/BikeStage'));
 
-/** example figures: the E-1 is a demo product, not yet in the catalogue */
+/** the bike's figures, across the parts the configurator offers */
 const SPECS = [
-  ['Battery', '750 Wh'],
+  ['Battery', '625 or 750 Wh'],
   ['Motor', '85 Nm mid-drive'],
-  ['Travel', '160 / 150 mm'],
+  ['Travel', '160–170 / 150 mm'],
   ['Wheels', '29 × 2.4″'],
   ['Drivetrain', '1 × 12, 10–52'],
-  ['Brakes', '4-piston, 203 mm'],
+  ['Brakes', '4-piston discs'],
 ] as const;
 
 const VIEW_BUTTONS: [View, string][] = [
@@ -58,17 +61,50 @@ export function HomePage() {
   const [tall, setTall] = useState(() => window.innerWidth < 1024);
   const catalog = useBuildCatalog();
   // the finishes the frame is sold in; the launch colours stand in until the catalogue answers
+  // the parts picked in the configurator, by slot; a slot not touched yet has the starting part
+  const [chosen, setChosen] = useState<Record<string, string>>({});
   const colours = useMemo(() => {
     const frames = catalog.data?.slots.find((s) => s.options.some((o) => o.module === 'FRAME'));
-    const frame = frames?.options.find((o) => o.slug === frames.defaultSlug) ?? frames?.options[0];
+    const slug = frames && (chosen[frames.category] ?? frames.defaultSlug);
+    const frame = frames?.options.find((o) => o.slug === slug) ?? frames?.options[0];
     return frame?.colors.length
       ? frame.colors.map((c) => ({ key: c.key, name: c.label, hex: c.hex }))
       : E1_COLOURS.map((c) => ({ ...c }));
-  }, [catalog.data]);
-  const [colorKey, setColorKey] = useState<string>(E1_COLOURS[0].key);
+  }, [catalog.data, chosen]);
+  // a product page's "Build a bike with it" brings its part, and a frame's finish, along in the URL
+  const [params] = useSearchParams();
+  const [colorKey, setColorKey] = useState<string>(() => params.get('colour') ?? E1_COLOURS[0].key);
   // a finish the catalogue no longer has falls back to its first
   const colour = colours.find((c) => c.key === colorKey) ?? colours[0]!;
   const fromPrice = catalog.data?.fromPrice ?? null;
+  // the teardown names each module by the part the starting build uses, at its catalogue price
+  const labels = useMemo<ModuleLabels>(() => {
+    const out: ModuleLabels = {};
+    for (const slot of catalog.data?.slots ?? []) {
+      const part = slot.options.find((o) => o.slug === slot.defaultSlug) ?? slot.options[0];
+      if (part)
+        out[part.module] = {
+          name: part.name,
+          price: formatRupiah(part.price),
+          note: slot.description,
+          slug: part.slug,
+        };
+    }
+    return out;
+  }, [catalog.data]);
+  const modules = useMemo(() => PART_LIST.map((p) => labelled(p, labels)), [labels]);
+  // the bike on the stage wears the parts chosen in the configurator, or the starting build's
+  const variant = useMemo(
+    () =>
+      variantOf(
+        (catalog.data?.slots ?? []).flatMap((slot) => {
+          const slug = chosen[slot.category] ?? slot.defaultSlug;
+          const part = slot.options.find((o) => o.slug === slug);
+          return part ? [part] : [];
+        }),
+      ),
+    [catalog.data, chosen],
+  );
   const configure = useRef<HTMLElement>(null);
   const [configuring, setConfiguring] = useState(false);
   const [inspect, setInspect] = useState<Inspect>(CLOSED);
@@ -169,6 +205,8 @@ export function HomePage() {
                 assemble={assemble}
                 onReady={() => setReady(true)}
                 onPick={setPicked}
+                labels={labels}
+                variant={variant}
                 frame={colour.hex}
                 reducedMotion={reducedMotion}
                 tall={tall}
@@ -195,6 +233,14 @@ export function HomePage() {
                   <p className="mt-2 text-sm text-bench">{picked.note}</p>
                   <div className="mt-4 flex items-center justify-between gap-4">
                     <span className="font-mono text-sm text-alu-50">{picked.price}</span>
+                    {picked.slug && (
+                      <Link
+                        to={`/products/${picked.slug}`}
+                        className="ml-auto min-h-11 content-center font-mono text-xs uppercase tracking-[0.08em] text-signal underline underline-offset-4"
+                      >
+                        View part
+                      </Link>
+                    )}
                     <button
                       type="button"
                       onClick={() => setPicked(null)}
@@ -326,7 +372,9 @@ export function HomePage() {
               {SPECS.map(([term, value]) => (
                 <div key={term} className="bg-stage/85 px-4 py-4 backdrop-blur-sm">
                   <dt className="font-mono text-xs uppercase tracking-[0.08em] text-bench">{term}</dt>
-                  <dd className="mt-1 font-expanded text-base font-bold uppercase xl:text-lg">{value}</dd>
+                  <dd className="mt-1 font-expanded text-base font-bold uppercase text-balance lg:text-[0.95rem] xl:text-base">
+                    {value}
+                  </dd>
                 </div>
               ))}
             </dl>
@@ -347,7 +395,7 @@ export function HomePage() {
               {/* the numbered dots on the bike, spelled out: the only labels on small screens, and the
                   accessible list everywhere */}
               <ol className="grid gap-x-4 gap-y-1 font-mono text-xs uppercase tracking-[0.04em] sm:grid-cols-2 lg:sr-only">
-                {PART_LIST.map((p) => (
+                {modules.map((p) => (
                   <li key={p.n} className="flex gap-2">
                     <span className="text-signal">{p.n}</span>
                     <span className="text-alu-50">{p.name}</span>
@@ -383,7 +431,13 @@ export function HomePage() {
           <div className="sticky top-[calc(25dvh+2rem)] mx-auto flex h-[calc(75dvh-3rem)] w-full max-w-7xl justify-end lg:top-[5.5rem] lg:h-[calc(100dvh-7rem)]">
             <div className="pointer-events-auto flex w-full max-w-md min-h-0">
               {catalog.data ? (
-                <Configurator catalog={catalog.data} colorKey={colour.key} onColor={setColorKey} />
+                <Configurator
+                  catalog={catalog.data}
+                  colorKey={colour.key}
+                  onColor={setColorKey}
+                  onParts={setChosen}
+                  start={params.get('part')}
+                />
               ) : (
                 <p className="self-start border border-ink-2 bg-stage/90 p-5 font-mono text-sm text-bench">
                   {catalog.isError

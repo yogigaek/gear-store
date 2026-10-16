@@ -211,7 +211,15 @@ function Pedal({ m }: { m: Materials }) {
 }
 
 /** rear derailleur: knuckle on the hanger, parallelogram, cage with two jockey wheels */
-export function Derailleur({ m, motion }: { m: Materials; motion: Motion }) {
+export function Derailleur({
+  m,
+  motion,
+  wireless = false,
+}: {
+  m: Materials;
+  motion: Motion;
+  wireless?: boolean;
+}) {
   const wheels = useRef<Group[]>([]);
   useFrame(() => {
     const a = -(motion.angle * DRIVE.cog.r) / PULLEY_R;
@@ -227,6 +235,16 @@ export function Derailleur({ m, motion }: { m: Materials; motion: Motion }) {
       >
         <boxGeometry args={[0.03, 0.05, 0.022]} />
       </mesh>
+      {/* a wireless derailleur carries its own battery on the body, where the cable would clamp */}
+      {wireless && (
+        <mesh
+          material={m.shell}
+          position={[REAR_AXLE[0] + 0.03, REAR_AXLE[1] - 0.012, DRIVE.z + 0.04]}
+          castShadow
+        >
+          <boxGeometry args={[0.032, 0.022, 0.014]} />
+        </mesh>
+      )}
       <mesh
         material={m.anodised}
         position={[
