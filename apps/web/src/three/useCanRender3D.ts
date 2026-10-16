@@ -1,9 +1,25 @@
 import { useSyncExternalStore } from 'react';
 
+/**
+ * WebGL drawn in software (no GPU, or a blocked driver: SwiftShader, llvmpipe) runs a frame in seconds and
+ * starves the page, so a click takes a minute. Such a device gets the still instead. Rendering stills on
+ * purpose (`?still=1`, scripts/render-parts.mjs) is the one place software rendering is wanted.
+ */
+const SOFTWARE_RENDERER = /swiftshader|llvmpipe|softpipe|software/i;
+
 function hasWebGL(): boolean {
   try {
     const canvas = document.createElement('canvas');
-    return Boolean(canvas.getContext('webgl2') ?? canvas.getContext('webgl'));
+    if (new URLSearchParams(window.location.search).has('still')) {
+      return Boolean(canvas.getContext('webgl2') ?? canvas.getContext('webgl'));
+    }
+    const options: WebGLContextAttributes = { failIfMajorPerformanceCaveat: true };
+    const gl = canvas.getContext('webgl2', options) ?? canvas.getContext('webgl', options);
+    if (!gl) return false;
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return !SOFTWARE_RENDERER.test(renderer);
   } catch {
     return false;
   }
