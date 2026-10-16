@@ -32,10 +32,15 @@ export function AuthLayout() {
   }, []);
 
   return (
-    <div className="grid bg-ink text-alu-50 lg:min-h-[calc(100dvh-4rem)] lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:items-start">
+    // wide screens: a split screen locked to the window. The stage never moves; a form taller than the
+    // window scrolls inside its own column, so switching forms can never shift the bike.
+    <div className="grid bg-ink text-alu-50 lg:h-[calc(100dvh-4rem)] lg:grid-cols-[minmax(0,1fr)_minmax(0,34rem)] lg:overflow-hidden">
       <Scene />
-      <div className="surface-dark flex items-start justify-center self-stretch px-4 pb-12 sm:px-6 lg:items-start lg:border-l lg:border-bench lg:px-10 lg:pt-[10vh] lg:pb-16">
-        <div className="relative -mt-6 w-full max-w-md border border-bench bg-alu-50 p-6 sm:-mt-10 sm:p-8 lg:mt-0">
+      <div
+        data-auth-panel
+        className="surface-dark flex items-start justify-center px-4 pb-12 sm:px-6 lg:h-full lg:overflow-y-auto lg:overscroll-contain lg:border-l lg:border-bench lg:px-10 lg:pt-[4vh] lg:pb-8"
+      >
+        <div className="relative -mt-6 w-full max-w-md border border-bench bg-alu-50 p-6 sm:-mt-10 sm:p-8 lg:mt-0 lg:px-8 lg:py-7">
           {/* the bench's one accent: a yellow edge along the top of the panel */}
           <span aria-hidden="true" className="absolute inset-x-0 top-0 h-[3px] bg-signal" />
           <PanelSwap />
@@ -84,9 +89,10 @@ function PanelSwap() {
   useEffect(() => {
     if (!entered) return;
     const behavior = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
-    // wide screens: the stage fills the screen beside the panel, so the whole page goes back to its top
+    // wide screens: only the form's own column scrolls; it goes back to the new form's heading
     if (window.matchMedia('(min-width: 1024px)').matches) {
-      if (window.scrollY > 0) window.scrollTo({ top: 0, behavior });
+      const column = box.current?.closest('[data-auth-panel]');
+      if (column && column.scrollTop > 0) column.scrollTo({ top: 0, behavior });
       return;
     }
     const top = box.current?.getBoundingClientRect().top ?? 0;
@@ -142,11 +148,7 @@ function Scene() {
   const can3D = useCanRender3D(seen);
 
   return (
-    <section
-      ref={scene}
-      aria-label="Rakit E-1"
-      className="relative h-72 overflow-hidden sm:h-80 lg:sticky lg:top-16 lg:h-[calc(100dvh-4rem)]"
-    >
+    <section ref={scene} aria-label="Rakit E-1" className="relative h-72 overflow-hidden sm:h-80 lg:h-full">
       {/* a still of the scene is there at once (and stays where WebGL is missing); the live canvas fades in
           over it once its first frame is drawn */}
       <img

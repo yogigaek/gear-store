@@ -27,16 +27,16 @@ export function AuthShell({
       </header>
       {lead && (
         <>
-          <div className="mt-6">{lead}</div>
+          <div className="mt-6 lg:mt-5">{lead}</div>
           <p
             aria-hidden="true"
-            className="my-6 flex items-center gap-3 font-mono text-[0.7rem] uppercase tracking-[0.08em] text-ink-3 before:h-px before:flex-1 before:bg-bench after:h-px after:flex-1 after:bg-bench"
+            className="my-6 flex items-center gap-3 lg:my-4 font-mono text-[0.7rem] uppercase tracking-[0.08em] text-ink-3 before:h-px before:flex-1 before:bg-bench after:h-px after:flex-1 after:bg-bench"
           >
             or with email
           </p>
         </>
       )}
-      <div className={`space-y-5 ${lead ? '' : 'mt-6'}`}>{children}</div>
+      <div className={`space-y-5 lg:space-y-4 ${lead ? '' : 'mt-6 lg:mt-5'}`}>{children}</div>
     </>
   );
 }

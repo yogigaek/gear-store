@@ -42,11 +42,11 @@ export function SignInPage() {
         <span className="font-mono text-[0.7rem] uppercase tracking-[0.08em] text-ink-3">No sign-up</span>
       </div>
       {demo.error && <Notice tone="error">{demo.error.message}</Notice>}
-      <div className="grid gap-2">
+      <div className="grid gap-2 lg:grid-cols-2">
         {(
           [
-            ['shopper', 'Shopper', 'Build, buy, track orders'],
-            ['admin', 'Admin', 'Dashboard, read-only'],
+            ['shopper', 'Shopper', 'Build and buy'],
+            ['admin', 'Admin', 'Read-only'],
           ] as const
         ).map(([role, action, detail]) => (
           <button
@@ -56,7 +56,7 @@ export function SignInPage() {
             onClick={() => demo.mutate(role)}
             // the name a screen reader hears contains the visible word, and says what the button does
             aria-label={`Try as ${role}: ${detail.toLowerCase()}`}
-            className="group flex min-h-14 items-center justify-between gap-3 border border-bench-strong px-4 py-2.5 text-left transition-colors hover:border-signal disabled:cursor-not-allowed disabled:opacity-60"
+            className="group flex min-h-14 items-center lg:min-h-12 justify-between gap-3 border border-bench-strong px-4 py-2.5 text-left transition-colors hover:border-signal disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span className="min-w-0">
               <span className="block text-sm font-semibold uppercase tracking-[0.06em]">
@@ -130,7 +130,7 @@ export function SignInPage() {
         </Button>
       </form>
 
-      <p className="border-t border-bench pt-5 text-center text-sm text-ink-2">
+      <p className="border-t border-bench pt-5 text-center text-sm text-ink-2 lg:pt-4">
         New here?{' '}
         <Link
           preventScrollReset
