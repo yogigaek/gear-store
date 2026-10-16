@@ -42,10 +42,29 @@ const SPAN = WHEEL.r * 2;
 const PX = RING / SPAN;
 
 /** sidewall and rim lettering, on both sides of a wheel; place inside the wheel so it turns with it */
-export function WheelLettering({ rim: code = 'AL30', accent = false }: { rim?: string; accent?: boolean }) {
-  const tyre = useCallback((ctx: CanvasRenderingContext2D, w: number) => {
-    paintRing(ctx, w, 'RAKIT  TRAIL  29 × 2.4  ·  TUBELESS READY', (WHEEL.r - 0.021) * PX, 44, '#8c9396');
-  }, []);
+export function WheelLettering({
+  rim: code = 'AL30',
+  accent = false,
+  tyre: width = 2.4,
+}: {
+  rim?: string;
+  accent?: boolean;
+  /** tyre width, inches: printed on the sidewall, which sits further out on a wider tyre */
+  tyre?: number;
+}) {
+  const tyre = useCallback(
+    (ctx: CanvasRenderingContext2D, w: number) => {
+      paintRing(
+        ctx,
+        w,
+        `RAKIT  TRAIL  29 × ${width}  ·  TUBELESS READY`,
+        (WHEEL.r - 0.021) * PX,
+        44,
+        '#8c9396',
+      );
+    },
+    [width],
+  );
   const rim = useCallback(
     (ctx: CanvasRenderingContext2D, w: number) => {
       paintRing(ctx, w, `RAKIT  ${code}  ·  29″`, 0.2925 * PX, 22, accent ? '#f2c230' : '#d9dcdd');
@@ -56,7 +75,7 @@ export function WheelLettering({ rim: code = 'AL30', accent = false }: { rim?: s
   const rimText = usePaintedTexture(RING, RING, rim);
   // the tyre's sidewall bulges to the tread width; the rim's flat face sits further in
   const layers = [
-    { map: tyreText, z: WHEEL.tyreTube + 0.001 },
+    { map: tyreText, z: WHEEL.tyreTube * (width / 2.4) + 0.001 },
     { map: rimText, z: 0.0153 },
   ];
   return (

@@ -108,6 +108,7 @@ export function Wheel({
   ref,
   rim,
   accent = false,
+  tyre = 2.4,
   children,
 }: {
   m: Materials;
@@ -116,21 +117,25 @@ export function Wheel({
   rim?: string;
   /** rim lettering in signal yellow, as carbon rims have it */
   accent?: boolean;
+  /** tyre width, inches: the casing and its knobs widen with it */
+  tyre?: number;
   children?: ReactNode;
 }) {
   return (
     <group ref={ref}>
-      <Turned m={m} carbon={accent} />
-      <Knobs m={m} />
+      <Turned m={m} carbon={accent} wide={tyre / 2.4} />
+      <group scale-z={tyre / 2.4}>
+        <Knobs m={m} />
+      </group>
       <Spokes m={m} />
       <Rotor m={m} />
-      <WheelLettering rim={rim} accent={accent} />
+      <WheelLettering rim={rim} accent={accent} tyre={tyre} />
       {children}
     </group>
   );
 }
 
-function Turned({ m, carbon }: { m: Materials; carbon: boolean }) {
+function Turned({ m, carbon, wide }: { m: Materials; carbon: boolean; wide: number }) {
   const geometry = useMemo(
     () => ({ tyre: turned(TYRE_SECTION, 160), rim: turned(RIM_SECTION, 160), hub: turned(HUB_SECTION, 48) }),
     [],
@@ -138,7 +143,7 @@ function Turned({ m, carbon }: { m: Materials; carbon: boolean }) {
   useEffect(() => () => Object.values(geometry).forEach((g) => g.dispose()), [geometry]);
   return (
     <>
-      <mesh geometry={geometry.tyre} material={m.tyre} castShadow receiveShadow />
+      <mesh geometry={geometry.tyre} material={m.tyre} scale-z={wide} castShadow receiveShadow />
       <mesh geometry={geometry.rim} material={carbon ? m.carbon : m.alloy} castShadow receiveShadow />
       <mesh geometry={geometry.hub} material={m.anodised} castShadow />
     </>

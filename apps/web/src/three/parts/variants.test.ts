@@ -21,6 +21,7 @@ describe('variantOf', () => {
         { module: 'SEAT', name: 'Dropper 200 mm with saddle', plate: plate(['Drop', '200 mm']) },
       ]),
     ).toEqual({
+      ...STARTING_VARIANT,
       size: 'S',
       battery: 750,
       shock: 'coil',
@@ -30,6 +31,36 @@ describe('variantOf', () => {
       carbonBar: true,
       wireless: true,
       drop: 200,
+    });
+  });
+
+  it('tells the second-wave parts by their shape', () => {
+    expect(
+      variantOf([
+        {
+          module: 'SHOCK',
+          name: 'Coil shock 150 mm, piggyback',
+          plate: plate(['Travel', '150 mm'], ['Spring', 'Coil, 450 lb/in'], ['Reservoir', 'Piggyback']),
+        },
+        { module: 'FORK', name: 'Dual-crown fork 200 mm', plate: plate(['Travel', '200 mm']) },
+        { module: 'WHEELSET', name: 'Plus wheelset', plate: plate(['Rims', 'AL35'], ['Tyres', '29 × 2.6″']) },
+        { module: 'DRIVETRAIN', name: 'Belt drive, single speed', plate: plate(['Gears', '1 × 1']) },
+        { module: 'COCKPIT', name: 'Integrated carbon bar-stem 780 mm', plate: plate(['Rise', '0 mm']) },
+        { module: 'SEAT', name: 'Rigid carbon post, race saddle', plate: plate(['Drop', 'None, rigid']) },
+      ]),
+    ).toMatchObject({
+      shock: 'coil',
+      piggyback: true,
+      travel: 200,
+      dualCrown: true,
+      rim: 'AL35',
+      tyre: 2.6,
+      belt: true,
+      carbonBar: true,
+      integratedBar: true,
+      rigidPost: true,
+      // a rigid post rides at the 150 mm dropper's height
+      drop: 150,
     });
   });
 

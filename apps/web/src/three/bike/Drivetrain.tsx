@@ -1,6 +1,14 @@
 import { useFrame } from '@react-three/fiber';
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { CatmullRomCurve3, Matrix4, Quaternion, Vector3, type Group, type InstancedMesh } from 'three';
+import {
+  CatmullRomCurve3,
+  Matrix4,
+  Quaternion,
+  TubeGeometry,
+  Vector3,
+  type Group,
+  type InstancedMesh,
+} from 'three';
 import { BB, DRIVE, REAR_AXLE, type P2 } from './layout';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { gearShape } from './geometry';
@@ -41,6 +49,46 @@ export function Cassette({ m }: { m: Materials }) {
         </mesh>
       ))}
     </group>
+  );
+}
+
+/** the belt drive's rear sprocket: one wide cog in place of the cassette; place inside the rear `Wheel` */
+export function BeltSprocket({ m }: { m: Materials }) {
+  const shape = useMemo(() => gearShape(BELT_COG_TEETH, BELT_COG_R, null), []);
+  return (
+    <mesh material={m.anodised} position-z={DRIVE.z - 0.006} castShadow>
+      <extrudeGeometry args={[shape, { depth: 0.012, bevelEnabled: false, curveSegments: 4 }]} />
+    </mesh>
+  );
+}
+
+const BELT_COG_TEETH = 24;
+const BELT_COG_R = cogRadius(BELT_COG_TEETH);
+
+/** a carbon-reinforced belt from the chainring to the rear sprocket: no derailleur, nothing to oil */
+export function Belt({ m }: { m: Materials }) {
+  const geometry = useMemo(() => {
+    const pts: Vector3[] = [];
+    const arc = (c: P2, r: number, from: number, to: number, n: number) => {
+      for (let i = 0; i <= n; i++) {
+        const a = from + ((to - from) * i) / n;
+        pts.push(new Vector3(c[0] + Math.cos(a) * r, c[1] + Math.sin(a) * r, DRIVE.z));
+      }
+    };
+    arc(BB, DRIVE.ring.r + 0.003, -Math.PI * 0.5, Math.PI * 0.5, 16);
+    arc(REAR_AXLE, BELT_COG_R + 0.003, Math.PI * 0.5, Math.PI * 1.5, 12);
+    return new TubeGeometry(new CatmullRomCurve3(pts, true, 'centripetal'), 240, 0.004, 8, true);
+  }, []);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  // a flat band: the round tube pressed thin across the chainline
+  return (
+    <mesh
+      geometry={geometry}
+      material={m.rubber}
+      scale={[1, 1, 2.6]}
+      position-z={-DRIVE.z * 1.6}
+      castShadow
+    />
   );
 }
 

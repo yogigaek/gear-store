@@ -154,3 +154,115 @@ export function HexKeys({ m }: { m: Materials }) {
     </group>
   );
 }
+
+/** a 250 Wh range extender: a bottle-shaped pack in its cage, with the cable to the frame's port */
+export function RangeExtender({ m }: { m: Materials }) {
+  return (
+    <group rotation-z={0.12}>
+      <RoundedBox
+        args={[0.075, 0.2, 0.075]}
+        radius={0.03}
+        smoothness={5}
+        position-y={0.1}
+        material={m.shell}
+        castShadow
+      />
+      {/* the cage: two rails up the back of the pack */}
+      {[-1, 1].map((side) => (
+        <mesh key={side} material={m.anodised} position={[-0.04, 0.1, side * 0.022]} castShadow>
+          <boxGeometry args={[0.006, 0.18, 0.006]} />
+        </mesh>
+      ))}
+      {/* charge level and release button on the top */}
+      <mesh material={m.steel} position={[0, 0.202, 0]}>
+        <cylinderGeometry args={[0.012, 0.012, 0.006, 24]} />
+      </mesh>
+      {Array.from({ length: 4 }, (_, i) => (
+        <mesh key={i} material={m.lamp} position={[0.0381, 0.13 + i * 0.012, 0]} rotation-y={Math.PI / 2}>
+          <planeGeometry args={[0.008, 0.006]} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+/** a straight rod between two points, for racks and stays */
+function Rod({
+  from,
+  to,
+  r,
+  material,
+}: {
+  from: Vector3;
+  to: Vector3;
+  r: number;
+  material: Materials['steel'];
+}) {
+  const geometry = useMemo(() => new TubeGeometry(new CatmullRomCurve3([from, to]), 2, r, 10), [from, to, r]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return <mesh geometry={geometry} material={material} castShadow />;
+}
+
+/** a rear rack: two side frames from the axle up to a flat deck, cross bars, and struts to the seat stays */
+export function RearRack({ m }: { m: Materials }) {
+  const rods = useMemo(() => {
+    const v = (x: number, y: number, z: number) => new Vector3(x, y, z);
+    const out: [Vector3, Vector3][] = [];
+    for (const side of [-1, 1]) {
+      const z = side * 0.07;
+      // leg from the axle mount up to the deck, then the deck's side rail back
+      out.push([v(0, 0, z), v(0.06, 0.3, z)], [v(0.06, 0.3, z), v(-0.32, 0.3, z)]);
+      // strut forward to the seat stay
+      out.push([v(0.06, 0.3, z), v(0.24, 0.36, z * 0.8)]);
+    }
+    for (const x of [-0.3, -0.19, -0.08, 0.04]) out.push([v(x, 0.3, -0.07), v(x, 0.3, 0.07)]);
+    return out;
+  }, []);
+  return (
+    <group>
+      {rods.map(([a, b], i) => (
+        <Rod key={i} from={a} to={b} r={0.0055} material={m.anodised} />
+      ))}
+    </group>
+  );
+}
+
+/** a clip-on fender set: a long rear blade and a short front one, curved to a 29 × 2.6 tyre, with their stays */
+export function Fenders({ m }: { m: Materials }) {
+  const plastic = useMemo(
+    () => new MeshStandardMaterial({ color: '#3a4045', roughness: 0.5, metalness: 0.1 }),
+    [],
+  );
+  useEffect(() => () => plastic.dispose(), [plastic]);
+  const blades = useMemo(() => {
+    const blade = (from: number, to: number) => {
+      const pts = Array.from({ length: 24 }, (_, i) => {
+        const a = from + ((to - from) * i) / 23;
+        return new Vector3(Math.cos(a) * 0.4, Math.sin(a) * 0.4, 0);
+      });
+      return new TubeGeometry(new CatmullRomCurve3(pts), 80, 0.009, 12);
+    };
+    return [blade(Math.PI * 0.3, Math.PI * 0.95), blade(Math.PI * 0.12, Math.PI * 0.55)];
+  }, []);
+  useEffect(() => () => blades.forEach((g) => g.dispose()), [blades]);
+  return (
+    <group>
+      {/* the blades are flattened tubes: wide across the tyre, thin in section */}
+      <group position={[-0.26, 0, 0]}>
+        <mesh geometry={blades[0]} material={plastic} scale={[1, 1, 4.5]} castShadow />
+        {[-1, 1].map((side) => (
+          <Rod
+            key={side}
+            from={new Vector3(0, 0, side * 0.045)}
+            to={new Vector3(Math.cos(Math.PI * 0.6) * 0.4, Math.sin(Math.PI * 0.6) * 0.4, side * 0.045)}
+            r={0.0025}
+            material={m.steel}
+          />
+        ))}
+      </group>
+      <group position={[0.26, 0, 0.14]}>
+        <mesh geometry={blades[1]} material={plastic} scale={[1, 1, 4.5]} castShadow />
+      </group>
+    </group>
+  );
+}

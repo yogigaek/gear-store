@@ -13,7 +13,7 @@ import {
   Vector3,
   type Group,
 } from 'three';
-import { Cassette, Chain, Crankset, Derailleur, type Motion } from './Drivetrain';
+import { Belt, BeltSprocket, Cassette, Chain, Crankset, Derailleur, type Motion } from './Drivetrain';
 import {
   BB,
   FORK_ANGLE,
@@ -131,38 +131,44 @@ export function EBike({
     <CalloutContext value={callouts}>
       <Part motion={motion} offset={[-0.46, 0, 0]} order={5} callout={PARTS.wheelset}>
         <group position={at(REAR_AXLE)}>
-          <Wheel ref={rear} m={m} rim={variant.rim} accent={variant.carbonRims}>
-            <Cassette m={m} />
+          <Wheel ref={rear} m={m} rim={variant.rim} accent={variant.carbonRims} tyre={variant.tyre}>
+            {variant.belt ? <BeltSprocket m={m} /> : <Cassette m={m} />}
           </Wheel>
         </group>
       </Part>
       <Part motion={motion} offset={[0.46, 0, 0]} order={5}>
         <group position={at(FRONT_AXLE)}>
-          <Wheel ref={front} m={m} rim={variant.rim} accent={variant.carbonRims} />
+          <Wheel ref={front} m={m} rim={variant.rim} accent={variant.carbonRims} tyre={variant.tyre} />
         </group>
       </Part>
       <Frame m={m} motion={motion} frame={frame} size={variant.size} capacity={variant.battery} />
       <Part motion={motion} offset={[-0.22, -0.05, 0]} order={0}>
-        <RearEnd m={m} wireless={variant.wireless} />
+        <RearEnd m={m} wireless={variant.wireless || variant.belt} />
       </Part>
       <Part motion={motion} offset={[0, 0.08, 0.32]} order={1} callout={PARTS.shock}>
-        <Shock m={m} kind={variant.shock} />
+        <Shock m={m} kind={variant.shock} piggyback={variant.piggyback} />
       </Part>
       {/* the fork and the cockpit leave together, so the brake hoses between them stay whole */}
       <Part motion={motion} offset={[0.22, 0.16, 0]} order={6} callout={PARTS.fork}>
-        <Fork m={m} light={light} travel={variant.travel} />
-        <Hoses m={m} wireless={variant.wireless} />
+        <Fork m={m} light={light} travel={variant.travel} dualCrown={variant.dualCrown} />
+        <Hoses m={m} wireless={variant.wireless || variant.belt} />
       </Part>
       <Part motion={motion} offset={[0.22, 0.16, 0]} order={6} callout={PARTS.cockpit}>
-        <Cockpit m={m} carbon={variant.carbonBar} />
+        <Cockpit m={m} carbon={variant.carbonBar} integrated={variant.integratedBar} />
       </Part>
       <Part motion={motion} offset={[-0.05, 0.22, 0]} order={7} callout={PARTS.seat}>
-        <Seat m={m} drop={variant.drop} />
+        <Seat m={m} drop={variant.drop} rigid={variant.rigidPost} />
       </Part>
       <Part motion={motion} offset={[0, -0.05, 0.46]} order={4} callout={PARTS.drivetrain}>
         <Crankset m={m} motion={motion} />
-        <Chain m={m} motion={motion} />
-        <Derailleur m={m} motion={motion} wireless={variant.wireless} />
+        {variant.belt ? (
+          <Belt m={m} />
+        ) : (
+          <>
+            <Chain m={m} motion={motion} />
+            <Derailleur m={m} motion={motion} wireless={variant.wireless} />
+          </>
+        )}
       </Part>
     </CalloutContext>
   );
@@ -599,7 +605,16 @@ class Helix extends Curve<Vector3> {
 
 /** coil shock: body at the down tube, gold shaft, a yellow spring, piggyback reservoir */
 /** a coil shock shows its spring; an air shock hides the same body in a smooth air can */
-export function Shock({ m, kind = 'coil' }: { m: Materials; kind?: BikeVariant['shock'] }) {
+export function Shock({
+  m,
+  kind = 'coil',
+  piggyback = false,
+}: {
+  m: Materials;
+  kind?: BikeVariant['shock'];
+  /** a reservoir of extra oil alongside the body, on a bridge from the top eyelet */
+  piggyback?: boolean;
+}) {
   const { position, quaternion, length } = useMemo(() => span(at(SHOCK_MOUNT), at(ROCKER_FRONT)), []);
   const coil = useMemo(
     () => new TubeGeometry(new Helix(0.026, length * 0.62, 8.5), 600, 0.0042, 8),
@@ -641,6 +656,19 @@ export function Shock({ m, kind = 'coil' }: { m: Materials; kind?: BikeVariant['
       <mesh material={m.anodised} position={[0.032, base + 0.08, 0]} castShadow>
         <cylinderGeometry args={[0.012, 0.012, 0.09, 24]} />
       </mesh>
+      {piggyback && (
+        <group position={[0.036, -base - 0.07, 0]}>
+          <mesh material={m.anodised} castShadow>
+            <cylinderGeometry args={[0.0145, 0.0145, 0.085, 28]} />
+          </mesh>
+          <mesh material={m.spring} position-y={0.044}>
+            <cylinderGeometry args={[0.0148, 0.0148, 0.006, 28]} />
+          </mesh>
+          <mesh material={m.anodised} position={[-0.02, 0.05, 0]} castShadow>
+            <boxGeometry args={[0.04, 0.016, 0.018]} />
+          </mesh>
+        </group>
+      )}
       {/* the upper mount: from the shaft's end up to the top eyelet */}
       <mesh material={m.anodised} position-y={-base - 0.035} castShadow>
         <cylinderGeometry args={[0.012, 0.012, 0.07, 24]} />
@@ -655,7 +683,18 @@ export function Shock({ m, kind = 'coil' }: { m: Materials; kind?: BikeVariant['
 }
 
 /** 160 mm fork: crown, gold stanchions, lowers with the arch in front, and the headlight on the crown */
-export function Fork({ m, light, travel }: { m: Materials; light: boolean; travel?: number }) {
+export function Fork({
+  m,
+  light,
+  travel,
+  dualCrown = false,
+}: {
+  m: Materials;
+  light: boolean;
+  travel?: number;
+  /** stanchions running up past the head tube to a second crown, as a downhill fork has */
+  dualCrown?: boolean;
+}) {
   const arch = useMemo(
     () =>
       new TubeGeometry(
@@ -701,6 +740,23 @@ export function Fork({ m, light, travel }: { m: Materials; light: boolean; trave
           </mesh>
         </group>
       ))}
+      {dualCrown && (
+        <>
+          {[-1, 1].map((side) => (
+            <mesh key={side} material={m.kashima} position={[0, 0.085, side * 0.058]} castShadow>
+              <cylinderGeometry args={[0.0175, 0.0175, 0.21, 32]} />
+            </mesh>
+          ))}
+          <RoundedBox
+            args={[0.055, 0.03, 0.16]}
+            radius={0.012}
+            smoothness={4}
+            position-y={0.19}
+            material={m.anodised}
+            castShadow
+          />
+        </>
+      )}
       <mesh geometry={arch} material={m.anodised} castShadow />
       <ForkDecals axle={axle} travel={travel} />
       <Caliper m={m} at={[-0.055, axle + 0.075]} angle={2.2} />
@@ -749,17 +805,27 @@ function paintDisplay(ctx: CanvasRenderingContext2D, w: number, h: number) {
   ctx.globalAlpha = 1;
 }
 
-export function Cockpit({ m, carbon = false }: { m: Materials; carbon?: boolean }) {
-  // the carbon bar is the wider one: 800 mm against the alloy's 780
-  const half = carbon ? 0.4 : 0.39;
+export function Cockpit({
+  m,
+  carbon = false,
+  integrated = false,
+}: {
+  m: Materials;
+  carbon?: boolean;
+  /** a one-piece carbon bar and stem, flat: no rise at the ends */
+  integrated?: boolean;
+}) {
+  // the carbon riser is the wider one: 800 mm against the alloy's and the integrated bar's 780
+  const half = carbon && !integrated ? 0.4 : 0.39;
+  const rise = integrated ? 0 : 0.03;
   const bar = useMemo(() => {
     const pts = [-1, -0.77, -0.46, -0.18, 0, 0.18, 0.46, 0.77, 1].map((f) => {
       const z = f * half;
       const t = Math.max(0, (Math.abs(z) - 0.07) / (half - 0.07));
-      return new Vector3(BAR[0] - 0.024 * t * t, BAR[1] + 0.03 * Math.sin((t * Math.PI) / 2), z);
+      return new Vector3(BAR[0] - 0.024 * t * t, BAR[1] + rise * Math.sin((t * Math.PI) / 2), z);
     });
     return new TubeGeometry(new CatmullRomCurve3(pts), 80, 0.011, 16);
-  }, [half]);
+  }, [half, rise]);
   useEffect(() => () => bar.dispose(), [bar]);
   const screen = usePaintedTexture(256, 128, paintDisplay);
 
@@ -771,7 +837,13 @@ export function Cockpit({ m, carbon = false }: { m: Materials; carbon?: boolean 
           <cylinderGeometry args={[0.019, 0.019, 0.04, 28]} />
         </mesh>
       </group>
-      <Beam from={at(STEERER_TOP)} to={at(BAR)} h={0.036} w={0.034} material={m.anodised}>
+      <Beam
+        from={at(STEERER_TOP)}
+        to={at(BAR)}
+        h={0.036}
+        w={0.034}
+        material={integrated ? m.carbon : m.anodised}
+      >
         {/* display on the stem */}
         <group position={[0, 0.026, 0]} rotation-z={0.35}>
           <RoundedBox args={[0.062, 0.012, 0.042]} radius={0.004} smoothness={3} material={m.shell} />
@@ -781,10 +853,10 @@ export function Cockpit({ m, carbon = false }: { m: Materials; carbon?: boolean 
           </mesh>
         </group>
       </Beam>
-      <mesh geometry={bar} material={carbon ? m.carbon : m.anodised} castShadow />
+      <mesh geometry={bar} material={carbon || integrated ? m.carbon : m.anodised} castShadow />
       {/* grips, collars and levers sit at the bar's ends, so a wider bar carries them outwards */}
       {[-1, 1].map((side) => (
-        <group key={side} position-z={side * (half - 0.39)}>
+        <group key={side} position={[0, rise - 0.03, side * (half - 0.39)]}>
           <mesh
             material={m.rubber}
             position={[BAR[0] - 0.022, BAR[1] + 0.029, side * 0.345]}
@@ -818,7 +890,7 @@ export function Cockpit({ m, carbon = false }: { m: Materials; carbon?: boolean 
   );
 }
 
-export function Seat({ m, drop = 150 }: { m: Materials; drop?: number }) {
+export function Seat({ m, drop = 150, rigid = false }: { m: Materials; drop?: number; rigid?: boolean }) {
   // a sphere pressed into a saddle: narrow nose, wide rear, domed on top and nearly flat underneath
   const saddle = useMemo(() => {
     const g = new SphereGeometry(1, 64, 32);
@@ -844,6 +916,28 @@ export function Seat({ m, drop = 150 }: { m: Materials; drop?: number }) {
   // a longer dropper stands the saddle higher by the difference, along the seat tube
   const rise = (drop - 150) / 1000;
   const up: P3 = [SEAT_AXIS[0] * rise, SEAT_AXIS[1] * rise, 0];
+  if (rigid) {
+    // one slim carbon post, no dropper collar, and a narrow race saddle
+    return (
+      <group>
+        <mesh material={m.carbon} position={at(lerp(SEAT_TOP, POST_TOP, 0.5))} rotation-z={tilt} castShadow>
+          <cylinderGeometry args={[0.0158, 0.0158, 0.2, 28]} />
+        </mesh>
+        <group position={[POST_TOP[0] + 0.01, POST_TOP[1] + 0.012, 0]}>
+          <mesh material={m.carbon}>
+            <boxGeometry args={[0.036, 0.014, 0.026]} />
+          </mesh>
+          <mesh
+            geometry={saddle}
+            material={m.leather}
+            position={[0, 0.02, 0]}
+            scale={[1.05, 0.8, 0.78]}
+            castShadow
+          />
+        </group>
+      </group>
+    );
+  }
   return (
     <group>
       <mesh material={m.anodised} position={at(lower)} rotation-z={tilt} castShadow>
