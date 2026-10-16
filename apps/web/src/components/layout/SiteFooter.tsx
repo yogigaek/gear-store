@@ -1,5 +1,8 @@
 import { usePageTone } from './page-tone';
 
+/** the write-up of this project: architecture, the order flow and the tests behind it */
+const CASE_STUDY = 'https://muhammadyogi.vercel.app/projects/rakit';
+
 export function SiteFooter() {
   const dark = usePageTone() === 'dark';
   return (
@@ -14,6 +17,18 @@ export function SiteFooter() {
           <p className="max-w-[42ch]">
             A portfolio project by Muhammad Yogi. This is a demo store: products, prices and stock are
             examples, and no real orders are taken.
+          </p>
+          <p>
+            <a
+              href={CASE_STUDY}
+              target="_blank"
+              rel="noreferrer"
+              className={`inline-flex min-h-11 items-center gap-1.5 font-semibold ${dark ? 'text-alu-50 hover:text-signal' : 'text-ink hover:text-ink-2'}`}
+            >
+              <span className="underline underline-offset-4">How it’s built</span>
+              <span className="sr-only"> (opens the case study in a new tab)</span>
+              <span aria-hidden="true">↗</span>
+            </a>
           </p>
         </div>
         <div className="space-y-1">

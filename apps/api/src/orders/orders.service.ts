@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  PAYMENT_WINDOW_MINUTES,
+  paymentWindowMinutes,
   shippingFor,
   type CheckoutInput,
   type OrderDetail,
@@ -62,6 +62,11 @@ export class OrdersService {
     await this.expireOverdue();
     const address = await this.addresses.owned(userId, input.addressId);
     const shipping = shippingFor(address.province as Province);
+    const { isDemo } = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { isDemo: true },
+    });
+    const holdMinutes = paymentWindowMinutes(isDemo);
 
     try {
       const orderId = await this.prisma.$transaction(async (tx) => {
@@ -151,12 +156,12 @@ export class OrdersService {
             shipProvince: address.province,
             shipPostalCode: address.postalCode,
             idempotencyKey: input.idempotencyKey,
-            paymentExpiresAt: new Date(Date.now() + PAYMENT_WINDOW_MINUTES * 60_000),
+            paymentExpiresAt: new Date(Date.now() + holdMinutes * 60_000),
             items: { create: items },
             events: {
               create: {
                 status: OrderStatus.PENDING_PAYMENT,
-                note: `Order placed. Pay within ${PAYMENT_WINDOW_MINUTES} minutes.`,
+                note: `Order placed. Pay within ${holdMinutes} minutes.`,
               },
             },
           },

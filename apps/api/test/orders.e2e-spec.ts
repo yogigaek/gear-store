@@ -149,6 +149,33 @@ describe('Addresses and orders (e2e)', () => {
       await me.cancel(order.number).expect(200);
     });
 
+    it('holds stock for 60 minutes, and for 10 on a shared demo account', async () => {
+      const minutesHeld = (o: { createdAt: string; paymentExpiresAt: string }) =>
+        Math.round((Date.parse(o.paymentExpiresAt) - Date.parse(o.createdAt)) / 60_000);
+
+      const customer = await customerWithAddress();
+      await customer.me.cartSet('workshop-hex-set', 1).expect(200);
+      const regular = orderDetailSchema.parse(
+        (await customer.me.checkout(customer.address.id).expect(201)).body,
+      );
+      expect(minutesHeld(regular)).toBe(60);
+
+      // the demo accounts are seeded; a test account marked as one behaves the same and is cleaned up after
+      const demo = await customerWithAddress();
+      const { id } = await prisma.user.findFirstOrThrow({
+        where: { addresses: { some: { id: demo.address.id } } },
+        select: { id: true },
+      });
+      await prisma.user.update({ where: { id }, data: { isDemo: true } });
+      await demo.me.cartSet('workshop-hex-set', 1).expect(200);
+      const shared = orderDetailSchema.parse((await demo.me.checkout(demo.address.id).expect(201)).body);
+      expect(minutesHeld(shared)).toBe(10);
+      expect(shared.events[0]?.note).toBe('Order placed. Pay within 10 minutes.');
+
+      await customer.me.cancel(regular.number).expect(200);
+      await demo.me.cancel(shared.number).expect(200);
+    });
+
     it('returns the same order for a repeated idempotency key, even sent twice at once', async () => {
       const { me, address } = await customerWithAddress();
       await me.cartSet('workshop-hex-set', 1).expect(200);

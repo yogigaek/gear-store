@@ -3,6 +3,14 @@ import { partModuleSchema, rupiahSchema } from './catalog.js';
 
 /** How long a placed order holds its stock while waiting for payment. */
 export const PAYMENT_WINDOW_MINUTES = 60;
+/**
+ * The shared demo accounts hold stock for less: every visitor signs in to them, so one visitor's unpaid order
+ * should not keep parts off sale for an hour.
+ */
+export const DEMO_PAYMENT_WINDOW_MINUTES = 10;
+
+export const paymentWindowMinutes = (isDemo: boolean) =>
+  isDemo ? DEMO_PAYMENT_WINDOW_MINUTES : PAYMENT_WINDOW_MINUTES;
 
 export const orderStatuses = [
   'PENDING_PAYMENT',

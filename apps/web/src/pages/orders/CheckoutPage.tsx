@@ -1,4 +1,4 @@
-import { PAYMENT_WINDOW_MINUTES } from '@gear-store/shared';
+import { paymentWindowMinutes } from '@gear-store/shared';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { z } from 'zod';
@@ -18,7 +18,7 @@ export function CheckoutPage() {
   const { cart, isLoading } = useCart();
   const addresses = useAddresses();
   const checkout = useCheckout();
-  const { authed } = useAuth();
+  const { authed, user } = useAuth();
   const navigate = useNavigate();
   const [chosenId, setChosenId] = useState<string>();
   const [adding, setAdding] = useState(false);
@@ -200,8 +200,8 @@ export function CheckoutPage() {
             {paying ? 'Opening payment…' : checkout.isPending ? 'Placing order…' : 'Place order and pay'}
           </Button>
           <p className="text-xs text-ink-3">
-            The items are held for {PAYMENT_WINDOW_MINUTES} minutes while you pay. This is a demo: Midtrans
-            runs in sandbox mode and no real money moves.
+            The items are held for {paymentWindowMinutes(user?.isDemo ?? false)} minutes while you pay. This
+            is a demo: Midtrans runs in sandbox mode and no real money moves.
           </p>
         </section>
       </div>

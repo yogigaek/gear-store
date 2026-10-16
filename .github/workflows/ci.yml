@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17-alpine
@@ -33,8 +33,8 @@ jobs:
       SMTP_URL: smtp://localhost:1025
       MIDTRANS_SERVER_KEY: SB-Mid-server-ci-only-not-a-real-key
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
       # npm 10 crashes resolving this workspace's peer set; the repo pins npm 11 in packageManager
@@ -61,7 +61,7 @@ jobs:
   # The whole stack in a real browser: sign-up through Mailpit, checkout, a signed payment notification,
   # admin fulfilment. Runs against the production build served by `vite preview`.
   browser:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       postgres:
         image: postgres:17-alpine
@@ -89,8 +89,8 @@ jobs:
       MIDTRANS_SERVER_KEY: SB-Mid-server-ci-only-not-a-real-key
       MAILPIT_URL: http://localhost:8025
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
       - name: use npm 11
@@ -119,7 +119,7 @@ jobs:
         run: npm run test:browser
       - name: keep the report and traces
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-report
           path: |
