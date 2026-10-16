@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
 import { Price } from '../../components/ui/Price';
-import { api } from '../../lib/api';
+import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
 import { useCart } from '../../lib/cart';
 import { useAddresses, useCheckout } from '../../lib/orders';
@@ -64,8 +64,13 @@ export function CheckoutPage() {
               }),
             );
             window.location.assign(redirectUrl);
-          } catch {
-            void navigate(`/orders/${order.number}?payment=unavailable`, { replace: true });
+          } catch (error) {
+            // the order page says which: payments not set up on this server, or the provider out of reach
+            const reason =
+              error instanceof ApiError && error.code === 'PAYMENTS_NOT_SET_UP'
+                ? 'not-set-up'
+                : 'unavailable';
+            void navigate(`/orders/${order.number}?payment=${reason}`, { replace: true });
           }
         },
       },

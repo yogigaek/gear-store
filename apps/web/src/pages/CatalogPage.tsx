@@ -9,7 +9,7 @@ import { readCatalogQuery, writeCatalogQuery } from '../lib/catalog-query';
 import { useCategories, useProducts } from '../lib/queries';
 
 const sortLabels: Record<(typeof productSorts)[number], string> = {
-  newest: 'Newest',
+  type: 'Part type',
   'price-asc': 'Price: low to high',
   'price-desc': 'Price: high to low',
   name: 'Name',

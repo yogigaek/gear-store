@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../lib/auth-context';
 import { useCart } from '../../lib/cart';
+import { usePageTone } from '../layout/page-tone';
 import { PartImage } from '../product/PartImage';
 import { Notice } from '../ui/Field';
 import { Price } from '../ui/Price';
@@ -11,7 +12,11 @@ import { QuantityStepper } from './QuantityStepper';
 
 const lineProblem: Record<NonNullable<CartLine['problem']>, (line: CartLine) => string> = {
   OUT_OF_STOCK: () => 'Out of stock. Remove it to check out.',
-  NOT_ENOUGH_STOCK: (line) => `Only ${line.product.stock} left. Lower the quantity to check out.`,
+  // short on its own, or only together with a bike in the cart that uses the same part
+  NOT_ENOUGH_STOCK: (line) =>
+    line.quantity > line.product.stock
+      ? `Only ${line.product.stock} left. Lower the quantity to check out.`
+      : `Only ${line.product.stock} left, and a bike in your cart uses it too. Lower one of them to check out.`,
 };
 
 /** the reason a bike in the cart cannot be bought as it stands, in the server's words */
@@ -24,6 +29,7 @@ function buildProblem(build: CartBuild): string | null {
 }
 
 export function CartDrawer() {
+  const tone = usePageTone();
   const open = useCartDrawerOpen();
   const dialog = useRef<HTMLDialogElement>(null);
   const { cart, isLoading, isUpdating, error, setQuantity, setBuildQuantity } = useCart();
@@ -49,7 +55,9 @@ export function CartDrawer() {
       aria-labelledby="cart-title"
       onClose={cartDrawer.close}
       onClick={(e) => e.target === e.currentTarget && cartDrawer.close()}
-      className="m-0 ml-auto h-dvh max-h-none w-[min(26rem,100vw)] max-w-none border-l border-ink bg-alu p-0 text-ink backdrop:bg-ink/40"
+      className={`m-0 ml-auto h-dvh max-h-none w-[min(26rem,100vw)] max-w-none border-l border-ink bg-alu p-0 text-ink backdrop:bg-black/60 ${
+        tone === 'dark' ? 'surface-dark' : ''
+      }`}
     >
       <div className="flex h-full flex-col">
         <div className="flex h-16 shrink-0 items-center justify-between border-b border-ink px-4">
@@ -76,13 +84,23 @@ export function CartDrawer() {
           )}
           {isLoading && <p className="p-4 font-mono text-sm text-ink-3">Loading cart…</p>}
           {!isLoading && empty && (
-            <div className="space-y-3 p-4">
-              <p className="text-ink-2">Your cart is empty.</p>
-              <div className="flex flex-wrap gap-x-5 gap-y-2">
-                <Link to="/#configure" className="font-semibold underline underline-offset-4">
+            <div className="space-y-5 px-4 py-10 text-center">
+              <div className="space-y-1">
+                <p className="font-expanded text-lg font-extrabold uppercase">Your cart is empty</p>
+                <p className="text-sm text-ink-2">Build a whole E-1, or pick the parts you need.</p>
+              </div>
+              <div className="grid gap-2">
+                <Link
+                  to="/#configure"
+                  data-variant="primary"
+                  className="flex min-h-11 items-center justify-center border-b-[3px] border-signal bg-ink px-5 text-sm font-semibold uppercase tracking-[0.06em] text-alu-50 hover:bg-ink-2"
+                >
                   Build an E-1
                 </Link>
-                <Link to="/products" className="font-semibold underline underline-offset-4">
+                <Link
+                  to="/products"
+                  className="flex min-h-11 items-center justify-center border border-ink px-5 text-sm font-semibold uppercase tracking-[0.06em] hover:bg-alu-50"
+                >
                   Browse parts
                 </Link>
               </div>
@@ -91,7 +109,6 @@ export function CartDrawer() {
 
           <ul>
             {cart?.builds.map((build) => {
-              const frame = build.quote.parts.find((p) => p.product.module === 'FRAME')?.product;
               const problem = buildProblem(build);
               return (
                 <li
@@ -99,12 +116,22 @@ export function CartDrawer() {
                   className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-bench p-4"
                 >
                   <div className="aspect-square overflow-hidden border border-bench">
-                    <PartImage slug={frame?.slug ?? ''} module="FRAME" className="size-full" />
+                    {/* a bike is pictured whole, in its frame colour */}
+                    <PartImage
+                      slug="e1-bike"
+                      colorKey={build.quote.colorKey}
+                      module="FRAME"
+                      className="size-full"
+                      eager
+                    />
                   </div>
                   <div className="min-w-0 space-y-2">
                     <div className="flex items-baseline justify-between gap-2">
                       <p className="font-semibold leading-snug">{build.quote.label}</p>
-                      <Price amount={build.lineTotal} className="shrink-0 text-sm" />
+                      {/* a bike that can no longer be built has no price until it is built again */}
+                      {build.problem !== 'CANNOT_BUILD' && (
+                        <Price amount={build.lineTotal} className="shrink-0 text-sm" />
+                      )}
                     </div>
                     <p className="font-mono text-xs text-ink-3">
                       {build.quote.colorLabel ?? 'No colour'} · {build.quote.parts.length} parts
@@ -146,7 +173,13 @@ export function CartDrawer() {
                 className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-3 border-b border-bench p-4"
               >
                 <div className="aspect-square overflow-hidden border border-bench">
-                  <PartImage slug={line.product.slug} module={line.product.module} className="size-full" />
+                  <PartImage
+                    slug={line.product.slug}
+                    colorKey={line.colorKey}
+                    module={line.product.module}
+                    className="size-full"
+                    eager
+                  />
                 </div>
                 <div className="min-w-0 space-y-2">
                   <div className="flex items-baseline justify-between gap-2">
@@ -194,6 +227,7 @@ export function CartDrawer() {
             {cart.canCheckout ? (
               <Link
                 to={checkoutTo}
+                data-variant="primary"
                 className="flex min-h-11 items-center justify-center border-b-[3px] border-signal bg-ink px-5 text-sm font-semibold uppercase tracking-[0.06em] text-alu-50 hover:bg-ink-2"
               >
                 Checkout

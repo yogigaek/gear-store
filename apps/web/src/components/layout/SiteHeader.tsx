@@ -6,6 +6,12 @@ import { cartDrawer } from '../cart/cart-drawer-store';
 import { usePageTone } from './page-tone';
 import { useCategories, useWishlist } from '../../lib/queries';
 
+function prefetchSignIn() {
+  void import('../../pages/account/AuthLayout');
+  void import('../../pages/account/SignInPage');
+  void import('../../three/bike/AuthScene');
+}
+
 export function SiteHeader() {
   // native <dialog>: focus is trapped, Esc closes it, and the page behind is inert
   const menu = useRef<HTMLDialogElement>(null);
@@ -36,9 +42,15 @@ export function SiteHeader() {
         <Link to="/" className="font-expanded text-xl font-extrabold uppercase tracking-tight">
           Rakit
         </Link>
-        {/* the gadget categories belong to the catalogue; the E-1's stage keeps the bar clear */}
-        <nav aria-label="Categories" className={`hidden gap-6 text-sm ${dark ? '' : 'lg:flex'}`}>
-          {categoryLinks.map((l) => (
+        {/* the E-1's stage keeps the bar to two ways on; the catalogue lists every part type */}
+        <nav aria-label={dark ? 'Store' : 'Categories'} className="hidden gap-6 text-sm lg:flex">
+          {(dark
+            ? [
+                { to: '/#configure', label: 'Configure', active: false },
+                { to: '/products', label: 'All parts', active: false },
+              ]
+            : categoryLinks
+          ).map((l) => (
             <Link
               key={l.to}
               to={l.to}
@@ -63,7 +75,13 @@ export function SiteHeader() {
               Admin
             </Link>
           )}
-          <Link to={accountTo} className={`hidden min-h-11 items-center sm:flex ${muted}`}>
+          <Link
+            to={accountTo}
+            // a pointer on its way to "Sign in": start fetching the sign-in page and its 3D scene now
+            onPointerEnter={status === 'signed-in' ? undefined : prefetchSignIn}
+            onFocus={status === 'signed-in' ? undefined : prefetchSignIn}
+            className={`hidden min-h-11 items-center sm:flex ${muted}`}
+          >
             {status === 'restoring' ? '…' : accountLabel}
           </Link>
           <button
@@ -94,7 +112,9 @@ export function SiteHeader() {
         ref={menu}
         aria-label="Menu"
         onClick={(e) => e.target === e.currentTarget && close()}
-        className="m-0 ml-auto h-dvh max-h-none w-[min(20rem,85vw)] max-w-none border-l border-ink bg-alu p-0 text-ink backdrop:bg-ink/40"
+        className={`m-0 ml-auto h-dvh max-h-none w-[min(20rem,85vw)] max-w-none border-l border-ink bg-alu p-0 text-ink backdrop:bg-black/60 ${
+          dark ? 'surface-dark' : ''
+        }`}
       >
         <div className="flex h-16 items-center justify-between border-b border-ink px-4">
           <span className="font-mono text-xs uppercase tracking-[0.08em] text-ink-3">Menu</span>
@@ -109,7 +129,7 @@ export function SiteHeader() {
         <nav aria-label="Main">
           <ul>
             {[
-              { to: '/products', label: 'All products', active: pathname === '/products' && !activeCategory },
+              { to: '/products', label: 'All parts', active: pathname === '/products' && !activeCategory },
               ...categoryLinks,
             ].map((l) => (
               <li key={l.to} className="border-b border-bench">

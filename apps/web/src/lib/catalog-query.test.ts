@@ -3,13 +3,13 @@ import { readCatalogQuery, writeCatalogQuery } from './catalog-query';
 
 describe('catalog query in the URL', () => {
   it('reads valid parameters', () => {
-    const q = readCatalogQuery(new URLSearchParams('category=audio&sort=price-asc&page=2&inStock=true'));
-    expect(q).toMatchObject({ category: 'audio', sort: 'price-asc', page: 2, inStock: true });
+    const q = readCatalogQuery(new URLSearchParams('category=batteries&sort=price-asc&page=2&inStock=true'));
+    expect(q).toMatchObject({ category: 'batteries', sort: 'price-asc', page: 2, inStock: true });
   });
 
   it('drops only the invalid parameters', () => {
-    const q = readCatalogQuery(new URLSearchParams('category=audio&page=-3&sort=random&pageSize=9999'));
-    expect(q).toEqual({ category: 'audio', sort: 'newest', page: 1, pageSize: 12 });
+    const q = readCatalogQuery(new URLSearchParams('category=batteries&page=-3&sort=random&pageSize=9999'));
+    expect(q).toEqual({ category: 'batteries', sort: 'type', page: 1, pageSize: 12 });
   });
 
   it('drops a min price above the max price', () => {
@@ -19,13 +19,13 @@ describe('catalog query in the URL', () => {
   });
 
   it('writes short URLs without defaults', () => {
-    expect(writeCatalogQuery({ sort: 'newest', page: 1, pageSize: 12, category: 'power' }).toString()).toBe(
-      'category=power',
+    expect(writeCatalogQuery({ sort: 'type', page: 1, pageSize: 12, category: 'forks' }).toString()).toBe(
+      'category=forks',
     );
   });
 
   it('round-trips', () => {
-    const query = { category: 'hubs', q: 'usb c', minPrice: 100000, sort: 'name', page: 3 } as const;
+    const query = { category: 'cockpits', q: 'carbon bar', minPrice: 100000, sort: 'name', page: 3 } as const;
     expect(readCatalogQuery(writeCatalogQuery(query))).toMatchObject(query);
   });
 });

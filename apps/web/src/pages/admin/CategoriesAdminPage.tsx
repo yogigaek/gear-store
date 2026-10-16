@@ -1,6 +1,7 @@
 import { adminCategoryInputSchema, type AdminCategory, type AdminCategoryInput } from '@gear-store/shared';
 import { useState } from 'react';
 import { Button } from '../../components/ui/Button';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Field, Notice } from '../../components/ui/Field';
 import { ApiError } from '../../lib/api';
 import { useAdminCategories, useCreateCategory, useDeleteCategory, useSaveCategory } from '../../lib/admin';
@@ -10,8 +11,20 @@ export function CategoriesAdminPage() {
   const categories = useAdminCategories();
   const remove = useDeleteCategory();
   const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<{ slug: string; name: string } | null>(null);
   return (
     <>
+      <ConfirmDialog
+        open={deleting !== null}
+        title={`Delete ${deleting?.name}?`}
+        confirmLabel="Delete"
+        danger
+        pending={remove.isPending}
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => deleting && remove.mutate(deleting.slug, { onSettled: () => setDeleting(null) })}
+      >
+        The part type goes from the store and the catalogue filters. It has no parts, so nothing else changes.
+      </ConfirmDialog>
       <AdminHeading title="Categories">
         {editing === null && (
           <Button variant="secondary" onClick={() => setEditing('new')}>
@@ -52,7 +65,7 @@ export function CategoriesAdminPage() {
                   variant="ghost"
                   disabled={c.productCount > 0 || remove.isPending}
                   title={c.productCount > 0 ? 'Only empty categories can be deleted' : undefined}
-                  onClick={() => remove.mutate(c.slug)}
+                  onClick={() => setDeleting({ slug: c.slug, name: c.name })}
                 >
                   Delete
                 </Button>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { AddressForm, AddressLines } from '../../components/checkout/AddressForm';
 import { Button } from '../../components/ui/Button';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
 import { Price } from '../../components/ui/Price';
@@ -10,9 +11,21 @@ export function AddressesPage() {
   const addresses = useAddresses();
   const remove = useDeleteAddress();
   const [editing, setEditing] = useState<string | 'new' | null>(null);
+  const [deleting, setDeleting] = useState<{ id: string; recipient: string } | null>(null);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      <ConfirmDialog
+        open={deleting !== null}
+        title="Delete this address?"
+        confirmLabel="Delete"
+        danger
+        pending={remove.isPending}
+        onCancel={() => setDeleting(null)}
+        onConfirm={() => deleting && remove.mutate(deleting.id, { onSettled: () => setDeleting(null) })}
+      >
+        The address for {deleting?.recipient} is removed from your account. Orders already placed keep it.
+      </ConfirmDialog>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-ink pb-4">
         <div className="space-y-1">
           <Label>Account</Label>
@@ -58,7 +71,7 @@ export function AddressesPage() {
                   variant="ghost"
                   className="px-0"
                   disabled={remove.isPending}
-                  onClick={() => remove.mutate(a.id)}
+                  onClick={() => setDeleting({ id: a.id, recipient: a.recipient })}
                 >
                   Delete
                 </Button>

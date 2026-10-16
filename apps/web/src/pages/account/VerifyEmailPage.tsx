@@ -27,7 +27,7 @@ export function VerifyEmailPage() {
           <Notice tone="error">This link is invalid or has expired.</Notice>
           <p className="text-sm text-ink-2">
             Sign in with your email and password to get a new link, or{' '}
-            <Link to="/register" className="underline underline-offset-4">
+            <Link preventScrollReset to="/register" className="underline underline-offset-4">
               create the account again
             </Link>
             .
@@ -37,7 +37,11 @@ export function VerifyEmailPage() {
       {verify.isSuccess && (
         <>
           <Notice tone="ok">{verify.data.message}</Notice>
-          <Link to="/sign-in" className="inline-block font-semibold underline underline-offset-4">
+          <Link
+            preventScrollReset
+            to="/sign-in"
+            className="inline-block font-semibold underline underline-offset-4"
+          >
             Sign in
           </Link>
         </>

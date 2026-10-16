@@ -27,28 +27,45 @@ function page(load: () => Promise<ComponentType>, { signedIn = false } = {}): Pi
 }
 
 const auth = { signedIn: true };
+/** the home page's dark studio, drawn by hand: the account pages stand on the same stage as the bike */
+const stage = { tone: 'stage' };
+/** the design reference shows the bench tokens as they are, on the light ground */
+const light = { tone: 'light' };
 
 export const routes: RouteObject[] = [
   {
     element: <Layout />,
+    // a first visit to a lazy page shows nothing until its chunk arrives, as it does today; saying so
+    // keeps React Router from warning on every page load
+    HydrateFallback: () => null,
     children: [
-      { index: true, handle: { tone: 'dark' }, element: <HomePage /> },
+      { index: true, handle: stage, element: <HomePage /> },
       { path: 'products', ...page(async () => (await import('./pages/CatalogPage')).CatalogPage) },
       { path: 'products/:slug', ...page(async () => (await import('./pages/ProductPage')).ProductPage) },
       { path: 'c/:id', ...page(async () => (await import('./pages/CategoryRedirect')).CategoryRedirect) },
-      { path: 'sign-in', ...page(async () => (await import('./pages/account/SignInPage')).SignInPage) },
-      { path: 'register', ...page(async () => (await import('./pages/account/RegisterPage')).RegisterPage) },
+      // the account pages share one layout: the 3D scene stays put while the form beside it changes
       {
-        path: 'verify-email',
-        ...page(async () => (await import('./pages/account/VerifyEmailPage')).VerifyEmailPage),
-      },
-      {
-        path: 'forgot-password',
-        ...page(async () => (await import('./pages/account/ForgotPasswordPage')).ForgotPasswordPage),
-      },
-      {
-        path: 'reset-password',
-        ...page(async () => (await import('./pages/account/ResetPasswordPage')).ResetPasswordPage),
+        handle: stage,
+        ...page(async () => (await import('./pages/account/AuthLayout')).AuthLayout),
+        children: [
+          { path: 'sign-in', ...page(async () => (await import('./pages/account/SignInPage')).SignInPage) },
+          {
+            path: 'register',
+            ...page(async () => (await import('./pages/account/RegisterPage')).RegisterPage),
+          },
+          {
+            path: 'verify-email',
+            ...page(async () => (await import('./pages/account/VerifyEmailPage')).VerifyEmailPage),
+          },
+          {
+            path: 'forgot-password',
+            ...page(async () => (await import('./pages/account/ForgotPasswordPage')).ForgotPasswordPage),
+          },
+          {
+            path: 'reset-password',
+            ...page(async () => (await import('./pages/account/ResetPasswordPage')).ResetPasswordPage),
+          },
+        ],
       },
       {
         path: 'account',
@@ -104,7 +121,20 @@ export const routes: RouteObject[] = [
           },
         ],
       },
-      { path: 'design', ...page(async () => (await import('./pages/DesignSystemPage')).DesignSystemPage) },
+      // a photo studio for the bike's stills; scripts only, never in a production build
+      ...(import.meta.env.DEV
+        ? [
+            {
+              path: 'studio/bike',
+              ...page(async () => (await import('./pages/StudioBikePage')).StudioBikePage),
+            },
+          ]
+        : []),
+      {
+        path: 'design',
+        handle: light,
+        ...page(async () => (await import('./pages/DesignSystemPage')).DesignSystemPage),
+      },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Notice } from '../../components/ui/Field';
 import { useAdminUsers, useSetRole } from '../../lib/admin';
 import { useAuth } from '../../lib/auth-context';
@@ -15,11 +16,34 @@ export function CustomersAdminPage() {
   const [q, setQ] = useState(params.get('q') ?? '');
   const users = useAdminUsers({ q: params.get('q') ?? undefined, page });
   const setRole = useSetRole();
-  const [confirm, setConfirm] = useState<string | null>(null);
+  // the account whose role is about to change, asked about in a dialog first
+  const [confirm, setConfirm] = useState<{ id: string; name: string; role: 'ADMIN' | 'CUSTOMER' } | null>(
+    null,
+  );
 
   return (
     <>
       <AdminHeading title="Customers" />
+      <ConfirmDialog
+        open={confirm !== null}
+        title={
+          confirm?.role === 'ADMIN'
+            ? `Make ${confirm.name} an administrator?`
+            : `Remove ${confirm?.name}'s admin role?`
+        }
+        confirmLabel={confirm?.role === 'ADMIN' ? 'Make admin' : 'Remove admin'}
+        danger={confirm?.role === 'CUSTOMER'}
+        pending={setRole.isPending}
+        onCancel={() => setConfirm(null)}
+        onConfirm={() =>
+          confirm &&
+          setRole.mutate({ id: confirm.id, role: confirm.role }, { onSettled: () => setConfirm(null) })
+        }
+      >
+        {confirm?.role === 'ADMIN'
+          ? 'They can see every order and customer, and change products, prices and stock. It applies on their next request.'
+          : 'They keep their account and orders, but lose the dashboard on their next request.'}
+      </ConfirmDialog>
       <form
         role="search"
         className="mb-4"
@@ -44,7 +68,7 @@ export function CustomersAdminPage() {
         <Notice tone="error">{(users.error ?? setRole.error)!.message}</Notice>
       )}
       <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Customers table">
-        <table className="w-full min-w-[40rem] text-sm">
+        <table className="stack-table w-full text-sm sm:min-w-[40rem]">
           <thead>
             <tr className="border-b border-ink text-left font-mono text-xs uppercase tracking-[0.06em] text-ink-3">
               <th className="py-2 font-normal">Account</th>
@@ -68,33 +92,19 @@ export function CustomersAdminPage() {
                     </span>
                   </td>
                   <td className="py-3 text-ink-2">{formatDateTime(u.createdAt)}</td>
-                  <td className="tabular py-3 text-right font-mono">{u.orderCount}</td>
+                  <td data-label="Orders" className="tabular py-3 text-right font-mono">
+                    {u.orderCount}
+                  </td>
                   <td className="py-3 pl-4">
                     <span className="block">{u.role === 'ADMIN' ? 'Administrator' : 'Customer'}</span>
-                    {!locked &&
-                      (confirm === u.id ? (
-                        <span className="flex flex-wrap items-center gap-2">
-                          <Button
-                            variant="secondary"
-                            disabled={setRole.isPending}
-                            onClick={() =>
-                              setRole.mutate(
-                                { id: u.id, role: target },
-                                { onSettled: () => setConfirm(null) },
-                              )
-                            }
-                          >
-                            {target === 'ADMIN' ? 'Yes, make admin' : 'Yes, remove admin'}
-                          </Button>
-                          <Button variant="ghost" onClick={() => setConfirm(null)}>
-                            Cancel
-                          </Button>
-                        </span>
-                      ) : (
-                        <Button variant="ghost" onClick={() => setConfirm(u.id)}>
-                          {target === 'ADMIN' ? 'Make admin' : 'Remove admin'}
-                        </Button>
-                      ))}
+                    {!locked && (
+                      <Button
+                        variant="ghost"
+                        onClick={() => setConfirm({ id: u.id, name: u.name, role: target })}
+                      >
+                        {target === 'ADMIN' ? 'Make admin' : 'Remove admin'}
+                      </Button>
+                    )}
                   </td>
                 </tr>
               );

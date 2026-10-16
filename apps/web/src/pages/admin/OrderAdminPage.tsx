@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router';
 import { AddressLines } from '../../components/checkout/AddressForm';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
 import { Button } from '../../components/ui/Button';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Field, Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
 import { Price } from '../../components/ui/Price';
@@ -16,6 +17,10 @@ export function OrderAdminPage() {
   const { number = '' } = useParams();
   const order = useAdminOrder(number);
   const { ship, deliver, refund } = useAdminOrderActions(number);
+  // each status move is asked about first: none of them can be undone from here
+  const [ask, setAsk] = useState<
+    { kind: 'ship'; input: ShipInput } | { kind: 'deliver' } | { kind: 'refund' } | null
+  >(null);
   const o = order.data;
   if (order.isError) return <Notice tone="error">{order.error.message}</Notice>;
   if (!o) return <p className="font-mono text-sm text-ink-3">Loading…</p>;
@@ -23,6 +28,41 @@ export function OrderAdminPage() {
 
   return (
     <>
+      <ConfirmDialog
+        open={ask !== null}
+        title={
+          ask?.kind === 'ship'
+            ? 'Mark as shipped?'
+            : ask?.kind === 'deliver'
+              ? 'Mark as delivered?'
+              : 'Record the refund?'
+        }
+        confirmLabel={
+          ask?.kind === 'ship' ? 'Mark shipped' : ask?.kind === 'deliver' ? 'Mark delivered' : 'Record refund'
+        }
+        pending={ship.isPending || deliver.isPending || refund.isPending}
+        onCancel={() => setAsk(null)}
+        onConfirm={() => {
+          const done = { onSettled: () => setAsk(null) };
+          if (ask?.kind === 'ship') ship.mutate(ask.input, done);
+          else if (ask?.kind === 'deliver') deliver.mutate(done);
+          else refund.mutate(done);
+        }}
+      >
+        {ask?.kind === 'ship' && (
+          <>
+            {o.customer.name} is told the order is on its way with {ask.input.courier}, tracking number{' '}
+            <span className="font-mono text-ink">{ask.input.trackingNumber}</span>. This cannot be undone.
+          </>
+        )}
+        {ask?.kind === 'deliver' && <>The order is closed as delivered. This cannot be undone.</>}
+        {ask?.kind === 'refund' && (
+          <>
+            Only once the <Price amount={o.total} className="font-normal" /> has been refunded in the Midtrans
+            dashboard. This cannot be undone.
+          </>
+        )}
+      </ConfirmDialog>
       <nav aria-label="Breadcrumb" className="mb-4 font-mono text-xs text-ink-3">
         <Link to="/admin/orders" className="hover:text-ink">
           Orders
@@ -42,14 +82,16 @@ export function OrderAdminPage() {
       <div className="grid gap-10 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-8">
           {actionError && <Notice tone="error">{actionError.message}</Notice>}
-          {o.status === 'PAID' && <ShipForm pending={ship.isPending} onShip={ship.mutate} />}
+          {o.status === 'PAID' && (
+            <ShipForm pending={ship.isPending} onShip={(input) => setAsk({ kind: 'ship', input })} />
+          )}
           {o.status === 'SHIPPED' && (
             <section className="space-y-3 border border-ink bg-alu-50 p-4">
               <p className="text-sm">
                 Shipped with {o.fulfilment.courier}, tracking{' '}
                 <span className="font-mono">{o.fulfilment.trackingNumber}</span>.
               </p>
-              <Button disabled={deliver.isPending} onClick={deliver.mutate}>
+              <Button disabled={deliver.isPending} onClick={() => setAsk({ kind: 'deliver' })}>
                 Mark delivered
               </Button>
             </section>
@@ -61,7 +103,11 @@ export function OrderAdminPage() {
                 closed. Refund <Price amount={o.total} className="font-normal" /> from the Midtrans dashboard,
                 then record it here.
               </p>
-              <Button variant="secondary" disabled={refund.isPending} onClick={refund.mutate}>
+              <Button
+                variant="secondary"
+                disabled={refund.isPending}
+                onClick={() => setAsk({ kind: 'refund' })}
+              >
                 Record refund
               </Button>
             </section>

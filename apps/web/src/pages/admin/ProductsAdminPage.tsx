@@ -17,6 +17,7 @@ export function ProductsAdminPage() {
       <AdminHeading title="Products">
         <Link
           to="/admin/products/new"
+          data-variant="primary"
           className="inline-flex min-h-11 items-center border-b-[3px] border-signal bg-ink px-5 text-sm font-semibold uppercase tracking-[0.06em] text-alu-50 hover:bg-ink-2"
         >
           New product
@@ -44,7 +45,7 @@ export function ProductsAdminPage() {
       </form>
       {products.isError && <Notice tone="error">{products.error.message}</Notice>}
       <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Products table">
-        <table className="w-full min-w-[40rem] text-sm">
+        <table className="stack-table w-full text-sm sm:min-w-[40rem]">
           <thead>
             <tr className="border-b border-ink text-left font-mono text-xs uppercase tracking-[0.06em] text-ink-3">
               <th className="py-2 font-normal">Product</th>
@@ -72,13 +73,18 @@ export function ProductsAdminPage() {
                   </span>
                 </td>
                 <td className="py-3">{p.category}</td>
-                <td className="py-3 text-right">
+                <td data-label="Price" className="py-3 text-right">
                   <Price amount={p.price} className="font-normal" />
                 </td>
-                <td className={`tabular py-3 text-right font-mono ${p.stock === 0 ? 'text-danger' : ''}`}>
+                <td
+                  data-label="Stock"
+                  className={`tabular py-3 text-right font-mono ${p.stock === 0 ? 'text-danger' : ''}`}
+                >
                   {p.stock}
                 </td>
-                <td className="py-3 pl-4">{p.isActive ? 'Yes' : 'No'}</td>
+                <td data-label="On sale" className="py-3 pl-4">
+                  {p.isActive ? 'Yes' : 'No'}
+                </td>
               </tr>
             ))}
           </tbody>

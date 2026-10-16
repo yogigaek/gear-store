@@ -21,7 +21,11 @@ export function ResetPasswordPage() {
     return (
       <AuthShell eyebrow="Account" title="Password changed">
         <Notice tone="ok">{reset.data.message} Every other device has been signed out.</Notice>
-        <Link to="/sign-in" className="inline-block font-semibold underline underline-offset-4">
+        <Link
+          preventScrollReset
+          to="/sign-in"
+          className="inline-block font-semibold underline underline-offset-4"
+        >
           Sign in
         </Link>
       </AuthShell>
@@ -44,7 +48,7 @@ export function ResetPasswordPage() {
         {reset.error && (
           <Notice tone="error">
             {reset.error.message}{' '}
-            <Link to="/forgot-password" className="font-semibold underline">
+            <Link preventScrollReset to="/forgot-password" className="font-semibold underline">
               Get a new link
             </Link>
           </Notice>
@@ -58,7 +62,7 @@ export function ResetPasswordPage() {
           error={error}
           hint="At least 10 characters."
         />
-        <Button type="submit" disabled={!token || reset.isPending}>
+        <Button type="submit" disabled={!token || reset.isPending} className="w-full">
           {reset.isPending ? 'Saving…' : 'Set new password'}
         </Button>
       </form>

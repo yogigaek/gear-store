@@ -5,6 +5,7 @@ import { AddressLines } from '../../components/checkout/AddressForm';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
 import { PartImage } from '../../components/product/PartImage';
 import { Button } from '../../components/ui/Button';
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
 import { Price } from '../../components/ui/Price';
@@ -60,6 +61,9 @@ export function OrderPage() {
     );
   const o = order.data;
   const actionError = pay.error ?? checkStatus.error ?? cancel.error;
+  const notSetUp =
+    params.get('payment') === 'not-set-up' ||
+    (pay.error instanceof ApiError && pay.error.code === 'PAYMENTS_NOT_SET_UP');
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
@@ -92,12 +96,20 @@ export function OrderPage() {
                 {minutesLeft} {minutesLeft === 1 ? 'minute' : 'minutes'} left. After that the order expires
                 and the items go back on sale.
               </p>
-              {params.get('payment') === 'unavailable' && !pay.isPending && (
+              {notSetUp ? (
                 <Notice tone="error">
-                  The order is placed, but the payment page could not be opened. Try again below.
+                  The order is placed, but online payment is not set up on this demo server yet, so it cannot
+                  be paid here. It stays reserved until the time above runs out.
                 </Notice>
+              ) : (
+                params.get('payment') === 'unavailable' &&
+                !pay.isPending && (
+                  <Notice tone="error">
+                    The order is placed, but the payment page could not be opened. Try again below.
+                  </Notice>
+                )
               )}
-              {actionError && <Notice tone="error">{actionError.message}</Notice>}
+              {actionError && !notSetUp && <Notice tone="error">{actionError.message}</Notice>}
               <div className="flex flex-wrap gap-3">
                 <Button disabled={pay.isPending} onClick={() => pay.mutate()}>
                   {pay.isPending ? 'Opening payment…' : 'Pay now'}
@@ -110,25 +122,21 @@ export function OrderPage() {
                   {checkStatus.isPending ? 'Checking…' : 'I have paid: check status'}
                 </Button>
               </div>
-              {!confirmCancel ? (
-                <Button variant="ghost" onClick={() => setConfirmCancel(true)}>
-                  Cancel order
-                </Button>
-              ) : (
-                <div
-                  role="group"
-                  aria-label="Confirm cancellation"
-                  className="flex flex-wrap items-center gap-3 text-sm"
-                >
-                  <span>Cancel this order? The items go back on sale.</span>
-                  <Button variant="secondary" disabled={cancel.isPending} onClick={() => cancel.mutate()}>
-                    Yes, cancel
-                  </Button>
-                  <Button variant="ghost" onClick={() => setConfirmCancel(false)}>
-                    Keep it
-                  </Button>
-                </div>
-              )}
+              <Button variant="ghost" onClick={() => setConfirmCancel(true)}>
+                Cancel order
+              </Button>
+              <ConfirmDialog
+                open={confirmCancel}
+                title="Cancel this order?"
+                confirmLabel="Yes, cancel"
+                cancelLabel="Keep it"
+                danger
+                pending={cancel.isPending}
+                onCancel={() => setConfirmCancel(false)}
+                onConfirm={() => cancel.mutate(undefined, { onSettled: () => setConfirmCancel(false) })}
+              >
+                The items go back on sale and the order closes. Nothing has been charged.
+              </ConfirmDialog>
             </section>
           )}
           {o.status === 'PAID' && checkStatus.isSuccess && (
@@ -145,7 +153,8 @@ export function OrderPage() {
                   <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3">
                     <div className="aspect-square overflow-hidden border border-bench">
                       <PartImage
-                        slug={parts.find((p) => p.module === 'FRAME')?.slug ?? ''}
+                        slug="e1-bike"
+                        colorKey={build.colorKey}
                         module="FRAME"
                         className="size-full"
                       />
@@ -177,7 +186,7 @@ export function OrderPage() {
                   className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-bench py-3"
                 >
                   <div className="aspect-square overflow-hidden border border-bench">
-                    <PartImage slug={i.slug} className="size-full" />
+                    <PartImage slug={i.slug} colorKey={i.colorKey} className="size-full" />
                   </div>
                   <div className="min-w-0 text-sm">
                     <Link to={`/products/${i.slug}`} className="font-semibold hover:underline">

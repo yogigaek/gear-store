@@ -74,3 +74,115 @@
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+  The account pages' panel on the dark stage: the same components, with the palette turned over. Ink is
+  light, the raised surface dark, hairlines dim; the primary action takes the signal yellow, as the home
+  page's call to action does. Outside any layer, so it wins over the utilities it re-colours.
+*/
+.surface-dark {
+  --color-ink: #f5f6f6;
+  --color-ink-2: #c3c8ca;
+  --color-ink-3: #9aa2a6;
+  --color-alu: #15181a;
+  --color-alu-50: #1d2124;
+  --color-bench: #2e3438;
+  --color-bench-strong: #4a5359;
+  --color-danger: #ff8f80;
+  --color-ok: #7fd49f;
+  color: var(--color-ink);
+}
+.surface-dark [data-variant='primary'] {
+  background: var(--color-signal);
+  color: #15181a;
+  border-bottom-color: transparent;
+}
+.surface-dark [data-variant='primary']:hover:not(:disabled) {
+  background: #f6d15a;
+}
+.surface-dark [data-variant='primary']:disabled {
+  background: var(--color-bench-strong);
+  color: var(--color-ink-2);
+}
+/* the light bench's strong black rules would be glaring white on the dark ground: a quieter grey */
+.surface-dark .border-ink,
+.surface-dark.border-ink {
+  border-color: #545d63;
+}
+/* on the light bench, bench grey also sets quiet text (hints, captions); turned over it would be a hairline */
+.surface-dark .text-bench {
+  color: var(--color-ink-3);
+}
+
+/* an account page's panel: the page left fades out, then the one arriving fades in */
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.animate-panel-in {
+  animation: panel-in 260ms ease-out both;
+}
+.animate-panel-out {
+  animation: panel-out 160ms ease-in both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-panel-in,
+  .animate-panel-out {
+    animation-duration: 1ms;
+    animation-delay: 0ms;
+  }
+}
+
+/*
+  An admin table on a phone: each row becomes a small card of two columns (first cell top left, the next top
+  right, and so on), so nothing hides off to the side behind a horizontal scroll. The header row is kept
+  for screen readers only.
+*/
+@media (max-width: 639px) {
+  .stack-table,
+  .stack-table tbody {
+    display: block;
+  }
+  .stack-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .stack-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.35rem 1rem;
+    padding: 0.85rem 0;
+  }
+  .stack-table td {
+    padding: 0;
+  }
+  .stack-table td:nth-child(even) {
+    text-align: right;
+    justify-self: end;
+  }
+}
+@media (max-width: 639px) {
+  .stack-table td:nth-child(odd) {
+    text-align: left;
+  }
+  /* a bare number needs its column's name once the header row is out of sight */
+  .stack-table td[data-label]::before {
+    content: attr(data-label) ' ';
+    color: var(--color-ink-3);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+}

@@ -2,8 +2,25 @@ import { useMatches } from 'react-router';
 
 export type PageTone = 'light' | 'dark';
 
-/** a page on a dark stage asks for a dark header, footer and document through its route handle */
+/**
+ * Route handles set a page's tone:
+ *  - no tone: a store page, dark; its content uses the light-ground tokens, turned over by `.surface-dark`;
+ *  - `stage`: the home and account pages, drawn dark by hand around the 3D (no turning over);
+ *  - `light`: the design reference, which shows the bench tokens on their own ground.
+ */
+type Handle = { tone?: 'stage' | 'light' } | undefined;
+
+function useTones() {
+  return useMatches().map((m) => (m.handle as Handle)?.tone);
+}
+
+/** the header, footer, document and cart drawer follow this */
 export function usePageTone(): PageTone {
-  const dark = useMatches().some((m) => (m.handle as { tone?: string } | undefined)?.tone === 'dark');
-  return dark ? 'dark' : 'light';
+  return useTones().includes('light') ? 'light' : 'dark';
+}
+
+/** a store page whose content is turned over onto the dark ground */
+export function useTurnedOver(): boolean {
+  const tones = useTones();
+  return !tones.includes('light') && !tones.includes('stage');
 }

@@ -36,9 +36,20 @@ export function RegisterPage() {
           creating your account. The link works for 24 hours.
         </p>
         {import.meta.env.DEV && (
-          <Notice tone="ok">Development: the email is in Mailpit at http://localhost:8025.</Notice>
+          <Notice tone="ok">
+            Running locally: emails do not leave this machine. Open{' '}
+            <a
+              href="http://localhost:8025"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold underline"
+            >
+              Mailpit (localhost:8025)
+            </a>{' '}
+            to find this one and its link.
+          </Notice>
         )}
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <Button
             variant="secondary"
             disabled={resend.isPending || resend.isSuccess}
@@ -46,7 +57,7 @@ export function RegisterPage() {
           >
             {resend.isSuccess ? 'Link sent again' : 'Send the link again'}
           </Button>
-          <Link to="/sign-in" className="text-sm underline underline-offset-4">
+          <Link preventScrollReset to="/sign-in" className="text-sm underline underline-offset-4">
             Back to sign in
           </Link>
         </div>
@@ -58,7 +69,11 @@ export function RegisterPage() {
     setForm((f) => ({ ...f, [key]: e.target.value }));
 
   return (
-    <AuthShell eyebrow="Account" title="Create an account">
+    <AuthShell
+      eyebrow="Account"
+      title="Create an account"
+      intro="Save parts, keep your bikes in the cart across devices, and track your orders."
+    >
       <form
         noValidate
         className="space-y-4"
@@ -106,13 +121,13 @@ export function RegisterPage() {
           error={errors.password}
           hint="At least 10 characters. A few words make a strong, memorable password."
         />
-        <Button type="submit" disabled={register.isPending}>
+        <Button type="submit" disabled={register.isPending} className="w-full">
           {register.isPending ? 'Creating account…' : 'Create account'}
         </Button>
       </form>
-      <p className="text-sm text-ink-2">
+      <p className="border-t border-bench pt-5 text-center text-sm text-ink-2">
         Have an account?{' '}
-        <Link to="/sign-in" className="font-semibold underline underline-offset-4">
+        <Link preventScrollReset to="/sign-in" className="font-semibold underline underline-offset-4">
           Sign in
         </Link>
       </p>

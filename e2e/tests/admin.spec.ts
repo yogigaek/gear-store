@@ -52,6 +52,10 @@ test('an administrator ships a paid order and the customer sees the tracking num
   await page.getByLabel('Courier').selectOption('JNE');
   await page.getByLabel('Tracking number').fill('jp1234567890');
   await page.getByRole('button', { name: 'Mark shipped' }).click();
+  // status moves cannot be undone, so the dialog asks first
+  const confirm = page.getByRole('dialog', { name: 'Mark as shipped?' });
+  await expect(confirm.getByText('JP1234567890')).toBeVisible();
+  await confirm.getByRole('button', { name: 'Mark shipped' }).click();
   await expect(page.getByText('Shipped with JNE. Tracking number JP1234567890.')).toBeVisible();
 
   const customerPage = await (
@@ -65,7 +69,7 @@ test('an administrator ships a paid order and the customer sees the tracking num
 
 test('the demo administrator can look at everything but change nothing', async ({ page }) => {
   await page.goto('/sign-in');
-  await page.getByRole('button', { name: 'Try as admin' }).click();
+  await page.getByRole('button', { name: /^Try as admin/ }).click();
   await page.waitForURL('**/account');
   await page.goto('/admin/products/battery-charger-4a');
   await expect(page.getByText('Demo administrator, read-only.')).toBeVisible();
@@ -75,7 +79,7 @@ test('the demo administrator can look at everything but change nothing', async (
 
 test('shoppers cannot open the admin area', async ({ page }) => {
   await page.goto('/sign-in');
-  await page.getByRole('button', { name: 'Try as shopper' }).click();
+  await page.getByRole('button', { name: /^Try as shopper/ }).click();
   // wait for the sign-in to land; navigating earlier would reload the page before the session exists
   await page.waitForURL('**/account');
   await page.goto('/admin');

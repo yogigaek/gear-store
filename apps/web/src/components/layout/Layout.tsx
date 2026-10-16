@@ -3,11 +3,12 @@ import { Outlet, ScrollRestoration } from 'react-router';
 import { CartDrawer } from '../cart/CartDrawer';
 import { CartSync } from '../cart/CartSync';
 import { SiteFooter } from './SiteFooter';
-import { usePageTone } from './page-tone';
+import { usePageTone, useTurnedOver } from './page-tone';
 import { SiteHeader } from './SiteHeader';
 
 export function Layout() {
   const tone = usePageTone();
+  const turnedOver = useTurnedOver();
   useEffect(() => {
     document.documentElement.dataset.tone = tone;
     // the phone's browser bar follows the page
@@ -25,7 +26,7 @@ export function Layout() {
       </a>
       <SiteHeader />
       {/* at least a screen tall: while a page's code loads, the footer waits below the fold instead of jumping */}
-      <main id="main" className="min-h-[calc(100dvh-4rem)]">
+      <main id="main" className={`min-h-[calc(100dvh-4rem)] ${turnedOver ? 'surface-dark' : ''}`}>
         <Outlet />
       </main>
       <SiteFooter />

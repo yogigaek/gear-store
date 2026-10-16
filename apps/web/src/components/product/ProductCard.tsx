@@ -7,14 +7,16 @@ import { StockNote } from '../ui/StockNote';
 import { PartImage } from './PartImage';
 import { SaveButton } from './SaveButton';
 
+// phones: the still and the name side by side, the spec plate and price across the card below them, so the
+// plate keeps the card's full width. Below 360 px the card stacks.
+const card =
+  'group relative flex flex-col border border-bench bg-alu-50 transition-colors hover:border-ink min-[360px]:grid min-[360px]:grid-cols-[7rem_minmax(0,1fr)] sm:flex sm:flex-col';
 const artFrame =
-  'h-28 overflow-hidden border-b border-bench min-[360px]:h-auto min-[360px]:border-b-0 min-[360px]:border-r sm:aspect-[4/3] sm:border-b sm:border-r-0';
+  'h-28 overflow-hidden border-b border-bench min-[360px]:aspect-square min-[360px]:h-auto min-[360px]:border-r sm:aspect-[4/3] sm:border-r-0';
 
 export function ProductCard({ product }: { product: ProductSummary }) {
   return (
-    // phones: the still on the left, details on the right, so four parts fit in two screens, not four.
-    // Below 360 px that leaves too little room for the spec plate, so the card stacks instead.
-    <article className="group relative flex flex-col border border-bench bg-alu-50 transition-colors hover:border-ink min-[360px]:grid min-[360px]:grid-cols-[6.5rem_minmax(0,1fr)] sm:flex sm:flex-col">
+    <article className={card}>
       <div className={artFrame}>
         <PartImage
           slug={product.slug}
@@ -22,7 +24,7 @@ export function ProductCard({ product }: { product: ProductSummary }) {
           className="size-full transition-transform duration-500 group-hover:scale-[1.04]"
         />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-3 p-3 sm:p-4">
+      <div className="flex min-w-0 flex-col gap-2 p-3 min-[360px]:justify-center min-[360px]:border-b min-[360px]:border-bench sm:gap-3 sm:border-b-0 sm:p-4 sm:pb-0">
         <div className="flex items-baseline justify-between gap-3">
           <Label>{product.model}</Label>
           <StockNote stock={product.stock} />
@@ -36,6 +38,8 @@ export function ProductCard({ product }: { product: ProductSummary }) {
             {product.name}
           </Link>
         </h3>
+      </div>
+      <div className="flex flex-1 flex-col gap-3 p-3 pt-0 min-[360px]:col-span-2 min-[360px]:pt-3 sm:p-4 sm:pt-3">
         <SpecPlate specs={product.plate} />
         <div className="mt-auto flex items-center justify-between gap-3 pt-1">
           <Price amount={product.price} />

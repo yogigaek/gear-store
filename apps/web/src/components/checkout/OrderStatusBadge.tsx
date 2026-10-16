@@ -16,7 +16,7 @@ export function OrderStatusBadge({ status }: { status: OrderStatus }) {
   const { label, className } = look[status];
   return (
     <span
-      className={`inline-block border px-2 py-0.5 font-mono text-xs uppercase tracking-[0.06em] ${className}`}
+      className={`inline-block w-fit justify-self-start border px-2 py-0.5 font-mono text-xs uppercase tracking-[0.06em] ${className}`}
     >
       {label}
     </span>

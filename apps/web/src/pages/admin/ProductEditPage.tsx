@@ -159,7 +159,8 @@ function ProductForm({ product, onReload }: { product?: AdminProduct; onReload?:
               id="module"
               value={v.module}
               onChange={(e) => set('module', e.target.value as PartModule)}
-              className="min-h-11 border border-bench-strong bg-alu-50 px-3 text-base sm:text-sm"
+              aria-describedby="module-help"
+              className={`min-h-11 border bg-alu-50 px-3 text-base sm:text-sm ${errors.module ? 'border-danger' : 'border-bench-strong'}`}
             >
               {partModules.map((m) => (
                 <option key={m} value={m}>
@@ -167,7 +168,10 @@ function ProductForm({ product, onReload }: { product?: AdminProduct; onReload?:
                 </option>
               ))}
             </select>
-            <p className="text-sm text-ink-3">Which part of the E-1 model draws it on the product page.</p>
+            {errors.module && <p className="text-sm text-danger">{errors.module}</p>}
+            <p id="module-help" className="text-sm text-ink-3">
+              Which part of the E-1 model draws it. It must match the part type: accessories are Accessory.
+            </p>
           </div>
         </fieldset>
 

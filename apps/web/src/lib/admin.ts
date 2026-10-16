@@ -71,10 +71,18 @@ export function useAdminOrderActions(number: string) {
   );
   const deliver = useAdminSend('POST', () => `/orders/${number}/deliver`, adminOrderSchema);
   const refund = useAdminSend('POST', () => `/orders/${number}/refund`, adminOrderSchema);
+  // a caller may also hear when the request is over, e.g. to close the dialog that asked for it
+  type Done = { onSettled?: () => void };
   return {
-    ship: { ...ship, mutate: (input: ShipInput) => ship.mutate(input, { onSuccess: store }) },
-    deliver: { ...deliver, mutate: () => deliver.mutate(undefined, { onSuccess: store }) },
-    refund: { ...refund, mutate: () => refund.mutate(undefined, { onSuccess: store }) },
+    ship: {
+      ...ship,
+      mutate: (input: ShipInput, done?: Done) => ship.mutate(input, { onSuccess: store, ...done }),
+    },
+    deliver: {
+      ...deliver,
+      mutate: (done?: Done) => deliver.mutate(undefined, { onSuccess: store, ...done }),
+    },
+    refund: { ...refund, mutate: (done?: Done) => refund.mutate(undefined, { onSuccess: store, ...done }) },
   };
 }
 

@@ -20,6 +20,7 @@ export function Button({ variant = 'primary', className = '', type = 'button', .
   return (
     <button
       type={type}
+      data-variant={variant}
       className={`inline-flex min-h-11 items-center justify-center gap-2 text-sm font-semibold uppercase tracking-[0.06em] transition-colors disabled:cursor-not-allowed ${styles[variant]} ${className}`}
       {...props}
     />

@@ -8,16 +8,19 @@ import { EBike } from './EBike';
 // The account pages' panel: the E-1 on a dark floor, turning slowly like a bike on a showroom turntable.
 // No post pass and no reflections: it shares the screen with a form and must stay light.
 
-const TARGET: [number, number, number] = [0, 0.56, 0];
+// aimed above the bike's middle, so it stands in the lower part of the frame, clear of the headline
+const TARGET: [number, number, number] = [0, 0.68, 0];
 
 export interface AuthSceneProps {
   frame: string;
   reducedMotion: boolean;
   label: string;
+  /** called once the first frame is on screen, so the page can fade the canvas in */
+  onDrawn?: () => void;
 }
 
 // Default export so the auth pages can lazy-load it: three.js stays out of their chunks.
-export default function AuthScene({ frame, reducedMotion, label }: AuthSceneProps) {
+export default function AuthScene({ frame, reducedMotion, label, onDrawn }: AuthSceneProps) {
   const motion = useMemo<Motion>(() => ({ angle: 0, explode: 0, intro: 1 }), []);
   return (
     <Canvas
@@ -26,12 +29,13 @@ export default function AuthScene({ frame, reducedMotion, label }: AuthSceneProp
       // a turntable needs every frame; without motion one drawn frame is enough
       frameloop={reducedMotion ? 'demand' : 'always'}
       dpr={[1, 1.25]}
-      camera={{ position: [2.3, 1.05, 2.6], fov: 32, near: 0.05, far: 20 }}
+      camera={{ position: [2.9, 1.25, 3.3], fov: 32, near: 0.05, far: 30 }}
       role="img"
       aria-label={label}
     >
       <color attach="background" args={['#15181a']} />
       <Aim />
+      <FirstFrame onDrawn={onDrawn} />
       <Environment resolution={128} frames={1}>
         <Lightformer
           form="rect"
@@ -60,7 +64,7 @@ export default function AuthScene({ frame, reducedMotion, label }: AuthSceneProp
       <directionalLight position={[3, 1.4, -2.5]} intensity={1.2} color="#9fc4ff" />
 
       <mesh rotation-x={-Math.PI / 2} receiveShadow>
-        <circleGeometry args={[1.6, 64]} />
+        <circleGeometry args={[7, 96]} />
         <meshStandardMaterial color="#1d2124" roughness={0.85} />
       </mesh>
 
@@ -69,6 +73,24 @@ export default function AuthScene({ frame, reducedMotion, label }: AuthSceneProp
       </Turntable>
     </Canvas>
   );
+}
+
+/** two animation frames after mounting, the scene's first frame has been drawn */
+function FirstFrame({ onDrawn }: { onDrawn?: () => void }) {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    if (!onDrawn) return;
+    invalidate();
+    let second = 0;
+    const first = requestAnimationFrame(() => {
+      second = requestAnimationFrame(onDrawn);
+    });
+    return () => {
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
+  }, [invalidate, onDrawn]);
+  return null;
 }
 
 function Aim() {
