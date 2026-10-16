@@ -23,7 +23,9 @@ export function SignInPage() {
   });
   const demo = useMutation({
     mutationFn: (role: 'shopper' | 'admin') => signInDemo(role),
-    onSuccess: () => navigate(next, { replace: true }),
+    // the demo admin is there to see the dashboard: it opens there unless a page asked for the sign-in
+    onSuccess: (_, role) =>
+      navigate(role === 'admin' && !params.get('next') ? '/admin' : next, { replace: true }),
   });
   const resend = useMutation({
     mutationFn: () => api('/auth/resend-verification', { method: 'POST', body: { email } }),

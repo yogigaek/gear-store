@@ -32,7 +32,10 @@ export function Layout() {
       <SiteFooter />
       <CartDrawer />
       <CartSync />
-      <ScrollRestoration />
+      {/* the first page a tab opens always has the key "default": keyed by key alone, a page typed into the
+          address bar would open at the place another page was left. Keyed by its path, it opens at the top,
+          and a reload still comes back to where it was. */}
+      <ScrollRestoration getKey={(l) => (l.key === 'default' ? l.pathname + l.search : l.key)} />
     </>
   );
 }

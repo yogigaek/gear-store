@@ -70,7 +70,7 @@ test('an administrator ships a paid order and the customer sees the tracking num
 test('the demo administrator can look at everything but change nothing', async ({ page }) => {
   await page.goto('/sign-in');
   await page.getByRole('button', { name: /^Try as admin/ }).click();
-  await page.waitForURL('**/account');
+  await page.waitForURL('**/admin');
   await page.goto('/admin/products/battery-charger-4a');
   await expect(page.getByText('Demo administrator, read-only.')).toBeVisible();
   await page.getByRole('button', { name: 'Save changes' }).click();

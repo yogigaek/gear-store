@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router';
 import { Notice } from '../../components/ui/Field';
 import { Price } from '../../components/ui/Price';
 import { useAdminProducts } from '../../lib/admin';
+import { useCategories } from '../../lib/queries';
 import { AdminHeading } from './AdminLayout';
 import { Pager, searchClass } from './Pager';
 
@@ -11,6 +12,8 @@ export function ProductsAdminPage() {
   const page = Number(params.get('page') ?? 1) || 1;
   const [q, setQ] = useState(params.get('q') ?? '');
   const products = useAdminProducts({ q: params.get('q') ?? undefined, page });
+  // the list carries each product's category slug; shown by the name the store uses
+  const categoryName = new Map(useCategories().data?.map((c) => [c.slug, c.name]));
 
   return (
     <>
@@ -72,7 +75,7 @@ export function ProductsAdminPage() {
                     {p.model} · {p.module.toLowerCase()}
                   </span>
                 </td>
-                <td className="py-3">{p.category}</td>
+                <td className="py-3">{categoryName.get(p.category) ?? p.category}</td>
                 <td data-label="Price" className="py-3 text-right">
                   <Price amount={p.price} className="font-normal" />
                 </td>

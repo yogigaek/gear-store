@@ -107,6 +107,8 @@ export function HomePage() {
   );
   const configure = useRef<HTMLElement>(null);
   const [configuring, setConfiguring] = useState(false);
+  const specs = useRef<HTMLDListElement>(null);
+  const [specsLow, setSpecsLow] = useState(false);
   const [inspect, setInspect] = useState<Inspect>(CLOSED);
   const [assemble] = useState(() => shouldAssemble(reducedMotion));
   const [ready, setReady] = useState(false);
@@ -147,6 +149,16 @@ export function HomePage() {
     if (!el) return;
     const io = new IntersectionObserver(([entry]) => setConfiguring(entry?.isIntersecting ?? false), {
       threshold: 0.2,
+    });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  // and while the spec strip passes the bottom of the screen, where it sits
+  useEffect(() => {
+    const el = specs.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([entry]) => setSpecsLow(entry?.isIntersecting ?? false), {
+      rootMargin: '-80% 0px 0px 0px',
     });
     io.observe(el);
     return () => io.disconnect();
@@ -288,7 +300,7 @@ export function HomePage() {
                 </button>
               </div>
             </>
-          ) : configuring ? null : (
+          ) : configuring || specsLow ? null : (
             <button
               ref={enter}
               type="button"
@@ -368,7 +380,10 @@ export function HomePage() {
 
         <section id="e1-specs" className="flex h-[120vh] items-end px-4 pb-[22vh] sm:px-6">
           <div className="mx-auto w-full max-w-7xl">
-            <dl className="pointer-events-auto grid grid-cols-2 gap-px border border-ink-2 bg-ink-2 sm:grid-cols-3 lg:grid-cols-6">
+            <dl
+              ref={specs}
+              className="pointer-events-auto grid grid-cols-2 gap-px border border-ink-2 bg-ink-2 sm:grid-cols-3 lg:grid-cols-6"
+            >
               {SPECS.map(([term, value]) => (
                 <div key={term} className="bg-stage/85 px-4 py-4 backdrop-blur-sm">
                   <dt className="font-mono text-xs uppercase tracking-[0.08em] text-bench">{term}</dt>
