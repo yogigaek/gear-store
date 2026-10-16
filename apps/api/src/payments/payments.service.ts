@@ -37,6 +37,15 @@ function jakartaTimestamp(date: Date): string {
   return `${j.slice(0, 10)} ${j.slice(11, 19)} +0700`;
 }
 
+/** Midtrans refuses the server's key: payments are not set up here, which retrying will not change */
+function paymentsNotSetUp() {
+  return new ServiceUnavailableException({
+    statusCode: 503,
+    message: 'Online payment is not set up on this server yet. The order is saved and waits for payment.',
+    code: 'PAYMENTS_NOT_SET_UP',
+  });
+}
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -85,6 +94,7 @@ export class PaymentsService {
       });
     } catch (error) {
       this.logger.error(`Creating the Midtrans transaction for ${order.number} failed: ${String(error)}`);
+      if (error instanceof MidtransError && error.keyRefused) throw paymentsNotSetUp();
       throw new ServiceUnavailableException('The payment provider is not responding. Try again in a minute.');
     }
 
@@ -133,6 +143,8 @@ export class PaymentsService {
     } catch (error) {
       if (!(error instanceof MidtransError)) throw error;
       this.logger.warn(`Status check for ${number} failed: ${error.message}`);
+      // nothing can have been paid through a key Midtrans refuses: the order stands as it is
+      if (error.keyRefused) return this.orders.detail(userId, number);
       throw new ServiceUnavailableException('The payment provider is not responding. Try again in a minute.');
     }
     return this.orders.detail(userId, number);

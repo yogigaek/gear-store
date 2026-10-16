@@ -323,6 +323,7 @@ export class OrdersService {
         model: i.model,
         category: i.product?.category.slug ?? null,
         module: i.product?.module ?? null,
+        colorKey: i.colorKey,
         colorLabel: i.colorLabel,
         unitPrice: i.unitPrice,
         quantity: i.quantity,
@@ -332,6 +333,7 @@ export class OrdersService {
       builds: o.builds.map((b) => ({
         id: b.id,
         label: b.label,
+        colorKey: b.colorKey,
         colorLabel: b.colorLabel,
         quantity: b.quantity,
         unitPrice: b.unitPrice,

@@ -17,7 +17,7 @@ export const summarySelect = {
 type SummaryRow = Prisma.ProductGetPayload<{ select: typeof summarySelect }>;
 
 const orderBy: Record<ProductQuery['sort'], Prisma.ProductOrderByWithRelationInput[]> = {
-  newest: [{ createdAt: 'desc' }, { slug: 'asc' }],
+  type: [{ category: { sortOrder: 'asc' } }, { price: 'asc' }, { createdAt: 'asc' }, { slug: 'asc' }],
   'price-asc': [{ price: 'asc' }, { slug: 'asc' }],
   'price-desc': [{ price: 'desc' }, { slug: 'asc' }],
   name: [{ name: 'asc' }, { slug: 'asc' }],

@@ -24,7 +24,20 @@ export interface SnapRequest {
   callbacks: { finish: string };
 }
 
-export class MidtransError extends Error {}
+export class MidtransError extends Error {
+  /** Midtrans's HTTP status, when it answered at all */
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+
+  /** 401: Midtrans refused the server key (not set yet, or the wrong environment's) */
+  get keyRefused(): boolean {
+    return this.status === 401;
+  }
+}
 
 /** Thin HTTP client; swapped for a fake in tests. Errors never include the server key. */
 @Injectable()
@@ -71,7 +84,7 @@ export class MidtransClient {
     }
     const body: unknown = await res.json().catch(() => null);
     if (!res.ok && !(res.status === 404 && body)) {
-      throw new MidtransError(`Midtrans replied ${res.status}`);
+      throw new MidtransError(`Midtrans replied ${res.status}`, res.status);
     }
     return body;
   }

@@ -2,6 +2,7 @@ import { hash } from '@node-rs/argon2';
 import { randomBytes } from 'node:crypto';
 import type { PrismaClient } from '../generated/prisma/client.js';
 import { seedCategories, seedConflicts, seedProducts } from './catalog.data.js';
+import { seedDemoOrders } from './demo-orders.js';
 
 // Idempotent: safe to run again; products are matched by slug and their specs, colours and conflicts rewritten.
 export const demoAccounts = [
@@ -9,7 +10,7 @@ export const demoAccounts = [
   { email: 'admin@rakit.example', name: 'Demo Admin', role: 'ADMIN' },
 ] as const;
 
-/** Writes the demo catalogue and the two demo accounts. Returns what the database holds afterwards. */
+/** Writes the demo catalogue, the demo accounts and, once, their past orders. Returns what was written. */
 export async function seedDatabase(prisma: PrismaClient): Promise<string> {
   for (const c of seedCategories) {
     await prisma.category.upsert({ where: { slug: c.slug }, create: c, update: c });
@@ -89,10 +90,12 @@ export async function seedDatabase(prisma: PrismaClient): Promise<string> {
     });
   }
 
+  const orders = await seedDemoOrders(prisma);
+
   const [categories, products, users] = await Promise.all([
     prisma.category.count(),
     prisma.product.count(),
     prisma.user.count({ where: { isDemo: true } }),
   ]);
-  return `${categories} categories, ${products} products, ${users} demo accounts`;
+  return `${categories} categories, ${products} products, ${users} demo accounts, ${orders} past demo orders`;
 }

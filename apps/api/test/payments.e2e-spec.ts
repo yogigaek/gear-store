@@ -12,8 +12,11 @@ import { createTestApp, deleteTestUsers, FakeMail, nextIp, signedInCustomer } fr
 class FakeMidtrans {
   snapCalls: SnapRequest[] = [];
   down = false;
+  /** Midtrans refusing the server key, as it does while the key is the .env placeholder */
+  keyRefused = false;
   status: MidtransStatus | null = null;
   createSnapTransaction(body: SnapRequest) {
+    if (this.keyRefused) return Promise.reject(new MidtransError('Midtrans replied 401', 401));
     if (this.down) return Promise.reject(new MidtransError('Midtrans replied 503'));
     this.snapCalls.push(body);
     return Promise.resolve({
@@ -22,6 +25,7 @@ class FakeMidtrans {
     });
   }
   getStatus() {
+    if (this.keyRefused) return Promise.reject(new MidtransError('Midtrans replied 401', 401));
     return Promise.resolve(this.status);
   }
 }
@@ -136,6 +140,17 @@ describe('Payments (e2e)', () => {
       midtrans.down = false;
       await o.cancel().expect(200);
       await o.pay().expect(409);
+    });
+
+    it('says payments are not set up when Midtrans refuses the key, and still shows the order', async () => {
+      const o = await placedOrder();
+      midtrans.keyRefused = true;
+      const res = await o.pay().expect(503);
+      expect(res.body).toMatchObject({ code: 'PAYMENTS_NOT_SET_UP' });
+      // the order page's status check is not an error: nothing can have been paid
+      expect(orderDetailSchema.parse((await o.refresh().expect(200)).body).status).toBe('PENDING_PAYMENT');
+      midtrans.keyRefused = false;
+      await o.cancel().expect(200);
     });
   });
 

@@ -67,7 +67,8 @@ export const productDetailSchema = productSummarySchema.extend({
 });
 export type ProductDetail = z.infer<typeof productDetailSchema>;
 
-export const productSorts = ['newest', 'price-asc', 'price-desc', 'name'] as const;
+/** `type` lists parts in build order (frame first, accessories last), cheapest first within a type */
+export const productSorts = ['type', 'price-asc', 'price-desc', 'name'] as const;
 export type ProductSort = (typeof productSorts)[number];
 
 /** GET /products query string. Everything optional; numbers arrive as strings and are coerced. */
@@ -78,7 +79,7 @@ export const productQuerySchema = z
     minPrice: z.coerce.number().pipe(rupiahSchema).optional(),
     maxPrice: z.coerce.number().pipe(rupiahSchema).optional(),
     inStock: z.stringbool().optional(),
-    sort: z.enum(productSorts).default('newest'),
+    sort: z.enum(productSorts).default('type'),
     page: z.coerce.number().int().min(1).max(1000).default(1),
     pageSize: z.coerce.number().int().min(1).max(48).default(12),
   })

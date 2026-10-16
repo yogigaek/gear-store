@@ -7,6 +7,7 @@ import type {
   AdminProductInput,
   AdminProductRow,
   AdminProductUpdate,
+  PartModule,
 } from '@gear-store/shared';
 import { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -82,7 +83,7 @@ export class AdminCatalogService {
   }
 
   async createProduct(input: AdminProductInput): Promise<AdminProduct> {
-    const categoryId = await this.categoryId(input.category);
+    const categoryId = await this.categoryId(input.category, input.module);
     try {
       const created = await this.prisma.product.create({
         data: {
@@ -104,7 +105,7 @@ export class AdminCatalogService {
   /** Replaces the product. Refused if it changed since the form was opened (an order may have taken stock). */
   async updateProduct(slug: string, input: AdminProductUpdate): Promise<AdminProduct> {
     if (input.slug !== slug) throw new BadRequestException('The slug cannot change: links and orders use it');
-    const categoryId = await this.categoryId(input.category);
+    const categoryId = await this.categoryId(input.category, input.module, slug);
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.product.findUnique({ where: { slug }, select: { id: true } });
       if (!current) throw new NotFoundException('Part not found');
@@ -186,14 +187,31 @@ export class AdminCatalogService {
     return found;
   }
 
-  private async categoryId(slug: string): Promise<string> {
-    const category = await this.prisma.category.findUnique({ where: { slug }, select: { id: true } });
-    if (!category)
-      throw new BadRequestException({
-        statusCode: 400,
-        message: 'Validation failed',
-        issues: [{ path: 'category', message: 'Unknown category' }],
-      });
+  /**
+   * The category's id, once the part's 3D module fits it: an accessory category takes accessories, and a build
+   * slot takes one module only (the build reads the bike's colour from the FRAME part, so a frame drawn as
+   * anything else would lose it). `except` is the part being edited, which may be the one that set the module.
+   */
+  private async categoryId(slug: string, module: PartModule, except?: string): Promise<string> {
+    const category = await this.prisma.category.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        slot: true,
+        products: { where: { slug: { not: except } }, select: { module: true }, take: 1 },
+      },
+    });
+    const invalid = (path: 'category' | 'module', message: string) =>
+      new BadRequestException({ statusCode: 400, message: 'Validation failed', issues: [{ path, message }] });
+    if (!category) throw invalid('category', 'Unknown category');
+    if (category.slot === null && module !== 'ACCESSORY')
+      throw invalid('module', `${category.name} are accessories: choose the Accessory module`);
+    if (category.slot !== null && module === 'ACCESSORY')
+      throw invalid('module', `${category.name} go on the bike: choose the module that draws them`);
+    const sibling = category.products[0]?.module;
+    if (category.slot !== null && sibling && sibling !== module)
+      throw invalid('module', `${category.name} are drawn as ${sibling.toLowerCase()} parts`);
     return category.id;
   }
 

@@ -175,28 +175,28 @@ export class CartService {
     book: Rulebook,
     onProblem: 'refuse' | 'skip',
   ): Promise<void> {
-    const checked = checkBuild(book, input, input.quantity);
+    // the same bike already in the cart takes the added quantity, and the check is for the total
+    const identity = checkBuild(book, input);
+    const slugs = identity.parts
+      .map((p) => p.part.summary.slug)
+      .sort()
+      .join();
+    const same = (await this.heldBuilds(userId, tx)).find(
+      (b) =>
+        b.selection.colorKey === identity.colorKey &&
+        Object.values(b.selection.parts).sort().join() === slugs,
+    );
+    const quantity = Math.min(MAX_LINE_QUANTITY, (same?.quantity ?? 0) + input.quantity);
+    const checked = checkBuild(book, input, quantity);
+    // signing in keeps a guest's bike that is only short of stock, as it keeps a single part; adding refuses it
     const blocker =
       onProblem === 'skip' ? checked.problems.find((p) => p.kind !== 'OUT_OF_STOCK') : checked.problems[0];
     if (blocker) {
       if (onProblem === 'skip') return;
       throw new ConflictException(blocker.message);
     }
-    const productIds = checked.parts.map((p) => p.part.id).sort();
-    const same = (await this.heldBuilds(userId, tx)).find(
-      (b) =>
-        b.selection.colorKey === checked.colorKey &&
-        Object.values(b.selection.parts).sort().join() ===
-          checked.parts
-            .map((p) => p.part.summary.slug)
-            .sort()
-            .join(),
-    );
     if (same) {
-      await tx.cartBuild.update({
-        where: { id: same.id },
-        data: { quantity: Math.min(MAX_LINE_QUANTITY, same.quantity + input.quantity) },
-      });
+      await tx.cartBuild.update({ where: { id: same.id }, data: { quantity } });
       return;
     }
     if ((await tx.cartBuild.count({ where: { userId } })) >= MAX_CART_BUILDS) {
@@ -208,7 +208,7 @@ export class CartService {
         userId,
         colorKey: checked.colorKey,
         quantity: input.quantity,
-        parts: { create: productIds.map((productId) => ({ productId })) },
+        parts: { create: checked.parts.map(({ part }) => ({ productId: part.id })) },
       },
     });
   }
@@ -279,7 +279,8 @@ export class CartService {
         id,
         quote: toQuote({ ...build, problems }),
         quantity,
-        lineTotal: build.unitPrice * quantity,
+        // a bike that cannot be built has no price: its parts' sum would leave out the missing ones
+        lineTotal: other ? 0 : build.unitPrice * quantity,
         problem: other
           ? 'CANNOT_BUILD'
           : problems.length === 0

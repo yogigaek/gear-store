@@ -3,7 +3,7 @@ import { productQuerySchema } from './catalog.js';
 
 describe('productQuerySchema', () => {
   it('applies defaults to an empty query', () => {
-    expect(productQuerySchema.parse({})).toEqual({ sort: 'newest', page: 1, pageSize: 12 });
+    expect(productQuerySchema.parse({})).toEqual({ sort: 'type', page: 1, pageSize: 12 });
   });
 
   it('coerces query-string numbers and booleans', () => {

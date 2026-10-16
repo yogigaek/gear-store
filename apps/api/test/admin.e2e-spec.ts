@@ -167,14 +167,30 @@ describe('Admin (e2e)', () => {
       const { api } = await admin();
       const before = adminStatsSchema.parse((await api.get('/admin/stats?days=7').expect(200)).body);
       expect(before.daily).toHaveLength(7);
-      const { order, markPaid } = await paidOrder();
+      // priced above anything the demo history sold, so it lands among the five best sellers
+      const accessories = await prisma.category.findUniqueOrThrow({ where: { slug: 'accessories' } });
+      const slug = `e2e-best-seller-${randomUUID().slice(0, 8)}`;
+      await prisma.product.create({
+        data: {
+          slug,
+          name: 'Best Seller Test Part',
+          model: 'T-BS',
+          module: 'ACCESSORY',
+          description: 'Created by the e2e suite',
+          price: 900_000_000,
+          stock: 1,
+          categoryId: accessories.id,
+        },
+      });
+      const { order, markPaid } = await paidOrder(slug);
       await markPaid();
       const after = adminStatsSchema.parse((await api.get('/admin/stats?days=7').expect(200)).body);
       expect(after.revenue - before.revenue).toBe(order.total);
       expect(after.paidOrders - before.paidOrders).toBe(1);
       expect(after.daily.at(-1)!.revenue - before.daily.at(-1)!.revenue).toBe(order.total);
       expect(after.awaitingShipment - before.awaitingShipment).toBe(1);
-      expect(after.topProducts.some((p) => p.slug === 'battery-charger-4a')).toBe(true);
+      expect(after.topProducts[0]).toMatchObject({ slug, quantity: 1 });
+      await prisma.product.delete({ where: { slug } });
       await api.get('/admin/stats?days=365').expect(400);
     });
   });
@@ -182,6 +198,13 @@ describe('Admin (e2e)', () => {
   describe('products', () => {
     it('creates, edits with a freshness check, and takes a product off sale', async () => {
       const { api } = await admin();
+      // the 3D module has to fit the part type: accessories are drawn as accessories, a slot takes one module
+      const wrong = await api.post('/admin/products', { ...PRODUCT, module: 'FRAME' }).expect(400);
+      expect(wrong.body.issues).toEqual([expect.objectContaining({ path: 'module' })]);
+      const notAFork = await api
+        .post('/admin/products', { ...PRODUCT, category: 'forks', module: 'SHOCK' })
+        .expect(400);
+      expect(notAFork.body.issues[0].message).toMatch(/drawn as fork parts/);
       const created = adminProductSchema.parse((await api.post('/admin/products', PRODUCT).expect(201)).body);
       expect(created.colors[0]!.hex).toBe('#f0f0f0');
       await api.post('/admin/products', PRODUCT).expect(409);

@@ -93,6 +93,9 @@ describe('Cart (e2e)', () => {
         (await quote([], [{ key, parts, colorKey: 'signal', quantity: 1 }]).expect(200)).body,
       );
       expect(cart.builds[0]!.problem).toBe('CANNOT_BUILD');
+      // no price for a bike that cannot be built: the parts' sum would leave the missing ones out
+      expect(cart.builds[0]!.lineTotal).toBe(0);
+      expect(cart.subtotal).toBe(0);
       expect(cart.canCheckout).toBe(false);
     });
 
@@ -164,6 +167,17 @@ describe('Cart (e2e)', () => {
       expect(res.body.message).toMatch(/160 mm/);
     });
 
+    it('checks stock for the total when the same bike is added again', async () => {
+      // 3 carbon wheelsets: 2 bikes fit, then 2 more of the same bike would make 4
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      const bike = { parts: { ...start, wheelsets: 'e1-wheelset-carbon' }, colorKey: 'signal' };
+      await me.addBuild({ ...bike, quantity: 2 }).expect(200);
+      const res = await me.addBuild({ ...bike, quantity: 2 }).expect(409);
+      expect(res.body.message).toMatch(/Only 3 of Carbon wheelset C30 left/);
+      const cart = cartSchema.parse((await me.get().expect(200)).body);
+      expect(cart.builds.map((b) => b.quantity)).toEqual([2]);
+    });
+
     it('merges a guest cart: quantities add up, buildable bikes come along', async () => {
       const me = as(await signedInCustomer(app, mail, nextIp()));
       await me.set({ slug: 'workshop-hex-set', quantity: 8 }).expect(200);
@@ -201,7 +215,10 @@ describe('Cart (e2e)', () => {
         ['e1-cockpit-alloy', 1],
       ]);
       // both bikes are written in one transaction, so their order is not fixed
-      expect(cart.builds.map((b) => b.problem).sort()).toEqual(['NOT_ENOUGH_STOCK', null]);
+      expect(cart.builds.map((b) => b.problem ?? 'none').sort((a, b) => a.localeCompare(b))).toEqual([
+        'none',
+        'NOT_ENOUGH_STOCK',
+      ]);
     });
 
     it('keeps carts apart between accounts', async () => {

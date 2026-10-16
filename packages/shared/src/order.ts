@@ -58,6 +58,8 @@ export const orderDetailSchema = z.object({
       category: z.string().nullable(),
       /** the 3D module that draws the part; null once the part is gone from the catalogue */
       module: partModuleSchema.nullable(),
+      /** the finish's key, '' for a part without finishes; it picks the matching picture */
+      colorKey: z.string(),
       colorLabel: z.string().nullable(),
       unitPrice: rupiahSchema,
       quantity: z.number().int().positive(),
@@ -71,6 +73,7 @@ export const orderDetailSchema = z.object({
     z.object({
       id: z.string(),
       label: z.string(),
+      colorKey: z.string(),
       colorLabel: z.string().nullable(),
       quantity: z.number().int().positive(),
       unitPrice: rupiahSchema,

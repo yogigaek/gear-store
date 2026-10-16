@@ -46,7 +46,7 @@ export class BuildService {
     const slots = book.slots.map((slot) => {
       const options = active
         .filter((p) => p.summary.category === slot.category)
-        .sort((a, b) => a.summary.price - b.summary.price || a.summary.name.localeCompare(b.summary.name));
+        .sort((a, b) => a.summary.price - b.summary.price || a.id.localeCompare(b.id));
       return {
         category: slot.category,
         name: slot.name,
@@ -80,39 +80,8 @@ export class BuildService {
   }
 
   /** The catalogue the rules run against: every part in a slot category, active or not, and the conflicts. */
-  async book(db: Db = this.prisma): Promise<BuildBook> {
-    const [categories, conflicts] = await Promise.all([
-      db.category.findMany({
-        where: { slot: { not: null } },
-        orderBy: { slot: 'asc' },
-        select: { slug: true, name: true, description: true, products: { select: partSelect } },
-      }),
-      db.partConflict.findMany({
-        select: { reason: true, a: { select: { slug: true } }, b: { select: { slug: true } } },
-      }),
-    ]);
-    const parts = new Map<string, RulePart>();
-    const swatches = new Map<string, Color[]>();
-    for (const category of categories) {
-      for (const { id, isActive, colors, ...summary } of category.products) {
-        parts.set(summary.slug, {
-          id,
-          isActive,
-          colors: new Map(colors.map((c) => [c.key, c.label])),
-          summary: toSummary(summary),
-        });
-        swatches.set(summary.slug, colors);
-      }
-    }
-    const pairs = conflicts.map((c) => ({ a: c.a.slug, b: c.b.slug, reason: c.reason }));
-    return {
-      slots: categories.map((c) => ({ category: c.slug, name: c.name })),
-      parts,
-      conflicts: new Map(pairs.map((p) => [conflictKey(p.a, p.b), p.reason])),
-      descriptions: new Map(categories.map((c) => [c.slug, c.description])),
-      swatches,
-      pairs,
-    };
+  book(db: Db = this.prisma): Promise<BuildBook> {
+    return loadRulebook(db);
   }
 }
 
@@ -124,6 +93,42 @@ function emptyBook(): BuildBook {
     descriptions: new Map(),
     swatches: new Map(),
     pairs: [],
+  };
+}
+
+/** {@link BuildService.book}, for code outside Nest such as the seed */
+export async function loadRulebook(db: Db): Promise<BuildBook> {
+  const [categories, conflicts] = await Promise.all([
+    db.category.findMany({
+      where: { slot: { not: null } },
+      orderBy: { slot: 'asc' },
+      select: { slug: true, name: true, description: true, products: { select: partSelect } },
+    }),
+    db.partConflict.findMany({
+      select: { reason: true, a: { select: { slug: true } }, b: { select: { slug: true } } },
+    }),
+  ]);
+  const parts = new Map<string, RulePart>();
+  const swatches = new Map<string, Color[]>();
+  for (const category of categories) {
+    for (const { id, isActive, colors, ...summary } of category.products) {
+      parts.set(summary.slug, {
+        id,
+        isActive,
+        colors: new Map(colors.map((c) => [c.key, c.label])),
+        summary: toSummary(summary),
+      });
+      swatches.set(summary.slug, colors);
+    }
+  }
+  const pairs = conflicts.map((c) => ({ a: c.a.slug, b: c.b.slug, reason: c.reason }));
+  return {
+    slots: categories.map((c) => ({ category: c.slug, name: c.name })),
+    parts,
+    conflicts: new Map(pairs.map((p) => [conflictKey(p.a, p.b), p.reason])),
+    descriptions: new Map(categories.map((c) => [c.slug, c.description])),
+    swatches,
+    pairs,
   };
 }
 
