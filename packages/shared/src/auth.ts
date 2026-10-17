@@ -3,14 +3,19 @@ import { z } from 'zod';
 /** Trimmed and lower-cased before validation, so "Ana@Mail.com " and "ana@mail.com" are one account. */
 export const emailSchema = z.string().trim().toLowerCase().max(254).pipe(z.email());
 
+export const PASSWORD_MIN_LENGTH = 8;
+
 /**
- * Length over composition (NIST SP 800-63B): at least 10 characters, no forced symbols. The upper bound
+ * Length over composition (NIST SP 800-63B): at least 8 characters, no forced symbols. The upper bound
  * keeps a single request from making argon2 hash megabytes.
  */
 export const passwordSchema = z
   .string()
-  .min(10, 'Use at least 10 characters')
+  .min(PASSWORD_MIN_LENGTH, `Use at least ${PASSWORD_MIN_LENGTH} characters`)
   .max(128, 'Use at most 128 characters');
+
+/** Shown under a "confirm password" field that does not repeat the new password. */
+export const PASSWORDS_DIFFER = 'The passwords do not match';
 
 /** Opaque single-use token from an email link: 32 random bytes, base64url. */
 export const emailLinkTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Invalid or expired link');

@@ -24,6 +24,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { EmailTokenPurpose, Prisma, type User as UserRow } from '../generated/prisma/client.js';
 import { AccountLimiter } from '../common/account-limiter.js';
+import { SignInLockout } from '../common/sign-in-lockout.js';
 import { type Mail, MailService } from '../mail/mail.service.js';
 import { accountExistsMail, resetPasswordMail, verifyEmailMail } from '../mail/templates.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -33,8 +34,18 @@ const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 30 * 60 * 1000;
 
-const LOGIN_FAILURES_ALLOWED = 10;
-const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
+const MINUTE_MS = 60 * 1000;
+/** per address: five mistakes, then a minute's pause that doubles with every further failure, up to an hour */
+const ADDRESS_LOCKOUT = {
+  failuresBeforePause: 5,
+  firstPauseMs: MINUTE_MS,
+  maxPauseMs: 60 * MINUTE_MS,
+  forgetAfterMs: 24 * 60 * MINUTE_MS,
+};
+/** per visitor address: wider, for someone trying many accounts from one place */
+const NETWORK_LOCKOUT = { ...ADDRESS_LOCKOUT, failuresBeforePause: 20 };
+/** a warning joins the error once this few attempts are left */
+const WARN_WHEN_LEFT = 2;
 const EMAILS_PER_ADDRESS = 3;
 const EMAIL_WINDOW_MS = 60 * 60 * 1000;
 
@@ -43,6 +54,21 @@ export const DEMO_EMAILS = { shopper: 'shopper@rakit.example', admin: 'admin@rak
 const invalidCredentials = () => new UnauthorizedException('Email or password is incorrect');
 const invalidSession = () => new UnauthorizedException('Session expired, sign in again');
 const invalidLink = () => new BadRequestException('This link is invalid or has expired');
+
+/** A 429 that says how long to wait; `retryAfter` (seconds) lets the sign-in form count down. */
+function tooManySignIns(pauseMs: number): HttpException {
+  const seconds = Math.ceil(pauseMs / 1000);
+  const wait = seconds < 120 ? `${seconds} seconds` : `${Math.ceil(seconds / 60)} minutes`;
+  return new HttpException(
+    {
+      statusCode: 429,
+      message: `Too many failed sign-ins. Try again in ${wait}.`,
+      code: 'SIGN_IN_PAUSED',
+      retryAfter: seconds,
+    },
+    429,
+  );
+}
 
 export interface AccessClaims {
   sub: string;
@@ -81,6 +107,9 @@ export class AuthService {
     private readonly limiter: AccountLimiter,
     @Inject(ENV) private readonly env: Env,
   ) {}
+
+  private readonly addressLockout = new SignInLockout(ADDRESS_LOCKOUT);
+  private readonly networkLockout = new SignInLockout(NETWORK_LOCKOUT);
 
   // ── registration and email verification ───────────────────────────────────
 
@@ -122,23 +151,23 @@ export class AuthService {
 
   // ── sign in, refresh, sign out ────────────────────────────────────────────
 
-  async login(input: LoginInput, userAgent: string | undefined): Promise<IssuedSession> {
-    // per address, not per IP: holds however many addresses a password guesser rotates through. Applies the
-    // same way to unknown addresses, so it does not reveal which ones have accounts.
-    const key = `login:${input.email}`;
-    if (this.limiter.used(key) >= LOGIN_FAILURES_ALLOWED) {
-      const minutes = Math.ceil(this.limiter.retryAfter(key) / 60);
-      throw new HttpException(
-        {
-          statusCode: 429,
-          message: `Too many failed sign-ins for this address. Try again in ${minutes} min.`,
-        },
-        429,
-      );
-    }
+  async login(input: LoginInput, userAgent: string | undefined, clientIp = ''): Promise<IssuedSession> {
+    // Two locks. Per address, not per IP: holds however many addresses a password guesser rotates through,
+    // and applies the same way to unknown addresses, so it does not reveal which ones have accounts. Per
+    // visitor address, wider: holds someone trying many accounts from one place.
+    const address = `login:${input.email}`;
+    const network = `ip:${clientIp}`;
+    const paused = Math.max(this.addressLockout.pausedFor(address), this.networkLockout.pausedFor(network));
+    if (paused > 0) throw tooManySignIns(paused);
+
     const failed = () => {
-      this.limiter.hit(key, LOGIN_FAILURE_WINDOW_MS);
-      return invalidCredentials();
+      const pause = Math.max(this.addressLockout.fail(address), this.networkLockout.fail(network));
+      if (pause > 0) return tooManySignIns(pause);
+      const left = this.addressLockout.attemptsLeft(address);
+      if (left > WARN_WHEN_LEFT) return invalidCredentials();
+      return new UnauthorizedException(
+        `Email or password is incorrect. ${left} ${left === 1 ? 'attempt' : 'attempts'} left before sign-in pauses for a minute.`,
+      );
     };
     const user = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (!user || user.isDemo) {
@@ -146,7 +175,7 @@ export class AuthService {
       throw failed();
     }
     if (!(await verify(user.passwordHash, input.password))) throw failed();
-    this.limiter.reset(key);
+    this.addressLockout.succeed(address);
     if (!user.emailVerifiedAt) {
       throw new ForbiddenException({
         statusCode: 403,

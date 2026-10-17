@@ -30,6 +30,7 @@ import {
 } from '@gear-store/shared';
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
+import { clientIp } from '../common/client-ip.js';
 import { openApiSchema } from '../common/openapi.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
@@ -86,15 +87,19 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(200)
-  @Throttle(strict)
+  // looser than the other auth routes: the escalating pauses in AuthService.login are the real limit, and
+  // they answer with how long to wait, which a plain throttler 429 cannot
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({ summary: 'Sign in; sets the refresh cookie and returns an access token' })
   @ApiContract(loginSchema, authResponseSchema)
   async login(
     @Body(body(loginSchema)) input: LoginInput,
     @Headers('user-agent') userAgent: string | undefined,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthResponse> {
-    return this.withCookie(res, await this.auth.login(input, userAgent));
+    const ip = clientIp(req, this.env.CLIENT_IP_HEADERS);
+    return this.withCookie(res, await this.auth.login(input, userAgent, ip));
   }
 
   @Post('demo')

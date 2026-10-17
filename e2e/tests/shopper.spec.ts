@@ -34,6 +34,11 @@ test('a guest builds an E-1, signs up, pays and reviews a part of it', async ({ 
   await page.getByLabel('Name').fill('Ana Putri');
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
+  // a confirmation that does not match is caught before anything is sent
+  await page.getByLabel('Confirm password').fill(`${PASSWORD}x`);
+  await page.getByRole('button', { name: 'Create account' }).click();
+  await expect(page.getByText('The passwords do not match')).toBeVisible();
+  await page.getByLabel('Confirm password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
   await page.goto(await emailedLink(email, '/verify-email'));
@@ -44,6 +49,9 @@ test('a guest builds an E-1, signs up, pays and reviews a part of it', async ({ 
   await page.getByLabel('Email').fill(email);
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL(/\/checkout$/);
+  // signed in, the sign-in form is never shown again (Back or a bookmark): it sends the visitor on
+  await page.goto('/sign-in?next=%2Fcheckout');
   await expect(page).toHaveURL(/\/checkout$/);
   await expect(page.getByRole('region', { name: 'Order summary' }).getByText('Rakit E-1')).toBeVisible();
 

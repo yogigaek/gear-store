@@ -127,34 +127,48 @@ describe('Auth (e2e)', () => {
     });
 
     it('slows down repeated attempts from one address', async () => {
+      const email = `nobody-${randomUUID()}@test.example`;
       const statuses: number[] = [];
       for (let i = 0; i < 7; i += 1) {
-        statuses.push(
-          (await post('/api/auth/login', { email: 'nobody@test.example', password: 'x' })).status,
-        );
+        statuses.push((await post('/api/auth/login', { email, password: 'x' })).status);
       }
-      expect(statuses.slice(0, 5).every((s) => s === 401)).toBe(true);
-      expect(statuses.at(-1)).toBe(429);
+      // four mistakes are answered as such; the fifth starts a pause
+      expect(statuses.slice(0, 4).every((s) => s === 401)).toBe(true);
+      expect(statuses.slice(4).every((s) => s === 429)).toBe(true);
     });
   });
 
   describe('per-address limits (independent of the client IP)', () => {
-    it('locks an address after 10 failed sign-ins, however many IPs they come from', async () => {
+    it('pauses an address for a minute after 5 failed sign-ins, however many IPs they come from', async () => {
       const email = await verifiedUser();
-      for (let i = 0; i < 10; i += 1) {
+      const messages = [];
+      for (let i = 0; i < 4; i += 1) {
         ip = nextIp();
-        await post('/api/auth/login', { email, password: 'not the password' }).expect(401);
+        messages.push(
+          (await post('/api/auth/login', { email, password: 'not the password' }).expect(401)).body.message,
+        );
       }
+      // the last attempts before the pause say so
+      expect(messages.slice(0, 2)).toEqual([
+        'Email or password is incorrect',
+        'Email or password is incorrect',
+      ]);
+      expect(messages[2]).toMatch(/2 attempts left before sign-in pauses for a minute/);
+      expect(messages[3]).toMatch(/1 attempt left/);
+      ip = nextIp();
+      const fifth = await post('/api/auth/login', { email, password: 'not the password' }).expect(429);
+      expect(fifth.body).toMatchObject({ code: 'SIGN_IN_PAUSED', retryAfter: 60 });
+      // the right password does not get through during the pause either
       ip = nextIp();
       const locked = await post('/api/auth/login', { email, password: PASSWORD }).expect(429);
-      expect(locked.body.message).toMatch(/Too many failed sign-ins for this address/);
+      expect(locked.body.message).toMatch(/Too many failed sign-ins. Try again in \d+ seconds/);
       // another account is not affected
       await login(await verifiedUser());
     });
 
     it('treats unknown addresses the same way, so the lock reveals nothing', async () => {
       const email = `nobody-${randomUUID()}@test.example`;
-      for (let i = 0; i < 10; i += 1) {
+      for (let i = 0; i < 4; i += 1) {
         ip = nextIp();
         await post('/api/auth/login', { email, password: 'whatever' }).expect(401);
       }

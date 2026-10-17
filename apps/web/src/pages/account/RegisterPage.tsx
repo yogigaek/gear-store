@@ -1,4 +1,4 @@
-import { registerSchema } from '@gear-store/shared';
+import { PASSWORD_MIN_LENGTH, PASSWORDS_DIFFER, registerSchema } from '@gear-store/shared';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -7,14 +7,15 @@ import { Field, Notice } from '../../components/ui/Field';
 import { api, ApiError } from '../../lib/api';
 import { AuthShell } from './AuthShell';
 
-type Errors = Partial<Record<'name' | 'email' | 'password', string>>;
+type Errors = Partial<Record<'name' | 'email' | 'password' | 'confirm', string>>;
 
 export function RegisterPage() {
-  const [form, setForm] = useState({ name: '', email: '', password: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
   const [errors, setErrors] = useState<Errors>({});
 
   const register = useMutation({
-    mutationFn: (input: typeof form) => api('/auth/register', { method: 'POST', body: input }),
+    mutationFn: ({ name, email, password }: typeof form) =>
+      api('/auth/register', { method: 'POST', body: { name, email, password } }),
     onError: (error) => {
       if (error instanceof ApiError)
         setErrors({
@@ -87,7 +88,12 @@ export function RegisterPage() {
               const key = issue.path[0] as keyof Errors;
               next[key] ??= key === 'email' ? 'Enter a valid email address' : issue.message;
             }
+            if (form.confirm !== form.password) next.confirm = PASSWORDS_DIFFER;
             setErrors(next);
+            return;
+          }
+          if (form.confirm !== form.password) {
+            setErrors({ confirm: PASSWORDS_DIFFER });
             return;
           }
           setErrors({});
@@ -119,7 +125,15 @@ export function RegisterPage() {
           value={form.password}
           onChange={set('password')}
           error={errors.password}
-          hint="At least 10 characters. A few words make a strong, memorable password."
+          hint={`At least ${PASSWORD_MIN_LENGTH} characters. A few words make a strong, memorable password.`}
+        />
+        <Field
+          label="Confirm password"
+          type="password"
+          autoComplete="new-password"
+          value={form.confirm}
+          onChange={set('confirm')}
+          error={errors.confirm}
         />
         <Button type="submit" disabled={register.isPending} className="w-full">
           {register.isPending ? 'Creating account…' : 'Create account'}

@@ -10,12 +10,15 @@ export class ApiError extends Error {
   readonly status: number;
   readonly issues: ApiIssue[];
   readonly code: string | undefined;
+  /** seconds to wait before trying again, when the API says (a paused sign-in) */
+  readonly retryAfter: number | undefined;
 
-  constructor(status: number, message: string, issues: ApiIssue[] = [], code?: string) {
+  constructor(status: number, message: string, issues: ApiIssue[] = [], code?: string, retryAfter?: number) {
     super(message);
     this.status = status;
     this.issues = issues;
     this.code = code;
+    this.retryAfter = retryAfter;
   }
 
   /** the message for one form field, if the API flagged it */
@@ -69,13 +72,21 @@ async function toApiError(res: Response): Promise<ApiError> {
       ? 'Too many attempts. Wait a minute and try again.'
       : 'Something went wrong. Try again.';
   try {
-    const body = (await res.json()) as { message?: unknown; issues?: unknown; code?: unknown };
+    const body = (await res.json()) as {
+      message?: unknown;
+      issues?: unknown;
+      code?: unknown;
+      retryAfter?: unknown;
+    };
     const message = Array.isArray(body.message) ? String(body.message[0]) : body.message;
+    // a 429 from the throttler says "ThrottlerException: …"; one from a paused sign-in says how long to wait
+    const own = typeof body.code === 'string';
     return new ApiError(
       res.status,
-      res.status === 429 || typeof message !== 'string' ? fallback : message,
+      typeof message !== 'string' || (res.status === 429 && !own) ? fallback : message,
       Array.isArray(body.issues) ? (body.issues as ApiIssue[]) : [],
-      typeof body.code === 'string' ? body.code : undefined,
+      own ? (body.code as string) : undefined,
+      typeof body.retryAfter === 'number' ? body.retryAfter : undefined,
     );
   } catch {
     return new ApiError(res.status, fallback);

@@ -8,12 +8,17 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useLocation, useOutlet } from 'react-router';
+import { Navigate, useLocation, useOutlet, useSearchParams } from 'react-router';
 import poster from '../../assets/auth-poster.jpg';
+import { useAuth } from '../../lib/auth-context';
+import { afterSignIn } from '../../lib/navigation';
 import { E1_FRAME } from '../../three/bike/layout';
 import { useCanRender3D, useCoarsePointer, usePrefersReducedMotion } from '../../three/useCanRender3D';
 
 const AuthScene = lazy(() => import('../../three/bike/AuthScene'));
+
+/** the forms only a signed-out visitor needs; confirming an email or resetting a password work either way */
+const SIGNED_OUT_ONLY = new Set(['/sign-in', '/register', '/forgot-password']);
 
 /**
  * The account pages' shared layout: the E-1 turning on the dark stage, and the panel each page fills. The
@@ -30,6 +35,15 @@ export function AuthLayout() {
     }, 1500);
     return () => window.clearTimeout(id);
   }, []);
+
+  // signed in, these forms have nothing to offer: Back, a bookmark or a typed URL goes on to where the
+  // sign-in would have led, and the redirect replaces the entry so Back does not bounce here again
+  const { status, user } = useAuth();
+  const { pathname } = useLocation();
+  const [params] = useSearchParams();
+  if (status === 'signed-in' && user && SIGNED_OUT_ONLY.has(pathname)) {
+    return <Navigate to={afterSignIn(user.role, params.get('next'))} replace />;
+  }
 
   return (
     // wide screens: a split screen locked to the window. The stage never moves; a form taller than the

@@ -146,7 +146,9 @@ repeats it"_.
   revokes the session. Signing out or resetting a password takes effect at once.
 - 🔑 **Accounts** — argon2id password hashing, email confirmation, the same reply whether or not an email has an
   account, and only SHA-256 hashes of tokens stored.
-- 🚦 **Abuse** — per-address rate limits, tighter on sign-in and email routes.
+- 🚦 **Abuse** — after 5 failed sign-ins an address pauses for a minute, and every further failure doubles the
+  pause up to an hour (unknown addresses alike, so the pause reveals nothing); a wider limit per visitor network;
+  per-address rate limits on email routes. Passwords are at least 8 characters.
 - 🗄️ **Data** — CHECK constraints on prices and stock. Products are taken off sale, never deleted, so orders keep
   their history. An admin product edit is refused if an order changed the stock since the form was opened.
 - 🌐 **Web** — a Content Security Policy without `unsafe-eval` or inline scripts, HSTS, and `frame-ancestors none`.

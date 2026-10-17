@@ -13,6 +13,9 @@ describe('auth schemas', () => {
   it('accepts a long passphrase without symbols and rejects short or huge ones', () => {
     expect(passwordSchema.safeParse('correct horse battery').success).toBe(true);
     expect(passwordSchema.safeParse('short1!').success).toBe(false);
+    // eight characters is the minimum
+    expect(passwordSchema.safeParse('1234567').success).toBe(false);
+    expect(passwordSchema.safeParse('12345678').success).toBe(true);
     expect(passwordSchema.safeParse('x'.repeat(129)).success).toBe(false);
   });
 

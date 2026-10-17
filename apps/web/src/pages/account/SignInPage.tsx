@@ -1,31 +1,44 @@
 import { loginSchema } from '@gear-store/shared';
 import { useMutation } from '@tanstack/react-query';
-import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useEffect, useState } from 'react';
+import { Link, useSearchParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
 import { Field, Notice } from '../../components/ui/Field';
 import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
-import { safeNext } from '../../lib/navigation';
 import { AuthShell } from './AuthShell';
 
 export function SignInPage() {
   const { signIn, signInDemo } = useAuth();
-  const navigate = useNavigate();
   const [params] = useSearchParams();
-  const next = safeNext(params.get('next'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  // after too many failed sign-ins the API pauses this address; the form counts the pause down
+  const [pausedUntil, setPausedUntil] = useState(0);
+  const [secondsLeft, setSecondsLeft] = useState(0);
 
   const login = useMutation({
+    // on success the account layout sends the visitor on (see AuthLayout): to `?next=`, else the
+    // dashboard for an administrator or the account page
     mutationFn: () => signIn(loginSchema.parse({ email, password })),
-    onSuccess: () => navigate(next, { replace: true }),
+    onError: (e) => {
+      if (e instanceof ApiError && e.retryAfter) {
+        setPausedUntil(Date.now() + e.retryAfter * 1000);
+        setSecondsLeft(e.retryAfter);
+      }
+    },
   });
+  useEffect(() => {
+    if (!pausedUntil) return;
+    const id = window.setInterval(() => {
+      const left = Math.max(0, Math.ceil((pausedUntil - Date.now()) / 1000));
+      setSecondsLeft(left);
+      if (left === 0) window.clearInterval(id);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [pausedUntil]);
   const demo = useMutation({
     mutationFn: (role: 'shopper' | 'admin') => signInDemo(role),
-    // the demo admin is there to see the dashboard: it opens there unless a page asked for the sign-in
-    onSuccess: (_, role) =>
-      navigate(role === 'admin' && !params.get('next') ? '/admin' : next, { replace: true }),
   });
   const resend = useMutation({
     mutationFn: () => api('/auth/resend-verification', { method: 'POST', body: { email } }),
@@ -86,7 +99,15 @@ export function SignInPage() {
           login.mutate();
         }}
       >
-        {error && !unverified && <Notice tone="error">{error.message}</Notice>}
+        {error && !unverified && (
+          <Notice tone="error">
+            {secondsLeft > 0
+              ? `Too many failed sign-ins. Try again in ${formatWait(secondsLeft)}.`
+              : error.code === 'SIGN_IN_PAUSED'
+                ? 'You can try again now.'
+                : error.message}
+          </Notice>
+        )}
         {login.error && !error && (
           <Notice tone="error">Enter a valid email address and your password.</Notice>
         )}
@@ -127,8 +148,12 @@ export function SignInPage() {
             Forgot password?
           </Link>
         </div>
-        <Button type="submit" disabled={login.isPending} className="w-full">
-          {login.isPending ? 'Signing in…' : 'Sign in'}
+        <Button type="submit" disabled={login.isPending || secondsLeft > 0} className="w-full">
+          {login.isPending
+            ? 'Signing in…'
+            : secondsLeft > 0
+              ? `Try again in ${formatWait(secondsLeft)}`
+              : 'Sign in'}
         </Button>
       </form>
 
@@ -144,4 +169,9 @@ export function SignInPage() {
       </p>
     </AuthShell>
   );
+}
+
+/** 45 → "0:45", 125 → "2:05" */
+function formatWait(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }

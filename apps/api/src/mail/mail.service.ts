@@ -7,6 +7,8 @@ export interface Mail {
   to: string;
   subject: string;
   text: string;
+  /** the same message laid out for mail apps that show HTML; `text` is the fallback */
+  html?: string;
 }
 
 @Injectable()
@@ -19,8 +21,8 @@ export class MailService {
   }
 
   /**
-   * Plain text on purpose: renders everywhere, nothing to escape, and links stay visible. Never rejects, so
-   * callers may send without awaiting (account emails do, so the reply time does not reveal whether one went out).
+   * Never rejects, so callers may send without awaiting (account emails do, so the reply time does not reveal
+   * whether one went out).
    */
   async send(mail: Mail): Promise<void> {
     try {

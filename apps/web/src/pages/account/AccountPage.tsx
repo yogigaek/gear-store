@@ -1,4 +1,11 @@
-import { changePasswordSchema, messageSchema, updateProfileSchema, userSchema } from '@gear-store/shared';
+import {
+  changePasswordSchema,
+  messageSchema,
+  PASSWORD_MIN_LENGTH,
+  PASSWORDS_DIFFER,
+  updateProfileSchema,
+  userSchema,
+} from '@gear-store/shared';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
@@ -24,6 +31,8 @@ export function AccountPage() {
   const wishlist = useWishlist();
   const [name, setName] = useState(user?.name ?? '');
   const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '' });
+  const [confirm, setConfirm] = useState('');
+  const [confirmError, setConfirmError] = useState<string>();
 
   const rename = useMutation({
     mutationFn: () =>
@@ -47,7 +56,10 @@ export function AccountPage() {
           schema: messageSchema,
         }),
       ),
-    onSuccess: () => setPasswords({ currentPassword: '', newPassword: '' }),
+    onSuccess: () => {
+      setPasswords({ currentPassword: '', newPassword: '' });
+      setConfirm('');
+    },
   });
   const leave = useMutation({ mutationFn: signOut, onSuccess: () => navigate('/', { replace: true }) });
 
@@ -124,13 +136,15 @@ export function AccountPage() {
             className="space-y-4"
             onSubmit={(e) => {
               e.preventDefault();
-              changePassword.mutate();
+              const matches = confirm === passwords.newPassword;
+              setConfirmError(matches ? undefined : PASSWORDS_DIFFER);
+              if (matches) changePassword.mutate();
             }}
           >
             {changePassword.isSuccess && <Notice tone="ok">{changePassword.data.message}</Notice>}
             {changePassword.error && !passwordError && (
               <Notice tone="error">
-                Enter your current password and a new one of at least 10 characters.
+                Enter your current password and a new one of at least {PASSWORD_MIN_LENGTH} characters.
               </Notice>
             )}
             {passwordError && <Notice tone="error">{passwordError.message}</Notice>}
@@ -147,7 +161,15 @@ export function AccountPage() {
               autoComplete="new-password"
               value={passwords.newPassword}
               onChange={(e) => setPasswords((p) => ({ ...p, newPassword: e.target.value }))}
-              hint="At least 10 characters. Other devices will be signed out."
+              hint={`At least ${PASSWORD_MIN_LENGTH} characters. Other devices will be signed out.`}
+            />
+            <Field
+              label="Confirm new password"
+              type="password"
+              autoComplete="new-password"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              error={confirmError}
             />
             <Button type="submit" variant="secondary" disabled={changePassword.isPending}>
               Change password

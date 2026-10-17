@@ -27,20 +27,21 @@ describe('Rate limits by the hosting-provided client address (e2e)', () => {
       .send({ email: `nobody-${Math.random()}@test.example`, password: 'wrong' });
 
   it('counts one visitor once, whatever X-Forwarded-For they send', async () => {
+    // sign-in allows 10 requests a minute per visitor; a fresh X-Forwarded-For each time must not reset it
     const statuses: number[] = [];
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 11; i += 1) {
       const res = await attempt({
         'x-vercel-forwarded-for': '198.51.100.7',
         'x-forwarded-for': `203.0.113.${i}`,
       });
       statuses.push(res.status);
     }
-    expect(statuses.slice(0, 5)).toEqual([401, 401, 401, 401, 401]);
-    expect(statuses[5]).toBe(429);
+    expect(statuses.slice(0, 10).every((s) => s === 401)).toBe(true);
+    expect(statuses[10]).toBe(429);
   });
 
   it('keeps different visitors apart', async () => {
-    for (let i = 0; i < 6; i += 1) {
+    for (let i = 0; i < 11; i += 1) {
       const res = await attempt({ 'true-client-ip': `198.51.100.${100 + i}` });
       expect(res.status).toBe(401);
     }
