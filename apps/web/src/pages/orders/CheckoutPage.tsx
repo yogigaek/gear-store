@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { z } from 'zod';
 import { AddressForm, AddressLines } from '../../components/checkout/AddressForm';
+import { SandboxPaymentGuide } from '../../components/checkout/SandboxPaymentGuide';
 import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
@@ -203,6 +204,7 @@ export function CheckoutPage() {
             The items are held for {paymentWindowMinutes(user?.isDemo ?? false)} minutes while you pay. This
             is a demo: Midtrans runs in sandbox mode and no real money moves.
           </p>
+          <SandboxPaymentGuide compact />
         </section>
       </div>
     </div>

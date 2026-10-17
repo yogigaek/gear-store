@@ -6,6 +6,7 @@ import {
   type OrderDetail,
 } from '@gear-store/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import { z } from 'zod';
 import { api } from './api';
 import { useAuth } from './auth-context';
@@ -50,7 +51,7 @@ export function useDeleteAddress() {
   });
 }
 
-export function useOrders() {
+export function useOrders({ enabled = true }: { enabled?: boolean } = {}) {
   const { status, authed } = useAuth();
   return useQuery({
     queryKey: ORDERS,
@@ -58,20 +59,37 @@ export function useOrders() {
       authed((accessToken) =>
         api('/me/orders', { accessToken, schema: z.array(orderSummarySchema), signal }),
       ),
-    enabled: status === 'signed-in',
+    enabled: enabled && status === 'signed-in',
   });
 }
 
-export function useOrder(number: string) {
+/**
+ * One order. With `watchPayment`, an order whose payment page has been opened is read again every few seconds
+ * while the tab is visible, so a payment confirmed by Midtrans' webhook shows without a reload. Reading the
+ * order is cheap: it does not ask Midtrans.
+ */
+export function useOrder(number: string, { watchPayment = false }: { watchPayment?: boolean } = {}) {
   const { status, authed } = useAuth();
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
     queryKey: [...ORDERS, number],
     queryFn: ({ signal }) =>
       authed((accessToken) =>
         api(`/me/orders/${encodeURIComponent(number)}`, { accessToken, schema: orderDetailSchema, signal }),
       ),
     enabled: status === 'signed-in',
+    refetchInterval: (q) => (watchPayment && q.state.data?.canPay && q.state.data.payment ? 8000 : false),
+    refetchIntervalInBackground: false,
   });
+  // the order moved on (paid, expired) while on screen: the list of orders shows it too
+  const orderStatus = query.data?.status;
+  const seen = useRef(orderStatus);
+  useEffect(() => {
+    if (seen.current && orderStatus && seen.current !== orderStatus)
+      void queryClient.invalidateQueries({ queryKey: ORDERS, exact: true });
+    seen.current = orderStatus;
+  }, [orderStatus, queryClient]);
+  return query;
 }
 
 /** Actions on one order; each one stores the order the API sends back. */
@@ -83,6 +101,10 @@ export function useOrderActions(number: string) {
     void queryClient.invalidateQueries({ queryKey: ORDERS, exact: true });
   };
   const path = `/me/orders/${encodeURIComponent(number)}`;
+  const askStatus = () =>
+    authed((accessToken) =>
+      api(`${path}/payment-status`, { method: 'POST', accessToken, schema: orderDetailSchema }),
+    );
   return {
     pay: useMutation({
       mutationFn: () =>
@@ -92,12 +114,14 @@ export function useOrderActions(number: string) {
       // the payment page is Midtrans' own site; it sends the buyer back to this order afterwards
       onSuccess: ({ redirectUrl }) => window.location.assign(redirectUrl),
     }),
-    checkStatus: useMutation({
-      mutationFn: () =>
-        authed((accessToken) =>
-          api(`${path}/payment-status`, { method: 'POST', accessToken, schema: orderDetailSchema }),
-        ),
-      onSuccess: store,
+    checkStatus: useMutation({ mutationFn: askStatus, onSuccess: store }),
+    /**
+     * The same check, made in the background: its failures are not the buyer's to see, and it only updates
+     * the order (useOrder refreshes the list when the status actually changes).
+     */
+    pullStatus: useMutation({
+      mutationFn: askStatus,
+      onSuccess: (order: OrderDetail) => queryClient.setQueryData([...ORDERS, number], order),
     }),
     cancel: useMutation({
       mutationFn: () =>

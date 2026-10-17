@@ -23,8 +23,8 @@ describe('Cart (e2e)', () => {
       addBuild: (build: object) => auth(server().post('/api/me/cart/builds')).send(build),
       setBuild: (id: string, quantity: number) =>
         auth(server().put(`/api/me/cart/builds/${id}`)).send({ quantity }),
-      merge: (items: object[], builds: object[] = []) =>
-        auth(server().post('/api/me/cart/merge')).send({ items, builds }),
+      merge: (items: object[], builds: object[] = [], mergeKey?: string) =>
+        auth(server().post('/api/me/cart/merge')).send({ items, builds, mergeKey }),
     };
   };
 
@@ -176,6 +176,27 @@ describe('Cart (e2e)', () => {
       expect(res.body.message).toMatch(/Only 3 of Carbon wheelset C30 left/);
       const cart = cartSchema.parse((await me.get().expect(200)).body);
       expect(cart.builds.map((b) => b.quantity)).toEqual([2]);
+    });
+
+    it('merges a cart sent twice under one merge key only once', async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      const mergeKey = crypto.randomUUID();
+      const items = [{ slug: 'workshop-hex-set', quantity: 2 }];
+      const builds = [{ key: crypto.randomUUID(), parts: start, colorKey: 'signal', quantity: 1 }];
+      await me.merge(items, builds, mergeKey).expect(200);
+      // the page reloaded before the reply: the browser sends the same cart again
+      const again = cartSchema.parse((await me.merge(items, builds, mergeKey).expect(200)).body);
+      expect(again.items.find((l) => l.product.slug === 'workshop-hex-set')?.quantity).toBe(2);
+      expect(again.builds).toHaveLength(1);
+      expect(again.builds[0]?.quantity).toBe(1);
+      // the browser signs in as someone else before the reply came: the same cart is not theirs to receive
+      const other = as(await signedInCustomer(app, mail, nextIp()));
+      const others = cartSchema.parse((await other.merge(items, builds, mergeKey).expect(200)).body);
+      expect(others.items).toEqual([]);
+      expect(others.builds).toEqual([]);
+      // a different cart is a new merge
+      const next = cartSchema.parse((await me.merge(items, [], crypto.randomUUID()).expect(200)).body);
+      expect(next.items.find((l) => l.product.slug === 'workshop-hex-set')?.quantity).toBe(4);
     });
 
     it('merges a guest cart: quantities add up, buildable bikes come along', async () => {

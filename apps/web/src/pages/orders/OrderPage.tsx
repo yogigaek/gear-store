@@ -5,6 +5,7 @@ import { AddressLines } from '../../components/checkout/AddressForm';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
 import { PartImage } from '../../components/product/PartImage';
 import { Button } from '../../components/ui/Button';
+import { SandboxPaymentGuide } from '../../components/checkout/SandboxPaymentGuide';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
@@ -30,15 +31,36 @@ function useMinutesLeft(deadline: string | undefined): number | null {
 export function OrderPage() {
   const { number = '' } = useParams();
   const [params] = useSearchParams();
-  const order = useOrder(number);
-  const { pay, checkStatus, cancel } = useOrderActions(number);
+  const order = useOrder(number, { watchPayment: true });
+  const { pay, checkStatus, pullStatus, cancel } = useOrderActions(number);
   const [confirmCancel, setConfirmCancel] = useState(false);
   const minutesLeft = useMinutesLeft(order.data?.canPay ? order.data.paymentExpiresAt : undefined);
+  // A payment page has been opened for this order: it is read every few seconds (useOrder) until it settles,
+  // and once a minute Midtrans is also asked directly, in case the webhook is late.
+  const awaitingPayment = Boolean(order.data?.canPay && order.data.payment);
+
+  const pull = pullStatus.mutate; // stable across renders, so the minute timer is not restarted by them
+  useEffect(() => {
+    if (!awaitingPayment) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') pull();
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [awaitingPayment, pull]);
 
   // back from the Midtrans page (it adds transaction_status to our URL): ask for the result once,
   // because on localhost the webhook cannot reach us and in production it may still be on its way
   const checked = useRef(false);
   const returnedFromPayment = params.has('transaction_status');
+  // the thank-you is for a payment that lands while the buyer is here, or on their way back from Midtrans
+  const orderStatus = order.data?.status;
+  const [seenStatus, setSeenStatus] = useState(orderStatus);
+  const [paidHere, setPaidHere] = useState(false);
+  if (orderStatus !== seenStatus) {
+    setSeenStatus(orderStatus);
+    if (seenStatus === 'PENDING_PAYMENT' && orderStatus === 'PAID') setPaidHere(true);
+  }
+  const thanks = orderStatus === 'PAID' && (paidHere || returnedFromPayment);
   useEffect(() => {
     if (returnedFromPayment && order.data?.status === 'PENDING_PAYMENT' && !checked.current) {
       checked.current = true;
@@ -110,6 +132,15 @@ export function OrderPage() {
                 )
               )}
               {actionError && !notSetUp && <Notice tone="error">{actionError.message}</Notice>}
+              {!notSetUp && (
+                <>
+                  <p className="text-sm text-ink-2">
+                    <strong className="text-ink">Pay now</strong> opens the Midtrans sandbox page in this tab.
+                    When you are done there, come back to this page.
+                  </p>
+                  <SandboxPaymentGuide />
+                </>
+              )}
               <div className="flex flex-wrap gap-3">
                 <Button disabled={pay.isPending} onClick={() => pay.mutate()}>
                   {pay.isPending ? 'Opening payment…' : 'Pay now'}
@@ -139,9 +170,7 @@ export function OrderPage() {
               </ConfirmDialog>
             </section>
           )}
-          {o.status === 'PAID' && checkStatus.isSuccess && (
-            <Notice tone="ok">Payment received. Thank you!</Notice>
-          )}
+          {thanks && <Notice tone="ok">Payment received. Thank you!</Notice>}
 
           <section aria-labelledby="items-title">
             <h2 id="items-title" className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-ink-3">

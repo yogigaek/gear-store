@@ -1,4 +1,5 @@
-import { Link } from 'react-router';
+import { orderNumberSchema } from '@gear-store/shared';
+import { Link, Navigate, useSearchParams } from 'react-router';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
@@ -7,7 +8,13 @@ import { formatDateTime } from '../../lib/date';
 import { useOrders } from '../../lib/orders';
 
 export function OrdersPage() {
-  const orders = useOrders();
+  // back from Midtrans through the dashboard's redirect URL, which adds ?order_id=…: open that order
+  const [params] = useSearchParams();
+  const fromPayment = orderNumberSchema.safeParse(params.get('order_id'));
+  const orders = useOrders({ enabled: !fromPayment.success });
+  if (fromPayment.success) {
+    return <Navigate to={`/orders/${fromPayment.data}?${params}`} replace />;
+  }
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
       <div className="mb-8 space-y-1 border-b border-ink pb-4">

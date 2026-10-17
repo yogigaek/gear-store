@@ -26,7 +26,12 @@ import { EmailTokenPurpose, Prisma, type User as UserRow } from '../generated/pr
 import { AccountLimiter } from '../common/account-limiter.js';
 import { SignInLockout } from '../common/sign-in-lockout.js';
 import { type Mail, MailService } from '../mail/mail.service.js';
-import { accountExistsMail, resetPasswordMail, verifyEmailMail } from '../mail/templates.js';
+import {
+  accountExistsMail,
+  finishSignUpMail,
+  resetPasswordMail,
+  verifyEmailMail,
+} from '../mail/templates.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
@@ -137,7 +142,9 @@ export class AuthService {
 
   async resendVerification(email: string): Promise<Message> {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (user && !user.emailVerifiedAt && !user.isDemo) await this.sendVerification(user);
+    // a fresh link sets a password rather than confirming the one on file: anyone can ask for this email, and
+    // whoever signed up may not own the inbox (see sendFinishSignUp)
+    if (user && !user.emailVerifiedAt && !user.isDemo) await this.sendFinishSignUp(user);
     return { message: 'If that address has an unconfirmed account, a new link is on its way.' };
   }
 
@@ -240,9 +247,9 @@ export class AuthService {
 
   async forgotPassword(email: string): Promise<Message> {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (user && !user.isDemo) {
+    if (user && !user.isDemo && this.mayEmail(user.email)) {
       const token = await this.issueEmailToken(user.id, EmailTokenPurpose.RESET_PASSWORD, RESET_TTL_MS);
-      this.sendCapped(resetPasswordMail(user.email, user.name, this.link('/reset-password', token)));
+      this.send(resetPasswordMail(user.email, user.name, this.link('/reset-password', token)));
     }
     return { message: 'If that address has an account, a reset link is on its way.' };
   }
@@ -334,14 +341,33 @@ export class AuthService {
 
   private async handleExistingSignup(user: UserRow): Promise<void> {
     if (user.isDemo) return;
-    if (!user.emailVerifiedAt) return this.sendVerification(user);
+    if (!user.emailVerifiedAt) return this.sendFinishSignUp(user);
+    if (!this.mayEmail(user.email)) return;
     const token = await this.issueEmailToken(user.id, EmailTokenPurpose.RESET_PASSWORD, RESET_TTL_MS);
-    this.sendCapped(accountExistsMail(user.email, this.link('/reset-password', token)));
+    this.send(accountExistsMail(user.email, this.link('/reset-password', token)));
+  }
+
+  /**
+   * An unconfirmed account asked about again (a second sign-up, or a new link). Whoever signed up first may not
+   * own the inbox, so the password on file must never become live by a click from the inbox: earlier confirm
+   * links are cancelled, and the one link sent sets a password, which also confirms the address.
+   */
+  private async sendFinishSignUp(user: UserRow): Promise<void> {
+    if (!this.mayEmail(user.email)) return;
+    const [, token] = await Promise.all([
+      this.prisma.emailToken.deleteMany({
+        where: { userId: user.id, purpose: EmailTokenPurpose.VERIFY_EMAIL, usedAt: null },
+      }),
+      // as long as the confirm link it replaces: this is how a new account gets finished
+      this.issueEmailToken(user.id, EmailTokenPurpose.RESET_PASSWORD, VERIFY_TTL_MS),
+    ]);
+    this.send(finishSignUpMail(user.email, user.name, `${this.link('/reset-password', token)}&welcome=1`));
   }
 
   private async sendVerification(user: UserRow): Promise<void> {
+    if (!this.mayEmail(user.email)) return;
     const token = await this.issueEmailToken(user.id, EmailTokenPurpose.VERIFY_EMAIL, VERIFY_TTL_MS);
-    this.sendCapped(verifyEmailMail(user.email, user.name, this.link('/verify-email', token)));
+    this.send(verifyEmailMail(user.email, user.name, this.link('/verify-email', token)));
   }
 
   /** A new link replaces any earlier unused one of the same kind. */
@@ -371,15 +397,19 @@ export class AuthService {
   }
 
   /**
-   * Sends without awaiting (the reply time must not show whether an email went out) and at most
-   * EMAILS_PER_ADDRESS per hour to one address, so the sign-up and reset forms cannot flood an inbox.
-   * Over the cap the email is skipped silently: the reply stays the same.
+   * At most EMAILS_PER_ADDRESS account emails an hour to one address, so the sign-up and reset forms cannot
+   * flood an inbox. Checked before a new link is issued: issuing one cancels the earlier links of its kind,
+   * so a skipped email must not leave the inbox holding only dead links. Over the cap nothing happens and the
+   * reply stays the same.
    */
-  private sendCapped(mail: Mail): void {
-    if (this.limiter.hit(`mail:${mail.to}`, EMAIL_WINDOW_MS) > EMAILS_PER_ADDRESS) {
-      this.logger.warn('Email cap reached for an address; email skipped');
-      return;
-    }
+  private mayEmail(to: string): boolean {
+    if (this.limiter.hit(`mail:${to}`, EMAIL_WINDOW_MS) <= EMAILS_PER_ADDRESS) return true;
+    this.logger.warn('Email cap reached for an address; email skipped');
+    return false;
+  }
+
+  /** Sends without awaiting: the reply time must not show whether an email went out. */
+  private send(mail: Mail): void {
     void this.mail.send(mail);
   }
 

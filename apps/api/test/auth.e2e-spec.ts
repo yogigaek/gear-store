@@ -69,6 +69,26 @@ describe('Auth (e2e)', () => {
       expect(mail.sent.filter((m) => m.to === normalised)).toHaveLength(2);
     });
 
+    it('lets the inbox owner, not the first sign-up, set the password of an unconfirmed account', async () => {
+      const email = `user-${randomUUID()}@test.example`;
+      // someone signs up first (perhaps not the owner of the inbox) and never confirms
+      await post('/api/auth/register', { name: 'Ana', email, password: PASSWORD }).expect(202);
+      const firstConfirm = mail.lastToken(email);
+      const owners = 'the owner password';
+      await post('/api/auth/register', { name: 'Ana', email, password: owners }).expect(202);
+      const finish = mail.sent.findLast((m) => m.to === email)!;
+      expect(finish.subject).toBe('Finish creating your Rakit account');
+      // the only link sets a password, which also confirms the address; the first one never works
+      expect(finish.text).not.toContain('/verify-email');
+      // the confirm link from the first sign-up is cancelled, and asking again sends the same kind of link
+      await post('/api/auth/verify-email', { token: firstConfirm }).expect(400);
+      await post('/api/auth/resend-verification', { email }).expect(202);
+      expect(mail.sent.findLast((m) => m.to === email)!.text).toContain('/reset-password?token=');
+      await post('/api/auth/reset-password', { token: mail.lastToken(email), password: owners }).expect(200);
+      await post('/api/auth/login', { email, password: PASSWORD }).expect(401);
+      await post('/api/auth/login', { email, password: owners }).expect(200);
+    });
+
     it('rejects a short password with a field-level issue', async () => {
       const res = await post('/api/auth/register', {
         name: 'Ana',
@@ -185,6 +205,11 @@ describe('Auth (e2e)', () => {
       }
       expect(new Set(replies.map((r) => JSON.stringify(r))).size).toBe(1);
       expect(mail.sent.filter((m) => m.to === email)).toHaveLength(3);
+      // the requests over the cap issued no new link, so the last one emailed still works
+      await post('/api/auth/reset-password', {
+        token: mail.lastToken(email),
+        password: 'a brand new password',
+      }).expect(200);
     });
   });
 

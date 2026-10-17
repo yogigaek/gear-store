@@ -138,7 +138,11 @@ export class PaymentsService {
     try {
       const status = await this.midtrans.getStatus(number);
       if (status && signatureValid(status, this.env.MIDTRANS_SERVER_KEY)) {
-        await this.record(status, status, true, await this.apply(status));
+        const outcome = await this.apply(status);
+        // the order page asks every minute while a payment is open: only a pull that moved something is
+        // worth a row in the audit table (every webhook call is still recorded)
+        if (outcome !== 'pending' && outcome !== 'duplicate')
+          await this.record(status, status, true, outcome);
       }
     } catch (error) {
       if (!(error instanceof MidtransError)) throw error;

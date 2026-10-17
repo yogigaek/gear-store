@@ -42,7 +42,10 @@ test('a guest builds an E-1, signs up, pays and reviews a part of it', async ({ 
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByRole('heading', { name: 'Check your inbox' })).toBeVisible();
   await page.goto(await emailedLink(email, '/verify-email'));
+  // confirmed: straight to the sign-in form with the news, and the used link is gone from the history
+  await expect(page).toHaveURL(/\/sign-in$/);
   await expect(page.getByText('Email confirmed')).toBeVisible();
+  await expect(page.getByText('This link is incomplete')).toHaveCount(0);
 
   // signing in brings the guest cart along and returns to checkout
   await page.goto('/sign-in?next=%2Fcheckout');
@@ -71,6 +74,12 @@ test('a guest builds an E-1, signs up, pays and reviews a part of it', async ({ 
   await expect(page).toHaveURL(/\/orders\/RKT-\d{6}-[A-Z2-9]{6}\?payment=unavailable/);
   const number = page.url().match(/RKT-\d{6}-[A-Z2-9]{6}/)![0];
   await expect(page.getByText('Waiting for payment').first()).toBeVisible();
+  // the sandbox is explained right where the buyer pays: the test card and the simulator for transfers
+  await expect(page.getByText('4811 1111 1111 1114')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Midtrans sandbox simulator/ })).toHaveAttribute(
+    'href',
+    'https://simulator.sandbox.midtrans.com',
+  );
   const totalText = await page.locator('dl dd').last().textContent();
   const total = Number(totalText!.replace(/\D/g, ''));
   // the cheapest part in every slot but the frame, which is any size at one price

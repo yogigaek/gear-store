@@ -1,13 +1,16 @@
 import { messageSchema } from '@gear-store/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router';
+import { useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Notice } from '../../components/ui/Field';
 import { api } from '../../lib/api';
 import { AuthShell } from './AuthShell';
 
 export function VerifyEmailPage() {
   const [params] = useSearchParams();
-  const token = params.get('token') ?? '';
+  const navigate = useNavigate();
+  // read once: while the panel fades to the next page this one is still drawn, and must not see that URL
+  const [token] = useState(() => params.get('token') ?? '');
   // a query, not an effect: cached per token, so a re-render or StrictMode never spends the single-use link twice
   const verify = useQuery({
     queryKey: ['verify-email', token],
@@ -17,6 +20,11 @@ export function VerifyEmailPage() {
     staleTime: Infinity,
     gcTime: Infinity,
   });
+  // confirmed: straight on to signing in, with the news; the used link leaves the history
+  const confirmed = verify.isSuccess ? verify.data.message : null;
+  useEffect(() => {
+    if (confirmed) void navigate('/sign-in', { replace: true, state: { notice: confirmed } });
+  }, [confirmed, navigate]);
 
   return (
     <AuthShell eyebrow="Account" title="Confirm email">

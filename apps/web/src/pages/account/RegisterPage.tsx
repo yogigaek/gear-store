@@ -36,6 +36,10 @@ export function RegisterPage() {
           We sent a confirmation link to <strong className="text-ink">{form.email}</strong>. Open it to finish
           creating your account. The link works for 24 hours.
         </p>
+        <p className="text-sm text-ink-3">
+          Started signing up with this address before? The email then has a link to choose your password and
+          finish.
+        </p>
         {import.meta.env.DEV && (
           <Notice tone="ok">
             Running locally: emails do not leave this machine. Open{' '}
@@ -56,7 +60,7 @@ export function RegisterPage() {
             disabled={resend.isPending || resend.isSuccess}
             onClick={() => resend.mutate()}
           >
-            {resend.isSuccess ? 'Link sent again' : 'Send the link again'}
+            {resend.isSuccess ? 'New link sent' : 'Send a new link'}
           </Button>
           <Link preventScrollReset to="/sign-in" className="text-sm underline underline-offset-4">
             Back to sign in

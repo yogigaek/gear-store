@@ -1,7 +1,7 @@
 import { loginSchema } from '@gear-store/shared';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useLocation, useSearchParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
 import { Field, Notice } from '../../components/ui/Field';
 import { api, ApiError } from '../../lib/api';
@@ -11,6 +11,8 @@ import { AuthShell } from './AuthShell';
 export function SignInPage() {
   const { signIn, signInDemo } = useAuth();
   const [params] = useSearchParams();
+  // news from the page that sent the visitor here: an email confirmed, a password changed
+  const notice = (useLocation().state as { notice?: string } | null)?.notice;
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   // after too many failed sign-ins the API pauses this address; the form counts the pause down
@@ -99,6 +101,7 @@ export function SignInPage() {
           login.mutate();
         }}
       >
+        {notice && !login.error && <Notice tone="ok">{notice}</Notice>}
         {error && !unverified && (
           <Notice tone="error">
             {secondsLeft > 0
@@ -118,7 +121,7 @@ export function SignInPage() {
               'A new link is on its way.'
             ) : (
               <button type="button" className="font-semibold underline" onClick={() => resend.mutate()}>
-                Send the link again
+                Send a new link
               </button>
             )}
           </Notice>

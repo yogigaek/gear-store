@@ -115,6 +115,28 @@ export function verifyEmailMail(to: string, name: string, link: string): Mail {
   });
 }
 
+/**
+ * Someone signed up again with an address that has an unconfirmed account. Whoever signed up first may not
+ * own this inbox, so the only way on is to choose a password here, which also confirms the address: a
+ * password set by somebody else never becomes the one that works.
+ */
+export function finishSignUpMail(to: string, name: string, link: string): Mail {
+  return mail(to, 'Finish creating your Rakit account', {
+    preheader: 'Choose your password to finish signing up.',
+    eyebrow: 'Welcome back',
+    title: 'Finish creating your account',
+    intro: [
+      `Hi ${name}, your Rakit account is waiting to be finished.`,
+      'Choose your password to confirm your email and finish setting it up.',
+    ],
+    action: { label: 'Choose your password', url: link },
+    notes: [
+      'This link works once and expires in 24 hours.',
+      'If you did not try to sign up, you can ignore this email.',
+    ],
+  });
+}
+
 export function accountExistsMail(to: string, link: string): Mail {
   return mail(to, 'You already have a Rakit account', {
     preheader: 'Someone tried to sign up with this address. Sign in or reset your password.',

@@ -10,6 +10,7 @@ import {
   type CartLine,
   type CartLineInput,
   type GuestCart,
+  type MergeCartInput,
 } from '@gear-store/shared';
 import type { Prisma } from '../generated/prisma/client.js';
 import { checkBuild, type Rulebook } from '../build/build-rules.js';
@@ -37,6 +38,8 @@ interface HeldBuild {
   selection: BuildSelection;
   quantity: number;
 }
+
+const MERGE_KEYS_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Prices, stock and whether a build can be made always come from the database at the moment of asking. The
@@ -119,13 +122,32 @@ export class CartService {
     return this.get(userId);
   }
 
-  /** After signing in, the guest cart joins the saved one: quantities add up, capped per line and per build. */
-  async merge(userId: string, guest: GuestCart): Promise<Cart> {
+  /**
+   * After signing in, the guest cart joins the saved one: quantities add up, capped per line and per build.
+   * A cart sent again under the same merge key (a retry) is recognised and adds nothing.
+   */
+  async merge(userId: string, guest: MergeCartInput): Promise<Cart> {
+    // A retry is answered from the cart as it is, before any of the catalogue work below. The key counts
+    // whichever account it went to: a browser that signs in as someone else must not hand them the cart too.
+    const known =
+      guest.mergeKey && (await this.prisma.cartMerge.findFirst({ where: { key: guest.mergeKey } }));
+    if (known) return this.get(userId);
     const [incoming, book] = await Promise.all([
       this.resolve(guest.items),
       this.builds.bookFor(guest.builds.length),
     ]);
     await this.prisma.$transaction(async (tx) => {
+      if (guest.mergeKey) {
+        const first = await tx.cartMerge.createMany({
+          data: [{ userId, key: guest.mergeKey }],
+          skipDuplicates: true,
+        });
+        if (first.count === 0) return;
+        // a retry comes within seconds; a month of keys is plenty
+        await tx.cartMerge.deleteMany({
+          where: { userId, createdAt: { lt: new Date(Date.now() - MERGE_KEYS_KEPT_MS) } },
+        });
+      }
       for (const line of incoming) {
         const key = {
           userId_productId_colorKey: { userId, productId: line.product.id, colorKey: line.colorKey },

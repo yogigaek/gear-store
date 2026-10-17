@@ -29,6 +29,13 @@ export const guestCartSchema = z.object({
 });
 export type GuestCart = z.infer<typeof guestCartSchema>;
 
+/**
+ * A guest cart sent to join the account after sign-in. `mergeKey` names this cart: the same key twice is one
+ * merge, so the browser can keep its copy until the reply arrives and simply send it again if it does not.
+ */
+export const mergeCartSchema = guestCartSchema.extend({ mergeKey: z.uuid().optional() });
+export type MergeCartInput = z.infer<typeof mergeCartSchema>;
+
 export const quantityInputSchema = z.object({ quantity: z.number().int().min(0).max(MAX_LINE_QUANTITY) });
 export type QuantityInput = z.infer<typeof quantityInputSchema>;
 

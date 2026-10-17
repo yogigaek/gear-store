@@ -1,7 +1,7 @@
 import { messageSchema, PASSWORD_MIN_LENGTH, PASSWORDS_DIFFER, passwordSchema } from '@gear-store/shared';
 import { useMutation } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
 import { Field, Notice } from '../../components/ui/Field';
 import { api } from '../../lib/api';
@@ -9,7 +9,11 @@ import { AuthShell } from './AuthShell';
 
 export function ResetPasswordPage() {
   const [params] = useSearchParams();
-  const token = params.get('token') ?? '';
+  const navigate = useNavigate();
+  // read once: while the panel fades to the next page this one is still drawn, and must not see that URL
+  const [token] = useState(() => params.get('token') ?? '');
+  // from "Finish creating your account": a first password for a new account, not a change
+  const [welcome] = useState(() => params.has('welcome'));
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string>();
@@ -17,25 +21,20 @@ export function ResetPasswordPage() {
   const reset = useMutation({
     mutationFn: () =>
       api('/auth/reset-password', { method: 'POST', body: { token, password }, schema: messageSchema }),
+    // the used link leaves the history: Back after signing in never returns to this form
+    onSuccess: (reply) =>
+      navigate('/sign-in', {
+        replace: true,
+        state: {
+          notice: welcome
+            ? 'Your password is set and your email is confirmed. Sign in to continue.'
+            : `${reply.message} Every other device has been signed out.`,
+        },
+      }),
   });
 
-  if (reset.isSuccess) {
-    return (
-      <AuthShell eyebrow="Account" title="Password changed">
-        <Notice tone="ok">{reset.data.message} Every other device has been signed out.</Notice>
-        <Link
-          preventScrollReset
-          to="/sign-in"
-          className="inline-block font-semibold underline underline-offset-4"
-        >
-          Sign in
-        </Link>
-      </AuthShell>
-    );
-  }
-
   return (
-    <AuthShell eyebrow="Account" title="Choose a new password">
+    <AuthShell eyebrow="Account" title={welcome ? 'Choose your password' : 'Choose a new password'}>
       <form
         noValidate
         className="space-y-4"

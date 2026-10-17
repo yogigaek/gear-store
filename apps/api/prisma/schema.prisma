@@ -32,6 +32,7 @@ model User {
   wishlist    WishlistItem[]
   cartItems   CartItem[]
   cartBuilds  CartBuild[]
+  cartMerges  CartMerge[]
   addresses   Address[]
   orders      Order[]
   reviews     Review[]
@@ -136,8 +137,8 @@ model Product {
   inBuilds     CartBuildPart[]
   orderItems   OrderItem[]
   reviews      Review[]
-  conflictsAsA PartConflict[] @relation("conflictA")
-  conflictsAsB PartConflict[] @relation("conflictB")
+  conflictsAsA PartConflict[]  @relation("conflictA")
+  conflictsAsB PartConflict[]  @relation("conflictB")
 
   @@index([categoryId, isActive])
 }
@@ -203,6 +204,17 @@ model CartItem {
   updatedAt DateTime @updatedAt
 
   @@unique([userId, productId, colorKey])
+}
+
+/// A guest cart already added to this account, by the key its browser sent: a retried merge (the page
+/// reloaded while the first was in flight, or its reply was lost) is recognised and adds nothing twice.
+model CartMerge {
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  @@id([userId, key])
 }
 
 /// A bike in a cart: one part per slot and the frame's colour. Checked and priced again at every read.
@@ -314,11 +326,11 @@ model Order {
 }
 
 model OrderItem {
-  id         String   @id @default(uuid(7)) @db.Uuid
-  orderId    String   @db.Uuid
-  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  productId  String?  @db.Uuid
-  product    Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  id         String      @id @default(uuid(7)) @db.Uuid
+  orderId    String      @db.Uuid
+  order      Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String?     @db.Uuid
+  product    Product?    @relation(fields: [productId], references: [id], onDelete: SetNull)
   slug       String
   name       String
   model      String
