@@ -29,8 +29,6 @@ function page(load: () => Promise<ComponentType>, { signedIn = false } = {}): Pi
 const auth = { signedIn: true };
 /** the home page's dark studio, drawn by hand: the account pages stand on the same stage as the bike */
 const stage = { tone: 'stage' };
-/** the design reference shows the bench tokens as they are, on the light ground */
-const light = { tone: 'light' };
 
 export const routes: RouteObject[] = [
   {
@@ -130,11 +128,7 @@ export const routes: RouteObject[] = [
             },
           ]
         : []),
-      {
-        path: 'design',
-        handle: light,
-        ...page(async () => (await import('./pages/DesignSystemPage')).DesignSystemPage),
-      },
+      { path: 'design', ...page(async () => (await import('./pages/DesignSystemPage')).DesignSystemPage) },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

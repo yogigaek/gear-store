@@ -151,7 +151,6 @@ export function SiteHeader() {
               ...(status === 'signed-in'
                 ? [{ to: '/wishlist', label: `Wishlist (${wishlist.data?.length ?? 0})` }]
                 : []),
-              { to: '/design', label: 'Design system' },
             ].map((l) => (
               <li key={l.to} className="border-b border-bench">
                 <NavLink

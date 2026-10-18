@@ -6,7 +6,7 @@ export type PageTone = 'light' | 'dark';
  * Route handles set a page's tone:
  *  - no tone: a store page, dark; its content uses the light-ground tokens, turned over by `.surface-dark`;
  *  - `stage`: the home and account pages, drawn dark by hand around the 3D (no turning over);
- *  - `light`: the design reference, which shows the bench tokens on their own ground.
+ *  - `light`: the bench tokens as they are, on the light ground (no page is drawn this way today).
  */
 type Handle = { tone?: 'stage' | 'light' } | undefined;
 
