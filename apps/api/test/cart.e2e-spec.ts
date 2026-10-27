@@ -1,13 +1,20 @@
 import type { INestApplication } from '@nestjs/common';
-import { buildCatalogSchema, cartSchema } from '@gear-store/shared';
+import { MAX_CART_LINES, buildCatalogSchema, cartSchema, mergeCartResultSchema } from '@gear-store/shared';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp, FakeMail, nextIp, signedInCustomer, deleteTestUsers } from './setup.js';
+
+// enough parts of our own to fill a cart, plus one taken off sale
+const TEMP_PREFIX = `e2e-cart-${Date.now()}`;
+const tempSlug = (i: number) => `${TEMP_PREFIX}-${i}`;
+const WITHDRAWN = `${TEMP_PREFIX}-withdrawn`;
 
 describe('Cart (e2e)', () => {
   let app: INestApplication<App>;
   const mail = new FakeMail();
   let start: Record<string, string>;
+  let prisma: PrismaService;
 
   const quote = (items: object[], builds: object[] = []) =>
     request(app.getHttpServer())
@@ -28,14 +35,44 @@ describe('Cart (e2e)', () => {
     };
   };
 
+  /** the signed-in account's id, from its access token */
+  const userIdOf = (token: string) =>
+    (JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString()) as { sub: string }).sub;
+
+  /** puts lines straight into an account's cart, past what the API would allow one by one */
+  async function fillCart(token: string, slugs: string[], quantity = 1) {
+    const products = await prisma.product.findMany({ where: { slug: { in: slugs } }, select: { id: true } });
+    await prisma.cartItem.createMany({
+      data: products.map((p) => ({ userId: userIdOf(token), productId: p.id, quantity })),
+    });
+  }
+  const temps = (from: number, count: number) => Array.from({ length: count }, (_, i) => tempSlug(from + i));
+
   beforeAll(async () => {
     app = await createTestApp({ mail });
+    prisma = app.get(PrismaService);
     const book = buildCatalogSchema.parse((await request(app.getHttpServer()).get('/api/build')).body);
     start = Object.fromEntries(book.slots.map((s) => [s.category, s.defaultSlug!]));
+    const { id: categoryId } = await prisma.category.findUniqueOrThrow({ where: { slug: 'accessories' } });
+    const part = (slug: string, isActive = true) => ({
+      slug,
+      name: `Cart Test ${slug.slice(TEMP_PREFIX.length + 1)}`,
+      model: 'CT-1',
+      module: 'ACCESSORY' as const,
+      description: 'Created by the cart e2e suite',
+      price: 10000,
+      stock: 50,
+      isActive,
+      categoryId,
+    });
+    await prisma.product.createMany({
+      data: [...temps(0, MAX_CART_LINES + 2).map((slug) => part(slug)), part(WITHDRAWN, false)],
+    });
   });
 
   afterAll(async () => {
     await deleteTestUsers(app);
+    await prisma.product.deleteMany({ where: { slug: { startsWith: TEMP_PREFIX } } });
     await app.close();
   });
 
@@ -185,7 +222,8 @@ describe('Cart (e2e)', () => {
       const builds = [{ key: crypto.randomUUID(), parts: start, colorKey: 'signal', quantity: 1 }];
       await me.merge(items, builds, mergeKey).expect(200);
       // the page reloaded before the reply: the browser sends the same cart again
-      const again = cartSchema.parse((await me.merge(items, builds, mergeKey).expect(200)).body);
+      const again = mergeCartResultSchema.parse((await me.merge(items, builds, mergeKey).expect(200)).body);
+      expect(again.notMerged).toEqual([]);
       expect(again.items.find((l) => l.product.slug === 'workshop-hex-set')?.quantity).toBe(2);
       expect(again.builds).toHaveLength(1);
       expect(again.builds[0]?.quantity).toBe(1);
@@ -202,7 +240,7 @@ describe('Cart (e2e)', () => {
     it('merges a guest cart: quantities add up, buildable bikes come along', async () => {
       const me = as(await signedInCustomer(app, mail, nextIp()));
       await me.set({ slug: 'workshop-hex-set', quantity: 8 }).expect(200);
-      const cart = cartSchema.parse(
+      const cart = mergeCartResultSchema.parse(
         (
           await me
             .merge(
@@ -235,11 +273,96 @@ describe('Cart (e2e)', () => {
         ['workshop-hex-set', 10],
         ['e1-cockpit-alloy', 1],
       ]);
+      // 8 + 5 is over a line's limit of 10: the 3 left over are reported
+      expect(cart.notMerged).toEqual([{ slug: 'workshop-hex-set', colorKey: '', quantity: 3 }]);
       // both bikes are written in one transaction, so their order is not fixed
       expect(cart.builds.map((b) => b.problem ?? 'none').sort((a, b) => a.localeCompare(b))).toEqual([
         'none',
         'NOT_ENOUGH_STOCK',
       ]);
+    });
+
+    it('reports the part of a guest line over the quantity limit, even within the guest cart', async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      const cart = mergeCartResultSchema.parse(
+        (
+          await me
+            .merge([
+              { slug: 'workshop-hex-set', quantity: 6 },
+              { slug: 'workshop-hex-set', quantity: 6 },
+            ])
+            .expect(200)
+        ).body,
+      );
+      expect(cart.items.map((i) => [i.product.slug, i.quantity])).toEqual([['workshop-hex-set', 10]]);
+      expect(cart.notMerged).toEqual([{ slug: 'workshop-hex-set', colorKey: '', quantity: 2 }]);
+    });
+
+    it('reports parts that did not fit a full cart, and still adds to lines it holds', async () => {
+      const token = await signedInCustomer(app, mail, nextIp());
+      const me = as(token);
+      await fillCart(token, temps(0, MAX_CART_LINES), 8);
+      const cart = mergeCartResultSchema.parse(
+        (
+          await me
+            .merge([
+              { slug: tempSlug(MAX_CART_LINES), quantity: 2 },
+              { slug: tempSlug(0), quantity: 1 },
+              { slug: tempSlug(1), quantity: 5 },
+            ])
+            .expect(200)
+        ).body,
+      );
+      expect(cart.items).toHaveLength(MAX_CART_LINES);
+      const quantity = (slug: string) => cart.items.find((i) => i.product.slug === slug)?.quantity;
+      expect([quantity(tempSlug(0)), quantity(tempSlug(1))]).toEqual([9, 10]);
+      expect(cart.notMerged).toEqual([
+        { slug: tempSlug(MAX_CART_LINES), colorKey: '', quantity: 2 },
+        { slug: tempSlug(1), colorKey: '', quantity: 3 },
+      ]);
+    });
+
+    it('does not report unknown or withdrawn parts: the browser drops those itself', async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      const cart = mergeCartResultSchema.parse(
+        (
+          await me
+            .merge([
+              { slug: 'no-such-part', quantity: 1 },
+              { slug: WITHDRAWN, quantity: 1 },
+              { slug: 'workshop-hex-set', quantity: 1 },
+            ])
+            .expect(200)
+        ).body,
+      );
+      expect(cart.items.map((i) => i.product.slug)).toEqual(['workshop-hex-set']);
+      expect(cart.notMerged).toEqual([]);
+    });
+
+    it('counts only parts still on sale against the line limit', async () => {
+      const token = await signedInCustomer(app, mail, nextIp());
+      const me = as(token);
+      // 50 rows, one of them a part taken off sale that the cart no longer shows
+      await fillCart(token, [...temps(0, MAX_CART_LINES - 1), WITHDRAWN]);
+      expect(cartSchema.parse((await me.get().expect(200)).body).items).toHaveLength(MAX_CART_LINES - 1);
+      const merged = mergeCartResultSchema.parse(
+        (await me.merge([{ slug: tempSlug(MAX_CART_LINES - 1), quantity: 1 }]).expect(200)).body,
+      );
+      expect(merged.notMerged).toEqual([]);
+      expect(merged.items).toHaveLength(MAX_CART_LINES);
+      // now the cart is full of parts on sale
+      const res = await me.set({ slug: tempSlug(MAX_CART_LINES), quantity: 1 }).expect(409);
+      expect(res.body.message).toMatch(/up to 50 different parts/);
+    });
+
+    it('takes a 50th part by hand when one of the 50 rows is no longer sold', async () => {
+      const token = await signedInCustomer(app, mail, nextIp());
+      const me = as(token);
+      await fillCart(token, [...temps(0, MAX_CART_LINES - 1), WITHDRAWN]);
+      const cart = cartSchema.parse(
+        (await me.set({ slug: tempSlug(MAX_CART_LINES - 1), quantity: 1 }).expect(200)).body,
+      );
+      expect(cart.items).toHaveLength(MAX_CART_LINES);
     });
 
     it('keeps carts apart between accounts', async () => {

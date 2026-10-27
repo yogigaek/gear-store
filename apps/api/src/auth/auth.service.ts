@@ -38,6 +38,10 @@ export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
 const RESET_TTL_MS = 30 * 60 * 1000;
+/** how long a used refresh token is still answered with a fresh pair (see refresh) */
+export const REFRESH_REUSE_GRACE_MS = 2 * 60 * 1000;
+/** every visitor shares the demo accounts, so each keeps only its newest sessions */
+export const DEMO_SESSIONS_KEPT = 200;
 
 const MINUTE_MS = 60 * 1000;
 /** per address: five mistakes, then a minute's pause that doubles with every further failure, up to an hour */
@@ -200,8 +204,13 @@ export class AuthService {
   }
 
   /**
-   * Rotates the refresh token. A token can be exchanged once; presenting it again means it was copied, so the
-   * whole session is revoked and both the thief and the owner must sign in again.
+   * Rotates the refresh token. A token is exchanged once; presenting it again more than REFRESH_REUSE_GRACE_MS
+   * after its first use means it was copied, so the whole session is revoked and both the thief and the owner
+   * must sign in again. Within the window it is answered with a fresh pair instead: a phone whose reply was lost
+   * (a cold-start timeout, a dropped network, the app killed before saving) or the loser of two concurrent
+   * refreshes must not be signed out. Trade-off: a replay inside the window is answered too, so detecting a
+   * stolen token is delayed by at most the window, not lost. Every refresh retires all unused tokens of the
+   * session, so it never holds more than one live token, and the session's end date never moves.
    */
   async refresh(rawToken: string | undefined): Promise<IssuedSession> {
     if (!rawToken) throw invalidSession();
@@ -211,29 +220,31 @@ export class AuthService {
     });
     if (!token) throw invalidSession();
     const { session } = token;
-    if (session.revokedAt || session.expiresAt <= new Date()) throw invalidSession();
-    if (token.usedAt) {
-      await this.revokeSession(session.id);
-      this.logger.warn(`Refresh token reuse on session ${session.id}; session revoked`);
-      throw invalidSession();
-    }
 
     const next = randomToken();
-    const rotated = await this.prisma.$transaction(async (tx) => {
-      // conditional update: of two concurrent refreshes with the same token, exactly one wins
-      const claimed = await tx.refreshToken.updateMany({
-        where: { id: token.id, usedAt: null },
-        data: { usedAt: new Date() },
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      // one refresh of a session at a time, so two inside the window cannot leave two live tokens
+      const [locked] = await tx.$queryRaw<{ revokedAt: Date | null; expiresAt: Date }[]>`
+        SELECT "revokedAt", "expiresAt" FROM "Session" WHERE "id" = ${session.id}::uuid FOR UPDATE`;
+      const now = new Date();
+      if (!locked || locked.revokedAt || locked.expiresAt <= now) return 'dead';
+      const current = await tx.refreshToken.findUnique({ where: { id: token.id }, select: { usedAt: true } });
+      if (!current) return 'dead';
+      if (current.usedAt && now.getTime() - current.usedAt.getTime() > REFRESH_REUSE_GRACE_MS)
+        return 'reused';
+      await tx.refreshToken.updateMany({
+        where: { sessionId: session.id, usedAt: null },
+        data: { usedAt: now },
       });
-      if (claimed.count === 0) return false;
       await tx.refreshToken.create({ data: { sessionId: session.id, tokenHash: sha256(next) } });
-      await tx.session.update({ where: { id: session.id }, data: { lastUsedAt: new Date() } });
-      return true;
+      await tx.session.update({ where: { id: session.id }, data: { lastUsedAt: now } });
+      return 'rotated';
     });
-    if (!rotated) {
+    if (outcome === 'reused') {
       await this.revokeSession(session.id);
-      throw invalidSession();
+      this.logger.warn(`Refresh token reuse on session ${session.id}; session revoked`);
     }
+    if (outcome !== 'rotated') throw invalidSession();
     return this.issue(session.user, session.id, next, session.expiresAt);
   }
 
@@ -306,7 +317,20 @@ export class AuthService {
         refreshTokens: { create: { tokenHash: sha256(refreshToken) } },
       },
     });
+    if (user.isDemo) await this.capDemoSessions(user.id);
     return this.issue(user, session.id, refreshToken, expiresAt);
+  }
+
+  /** Every "Try as …" opens a month-long session on a shared account: keep the newest (their tokens cascade). */
+  private async capDemoSessions(userId: string): Promise<void> {
+    const older = await this.prisma.session.findMany({
+      where: { userId },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: DEMO_SESSIONS_KEPT,
+      select: { id: true },
+    });
+    if (older.length > 0)
+      await this.prisma.session.deleteMany({ where: { id: { in: older.map((s) => s.id) } } });
   }
 
   private async issue(user: UserRow, sessionId: string, refreshToken: string, expiresAt: Date) {

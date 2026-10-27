@@ -38,7 +38,7 @@ model User {
   reviews     Review[]
 }
 
-/// One signed-in device. Its refresh tokens rotate; presenting a used one revokes the whole session.
+/// One signed-in device. Its refresh tokens rotate; presenting a used one after a short grace window revokes the whole session.
 model Session {
   id         String    @id @default(uuid(7)) @db.Uuid
   userId     String    @db.Uuid

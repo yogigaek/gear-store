@@ -69,7 +69,15 @@ export class OrdersService {
     const holdMinutes = paymentWindowMinutes(isDemo);
 
     try {
-      const orderId = await this.prisma.$transaction(async (tx) => {
+      const placed = await this.prisma.$transaction(async (tx) => {
+        // one checkout per account at a time: two with different keys must not both read the same cart
+        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
+        const placedMeanwhile = await tx.order.findUnique({
+          where: { userId_idempotencyKey: { userId, idempotencyKey: input.idempotencyKey } },
+          select: { id: true },
+        });
+        if (placedMeanwhile) return { orderId: placedMeanwhile.id };
+
         const [lines, held] = await Promise.all([
           tx.cartItem.findMany({
             where: { userId },
@@ -78,14 +86,14 @@ export class OrdersService {
           }),
           this.cart.heldBuilds(userId, tx),
         ]);
+        // the cart hides withdrawn parts and cannot remove them: they go here, and the shopper looks again
+        const withdrawn = lines.filter((l) => !l.product.isActive);
+        if (withdrawn.length > 0) {
+          await tx.cartItem.deleteMany({ where: { id: { in: withdrawn.map((l) => l.id) } } });
+          return { withdrawn: withdrawn.map((l) => l.product.name) };
+        }
         const book = await this.builds.bookFor(held.length, tx);
         if (lines.length === 0 && held.length === 0) throw new BadRequestException('Your cart is empty');
-
-        const inactive = lines.find((l) => !l.product.isActive);
-        if (inactive)
-          throw new ConflictException(
-            `${inactive.product.name} is no longer sold. Remove it from your cart.`,
-          );
 
         const bikes = held.map((b) => {
           const checked = checkBuild(book, b.selection, b.quantity);
@@ -196,10 +204,15 @@ export class OrdersService {
         }
         await tx.cartItem.deleteMany({ where: { userId } });
         await tx.cartBuild.deleteMany({ where: { userId } });
-        return created.id;
+        return { orderId: created.id };
       });
+      if (placed.withdrawn) {
+        throw new ConflictException(
+          `No longer sold, so taken out of your cart: ${placed.withdrawn.join(', ')}. Check your cart and place the order again.`,
+        );
+      }
       return this.toDetail(
-        await this.prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: detailInclude }),
+        await this.prisma.order.findUniqueOrThrow({ where: { id: placed.orderId }, include: detailInclude }),
       );
     } catch (error) {
       // the same checkout sent twice at once: the second insert loses on the unique key and returns the first

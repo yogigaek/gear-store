@@ -149,5 +149,7 @@ export function useCheckout() {
       void queryClient.invalidateQueries({ queryKey: ['products'] });
       void queryClient.invalidateQueries({ queryKey: ['product'] });
     },
+    // a refused checkout may have changed the cart (a part no longer sold is taken out), so it is read again
+    onError: () => void queryClient.invalidateQueries({ queryKey: ['me', 'cart'] }),
   });
 }

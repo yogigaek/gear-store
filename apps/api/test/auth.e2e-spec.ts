@@ -1,8 +1,11 @@
 import type { INestApplication } from '@nestjs/common';
 import { authResponseSchema, nativeAuthResponseSchema, userSchema } from '@gear-store/shared';
+import { Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
+import { DEMO_SESSIONS_KEPT, REFRESH_REUSE_GRACE_MS } from '../src/auth/auth.service.js';
+import { sha256 } from '../src/common/tokens.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { loadEnv } from '../src/config/env.js';
 import { createTestApp, FakeMail, nextIp, deleteTestUsers } from './setup.js';
@@ -45,6 +48,20 @@ describe('Auth (e2e)', () => {
     const res = await post('/api/auth/login', { email, password }).expect(200);
     return { body: authResponseSchema.parse(res.body), cookie: cookieValue(refreshCookie(res)) };
   }
+
+  const prisma = () => app.get(PrismaService);
+  const tokenRow = (raw: string) =>
+    prisma().refreshToken.findUniqueOrThrow({ where: { tokenHash: sha256(raw) } });
+  /** makes a used token's first use older than the reuse window, as if presented again much later */
+  async function outsideWindow(raw: string) {
+    const row = await tokenRow(raw);
+    await prisma().refreshToken.update({
+      where: { id: row.id },
+      data: { usedAt: new Date(Date.now() - REFRESH_REUSE_GRACE_MS - 1000) },
+    });
+  }
+  const unusedTokens = async (raw: string) =>
+    prisma().refreshToken.findMany({ where: { sessionId: (await tokenRow(raw)).sessionId, usedAt: null } });
 
   beforeAll(async () => {
     app = await createTestApp({ mail });
@@ -222,12 +239,21 @@ describe('Auth (e2e)', () => {
       await refresh(next).expect(200);
     });
 
-    it('revokes the whole session when a used refresh token comes back', async () => {
+    it('revokes the whole session when a used refresh token comes back after the reuse window', async () => {
       const { cookie, body } = await login(await verifiedUser());
       const rotated = cookieValue(refreshCookie(await refresh(cookie).expect(200)));
+      await outsideWindow(cookie.slice('rakit_rt='.length));
       await refresh(cookie).expect(401); // stolen copy replayed
       await refresh(rotated).expect(401); // the legitimate holder is signed out too
       await me(body.accessToken).expect(401); // and the access token dies with the session
+    });
+
+    it('answers a cookie sent again within the reuse window with a fresh cookie', async () => {
+      const { cookie } = await login(await verifiedUser());
+      const lost = cookieValue(refreshCookie(await refresh(cookie).expect(200)));
+      const again = cookieValue(refreshCookie(await refresh(cookie).expect(200)));
+      expect(again).not.toBe(lost);
+      await refresh(again).expect(200);
     });
 
     it('refuses a refresh from another site', async () => {
@@ -261,6 +287,24 @@ describe('Auth (e2e)', () => {
       expect(refreshCookie(res)).toMatch(/rakit_rt=;/);
       await refresh(cookie).expect(401);
       await me(body.accessToken).expect(401);
+    });
+  });
+
+  describe('caching', () => {
+    it('marks every auth reply no-store, errors included', async () => {
+      const email = await verifiedUser();
+      const res = await post('/api/auth/login', { email, password: PASSWORD }).expect(200);
+      const cookie = cookieValue(refreshCookie(res));
+      const replies = [
+        res,
+        await refresh(cookie).expect(200),
+        await refresh('rakit_rt=nonsense').expect(401),
+        await post('/api/auth/login', { email, password: 'wrong password!' }).expect(401),
+        await post('/api/auth/native/refresh', { refreshToken: 'short' }).expect(400),
+        await post('/api/auth/forgot-password', { email }).expect(202),
+        await post('/api/auth/demo', { role: 'shopper' }).expect(200),
+      ];
+      for (const r of replies) expect(r.headers['cache-control']).toBe('no-store');
     });
   });
 
@@ -320,12 +364,13 @@ describe('Auth (e2e)', () => {
       await me(body.accessToken).expect(200);
     });
 
-    it('rotates the token, and a replayed one ends the session', async () => {
+    it('rotates the token, and one replayed after the reuse window ends the session', async () => {
       const first = await nativeLogin(await verifiedUser());
       const second = nativeAuthResponseSchema.parse(
         (await nativeRefresh(first.refreshToken).expect(200)).body,
       );
       expect(second.refreshToken).not.toBe(first.refreshToken);
+      await outsideWindow(first.refreshToken);
       await nativeRefresh(first.refreshToken).expect(401); // replayed copy
       await nativeRefresh(second.refreshToken).expect(401); // the holder is signed out too
       await me(second.accessToken).expect(401);
@@ -374,9 +419,296 @@ describe('Auth (e2e)', () => {
       const res = await post('/api/auth/native/demo', { role: 'shopper' }).expect(200);
       expect(nativeAuthResponseSchema.parse(res.body).user).toMatchObject({ role: 'CUSTOMER', isDemo: true });
     });
+
+    it('signs in to the demo admin, who can look but not change anything', async () => {
+      const res = await post('/api/auth/native/demo', { role: 'admin' }).expect(200);
+      const body = nativeAuthResponseSchema.parse(res.body);
+      expect(body.user).toMatchObject({ role: 'ADMIN', isDemo: true });
+      const admin = (method: 'get' | 'post') =>
+        request(app.getHttpServer())
+          [method](method === 'get' ? '/api/admin/stats' : '/api/admin/products')
+          .set('X-Forwarded-For', ip)
+          .set('Authorization', `Bearer ${body.accessToken}`);
+      await admin('get').expect(200);
+      await admin('post').send({}).expect(403);
+    });
+
+    it('replies with exactly the five native fields, sets no cookie and forbids caching', async () => {
+      const email = await verifiedUser();
+      const replies = [
+        await post('/api/auth/native/login', { email, password: PASSWORD }).expect(200),
+        await post('/api/auth/native/demo', { role: 'shopper' }).expect(200),
+      ];
+      replies.push(
+        await nativeRefresh((replies[0]!.body as { refreshToken: string }).refreshToken).expect(200),
+      );
+      for (const res of replies) {
+        nativeAuthResponseSchema.parse(res.body);
+        expect(Object.keys(res.body).sort()).toEqual(
+          ['accessToken', 'expiresIn', 'refreshExpiresAt', 'refreshToken', 'user'].sort(),
+        );
+        expect(res.headers['set-cookie']).toBeUndefined();
+        expect(res.headers['cache-control']).toBe('no-store');
+      }
+    });
+
+    it('keeps the session end date when the token rotates', async () => {
+      const first = await nativeLogin(await verifiedUser());
+      const second = nativeAuthResponseSchema.parse(
+        (await nativeRefresh(first.refreshToken).expect(200)).body,
+      );
+      // a reply within the reuse window, too
+      const replayed = nativeAuthResponseSchema.parse(
+        (await nativeRefresh(first.refreshToken).expect(200)).body,
+      );
+      expect(second.refreshExpiresAt).toBe(first.refreshExpiresAt);
+      expect(replayed.refreshExpiresAt).toBe(first.refreshExpiresAt);
+    });
+
+    it('answers a token sent again after a lost reply, and revokes once the window has passed', async () => {
+      const first = await nativeLogin(await verifiedUser());
+      await nativeRefresh(first.refreshToken).expect(200); // the reply never reached the phone
+      const retried = nativeAuthResponseSchema.parse(
+        (await nativeRefresh(first.refreshToken).expect(200)).body,
+      );
+      expect((await unusedTokens(first.refreshToken)).map((t) => t.tokenHash)).toEqual([
+        sha256(retried.refreshToken),
+      ]);
+      await me(retried.accessToken).expect(200);
+      const next = nativeAuthResponseSchema.parse(
+        (await nativeRefresh(retried.refreshToken).expect(200)).body,
+      );
+
+      const warn = vi.spyOn(Logger.prototype, 'warn');
+      try {
+        await outsideWindow(first.refreshToken);
+        await nativeRefresh(first.refreshToken).expect(401);
+        const { sessionId } = await tokenRow(first.refreshToken);
+        expect(warn).toHaveBeenCalledWith(`Refresh token reuse on session ${sessionId}; session revoked`);
+        expect(JSON.stringify(warn.mock.calls)).not.toContain(first.refreshToken);
+      } finally {
+        warn.mockRestore();
+      }
+      await nativeRefresh(next.refreshToken).expect(401);
+      await me(next.accessToken).expect(401);
+    });
+
+    it('answers two refreshes with one token at once, leaving one live token', async () => {
+      const first = await nativeLogin(await verifiedUser());
+      const [a, b] = await Promise.all([
+        nativeRefresh(first.refreshToken),
+        nativeRefresh(first.refreshToken),
+      ]);
+      expect([a.status, b.status]).toEqual([200, 200]);
+      const pairs = [a, b].map((r) => nativeAuthResponseSchema.parse(r.body));
+      expect(pairs[0]!.refreshToken).not.toBe(pairs[1]!.refreshToken);
+      // the refresh that ran second retired the first one's token: exactly one of the two is live
+      const live = await unusedTokens(first.refreshToken);
+      expect(live).toHaveLength(1);
+      const winner = pairs.find((p) => sha256(p.refreshToken) === live[0]!.tokenHash)!;
+      const retired = pairs.find((p) => p !== winner)!;
+      for (const p of pairs) await me(p.accessToken).expect(200);
+      // the retired one still counts as a lost reply within the window, so a phone that kept it stays signed in
+      const fromRetired = nativeAuthResponseSchema.parse(
+        (await nativeRefresh(retired.refreshToken).expect(200)).body,
+      );
+      expect((await unusedTokens(first.refreshToken)).map((t) => t.tokenHash)).toEqual([
+        sha256(fromRetired.refreshToken),
+      ]);
+    });
+
+    it('refuses a refresh on an expired session', async () => {
+      const session = await nativeLogin(await verifiedUser());
+      const { sessionId } = await tokenRow(session.refreshToken);
+      await prisma().session.update({
+        where: { id: sessionId },
+        data: { expiresAt: new Date(Date.now() - 1000) },
+      });
+      await nativeRefresh(session.refreshToken).expect(401);
+    });
+
+    it('refuses a refresh after a password reset and after the account is deleted', async () => {
+      const email = await verifiedUser();
+      const beforeReset = await nativeLogin(email);
+      await post('/api/auth/forgot-password', { email }).expect(202);
+      await post('/api/auth/reset-password', {
+        token: mail.lastToken(email),
+        password: 'a brand new passphrase',
+      }).expect(200);
+      await nativeRefresh(beforeReset.refreshToken).expect(401);
+
+      const doomed = await nativeLogin(await verifiedUser());
+      await prisma().user.delete({ where: { email: doomed.user.email } });
+      await nativeRefresh(doomed.refreshToken).expect(401);
+      await me(doomed.accessToken).expect(401);
+    });
+
+    it('signs out twice without complaint, and an unknown token too', async () => {
+      const session = await nativeLogin(await verifiedUser());
+      const logout = (refreshToken: string) => post('/api/auth/native/logout', { refreshToken });
+      await logout(session.refreshToken).expect(204);
+      await logout(session.refreshToken).expect(204);
+      await logout('B'.repeat(43)).expect(204);
+    });
+
+    it('accepts a request from any origin, while the cookie routes refuse another site', async () => {
+      const { cookie } = await login(await verifiedUser());
+      const session = await nativeLogin(await verifiedUser());
+      const foreign = (url: string) =>
+        request(app.getHttpServer())
+          .post(url)
+          .set('X-Forwarded-For', ip)
+          .set('Origin', 'https://evil.example');
+      const next = nativeAuthResponseSchema.parse(
+        (await foreign('/api/auth/native/refresh').send({ refreshToken: session.refreshToken }).expect(200))
+          .body,
+      );
+      await foreign('/api/auth/native/logout').send({ refreshToken: next.refreshToken }).expect(204);
+      await foreign('/api/auth/refresh').set('Cookie', cookie).expect(403);
+      await foreign('/api/auth/logout').set('Cookie', cookie).expect(403);
+    });
+
+    describe('malformed input is a 400, never a 500', () => {
+      const send = (url: string, type: string, payload?: string) => {
+        ip = nextIp();
+        const req = request(app.getHttpServer()).post(url).set('X-Forwarded-For', ip);
+        return payload === undefined ? req : req.set('Content-Type', type).send(payload);
+      };
+      const json = 'application/json';
+      const cases: [string, string, string | undefined][] = [
+        ['42 characters', json, JSON.stringify({ refreshToken: 'A'.repeat(42) })],
+        ['44 characters', json, JSON.stringify({ refreshToken: 'A'.repeat(44) })],
+        ['a "+"', json, JSON.stringify({ refreshToken: `${'A'.repeat(42)}+` })],
+        ['a "/"', json, JSON.stringify({ refreshToken: `${'A'.repeat(42)}/` })],
+        ['a "="', json, JSON.stringify({ refreshToken: `${'A'.repeat(42)}=` })],
+        ['a number', json, JSON.stringify({ refreshToken: 12345 })],
+        ['null', json, JSON.stringify({ refreshToken: null })],
+        ['a null body', json, 'null'],
+        ['no body', json, undefined],
+        ['invalid JSON', json, '{"refreshToken": "AAAA'],
+        ['text/plain', 'text/plain', JSON.stringify({ refreshToken: 'A'.repeat(43) })],
+      ];
+      for (const route of ['refresh', 'logout']) {
+        it.each(cases)(`native/${route} with %s`, async (_, type, payload) => {
+          const res = await send(`/api/auth/native/${route}`, type, payload);
+          expect(res.status).toBe(400);
+        });
+      }
+    });
+
+    it('keeps tokens and passwords out of the logs on validation, parse and size errors', async () => {
+      const secret = `${'S'.repeat(20)}secretmarker${'S'.repeat(11)}`; // 43 characters
+      const password = 'password-marker-never-logged';
+      const written: string[] = [];
+      const capture = (stream: NodeJS.WriteStream) =>
+        vi.spyOn(stream, 'write').mockImplementation((chunk: unknown) => {
+          written.push(String(chunk));
+          return true;
+        });
+      const spies = [
+        capture(process.stdout),
+        capture(process.stderr),
+        ...(['log', 'error', 'warn', 'info', 'debug'] as const).map((m) =>
+          vi
+            .spyOn(console, m)
+            .mockImplementation((...args: unknown[]) => written.push(args.map(String).join(' '))),
+        ),
+      ];
+      // express prints unhandled errors only outside the test environment: behave as production does
+      const express = app.getHttpAdapter().getInstance() as {
+        get(k: string): unknown;
+        set(k: string, v: unknown): void;
+      };
+      const env = express.get('env');
+      express.set('env', 'production');
+      const statuses: number[] = [];
+      try {
+        const raw = (url: string, body: string) =>
+          request(app.getHttpServer())
+            .post(url)
+            .set('X-Forwarded-For', nextIp())
+            .set('Content-Type', 'application/json')
+            .send(body);
+        statuses.push((await raw('/api/auth/native/refresh', `{"refreshToken":"${secret}x"}`)).status);
+        statuses.push((await raw('/api/auth/native/refresh', `{"refreshToken":"${secret}`)).status);
+        statuses.push(
+          (await raw('/api/auth/native/login', `{"email":"a@test.example","password":"${password}`)).status,
+        );
+        statuses.push(
+          (
+            await raw(
+              '/api/auth/native/refresh',
+              `{"refreshToken":"${secret}","pad":"${'x'.repeat(40_000)}"}`,
+            )
+          ).status,
+        );
+        statuses.push(
+          (
+            await raw(
+              '/api/auth/native/login',
+              `{"email":"a@test.example","password":"${password}","pad":"${'x'.repeat(40_000)}"}`,
+            )
+          ).status,
+        );
+      } finally {
+        express.set('env', env);
+        for (const spy of spies) spy.mockRestore();
+      }
+      expect(statuses).toEqual([400, 400, 400, 413, 413]);
+      const log = written.join('\n');
+      expect(log).not.toContain('secretmarker');
+      expect(log).not.toContain(password);
+    });
+
+    it('limits refreshes to 20 a minute per client', async () => {
+      const statuses: number[] = [];
+      for (let i = 0; i < 21; i += 1) statuses.push((await nativeRefresh('C'.repeat(43))).status);
+      expect(statuses.slice(0, 20).every((s) => s === 401)).toBe(true);
+      expect(statuses[20]).toBe(429);
+    });
+
+    it('limits demo sign-ins to 10 a minute per client', async () => {
+      const statuses: number[] = [];
+      for (let i = 0; i < 11; i += 1)
+        statuses.push((await post('/api/auth/native/demo', { role: 'shopper' })).status);
+      expect(statuses.slice(0, 10).every((s) => s === 200)).toBe(true);
+      expect(statuses[10]).toBe(429);
+    });
   });
 
   describe('demo accounts', () => {
+    it(`keeps only the newest ${DEMO_SESSIONS_KEPT} sessions of a demo account, with their tokens`, async () => {
+      const demo = await prisma().user.findUniqueOrThrow({ where: { email: 'shopper@rakit.example' } });
+      const marker = `e2e-demo-cap-${randomUUID()}`;
+      const longAgo = Date.now() - 24 * 60 * 60 * 1000;
+      // enough old sessions to pass the cap however many the account already has
+      await prisma().session.createMany({
+        data: Array.from({ length: DEMO_SESSIONS_KEPT + 5 }, (_, i) => ({
+          userId: demo.id,
+          userAgent: marker,
+          createdAt: new Date(longAgo - i * 1000),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })),
+      });
+      const oldest = await prisma().session.findFirstOrThrow({
+        where: { userAgent: marker },
+        orderBy: { createdAt: 'asc' },
+      });
+      const oldToken = await prisma().refreshToken.create({
+        data: { sessionId: oldest.id, tokenHash: sha256(randomUUID()) },
+      });
+      try {
+        const res = await post('/api/auth/demo', { role: 'shopper' }).expect(200);
+        const { accessToken } = authResponseSchema.parse(res.body);
+        expect(await prisma().session.count({ where: { userId: demo.id } })).toBe(DEMO_SESSIONS_KEPT);
+        await me(accessToken).expect(200); // the new session is among the newest
+        expect(await prisma().session.findUnique({ where: { id: oldest.id } })).toBeNull();
+        expect(await prisma().refreshToken.findUnique({ where: { id: oldToken.id } })).toBeNull();
+      } finally {
+        await prisma().session.deleteMany({ where: { userAgent: marker } });
+      }
+    });
+
     it.each([
       ['shopper', 'CUSTOMER'],
       ['admin', 'ADMIN'],

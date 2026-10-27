@@ -9,6 +9,7 @@ import {
   Post,
   Req,
   Res,
+  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBody, ApiCookieAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -35,6 +36,7 @@ import {
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import { clientIp } from '../common/client-ip.js';
+import { NoStoreInterceptor } from '../common/no-store.interceptor.js';
 import { openApiSchema } from '../common/openapi.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
@@ -52,13 +54,18 @@ const ApiContract = (input: z.ZodType, output: z.ZodType = messageSchema) =>
   );
 const strict = { default: { limit: 5, ttl: 60_000 } };
 
-const toNative = ({ refreshExpiresAt, ...issued }: IssuedSession): NativeAuthResponse => ({
-  ...issued,
-  refreshExpiresAt: refreshExpiresAt.toISOString(),
+// named fields only: whatever IssuedSession gains later stays out of the reply until it is added here
+const toNative = (issued: IssuedSession): NativeAuthResponse => ({
+  accessToken: issued.accessToken,
+  expiresIn: issued.expiresIn,
+  user: issued.user,
+  refreshToken: issued.refreshToken,
+  refreshExpiresAt: issued.refreshExpiresAt.toISOString(),
 });
 
 @ApiTags('Auth')
 @Controller('auth')
+@UseInterceptors(NoStoreInterceptor)
 @Throttle({ default: { limit: 20, ttl: 60_000 } })
 export class AuthController {
   constructor(

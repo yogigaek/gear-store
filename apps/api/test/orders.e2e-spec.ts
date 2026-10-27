@@ -22,6 +22,7 @@ const ADDRESS = {
   postalCode: '28111',
 };
 const TEMP_SLUG = `e2e-last-unit-${Date.now()}`;
+const WITHDRAWN_SLUG = `e2e-withdrawn-${Date.now()}`;
 
 describe('Addresses and orders (e2e)', () => {
   let app: INestApplication<App>;
@@ -83,11 +84,25 @@ describe('Addresses and orders (e2e)', () => {
         categoryId: forks.id,
       },
     });
+    const accessories = await prisma.category.findUniqueOrThrow({ where: { slug: 'accessories' } });
+    await prisma.product.create({
+      data: {
+        slug: WITHDRAWN_SLUG,
+        name: 'Withdrawn Test Pump',
+        model: 'W-1',
+        module: 'ACCESSORY',
+        description: 'Created by the e2e suite',
+        price: 50000,
+        stock: 5,
+        categoryId: accessories.id,
+      },
+    });
   });
 
   afterAll(async () => {
     await deleteTestUsers(app);
     await prisma.product.delete({ where: { slug: TEMP_SLUG } });
+    await prisma.product.delete({ where: { slug: WITHDRAWN_SLUG } });
     await app.close();
   });
 
@@ -187,6 +202,41 @@ describe('Addresses and orders (e2e)', () => {
       expect(again.body.number).toBe(numbers[0]);
       expect(z.array(orderSummarySchema).parse((await me.orders().expect(200)).body)).toHaveLength(1);
       await me.cancel(numbers[0]).expect(200);
+    });
+
+    it('places one order when one account checks out twice at once with different keys', async () => {
+      const { me, address } = await customerWithAddress();
+      const before = await stockOf('workshop-hex-set');
+      await me.cartSet('workshop-hex-set', 1).expect(200);
+      const results = await Promise.all([me.checkout(address.id), me.checkout(address.id)]);
+      expect(results.map((r) => r.status).sort((a, b) => a - b)).toEqual([201, 400]);
+      expect(results.find((r) => r.status === 400)?.body.message).toBe('Your cart is empty');
+      const listed = z.array(orderSummarySchema).parse((await me.orders().expect(200)).body);
+      expect(listed).toHaveLength(1);
+      expect(await stockOf('workshop-hex-set')).toBe(before - 1);
+      await me.cancel(listed[0]!.number).expect(200);
+    });
+
+    it('takes a part no longer sold out of the cart instead of blocking checkout for good', async () => {
+      const { me, address } = await customerWithAddress();
+      await me.cartSet(WITHDRAWN_SLUG, 2).expect(200);
+      await me.cartSet('battery-charger-4a', 1).expect(200);
+      await prisma.product.update({ where: { slug: WITHDRAWN_SLUG }, data: { isActive: false } });
+      try {
+        // the cart no longer shows it, so the shopper could not remove it by hand
+        const shown = cartSchema.parse((await me.cart().expect(200)).body);
+        expect(shown.items.map((i) => i.product.slug)).toEqual(['battery-charger-4a']);
+        const refused = await me.checkout(address.id).expect(409);
+        expect(refused.body.message).toMatch(/Withdrawn Test Pump/);
+        expect(await prisma.cartItem.count({ where: { product: { slug: WITHDRAWN_SLUG } } })).toBe(0);
+        // the shopper looks again and the cart they see goes through
+        const order = orderDetailSchema.parse((await me.checkout(address.id).expect(201)).body);
+        expect(order.items.map((i) => i.slug)).toEqual(['battery-charger-4a']);
+        expect(await stockOf(WITHDRAWN_SLUG)).toBe(5);
+        await me.cancel(order.number).expect(200);
+      } finally {
+        await prisma.product.update({ where: { slug: WITHDRAWN_SLUG }, data: { isActive: true } });
+      }
     });
 
     it('sells the last unit to exactly one of two buyers checking out at the same moment', async () => {
