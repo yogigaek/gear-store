@@ -23,8 +23,8 @@ function apiBase(): string {
   throw new Error('EXPO_PUBLIC_API_URL is not set');
 }
 
-/** long enough for the hosted API to wake from sleep on a slow connection */
-const REQUEST_TIMEOUT_MS = 30_000;
+/** long enough for the hosted API to wake: Render's free tier took 75 s to answer after sleeping (27 Oct 2026) */
+const REQUEST_TIMEOUT_MS = 90_000;
 
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
