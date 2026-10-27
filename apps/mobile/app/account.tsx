@@ -1,3 +1,4 @@
+import { Link } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -35,6 +36,11 @@ export default function AccountScreen() {
           This is the shared demo account: anyone can sign in to it, and its name and password cannot change.
         </Text>
       )}
+      <Link href="/orders" asChild>
+        <Pressable style={styles.primary} accessibilityRole="link">
+          <Text style={styles.primaryText}>Your orders</Text>
+        </Pressable>
+      </Link>
       <Pressable onPress={() => void auth.signOut()} style={styles.secondary} accessibilityRole="button">
         <Text style={styles.secondaryText}>Sign out</Text>
       </Pressable>

@@ -30,6 +30,10 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ title: 'Rakit · Parts' }} />
         <Stack.Screen name="cart" options={{ title: 'Cart', headerRight: undefined }} />
         <Stack.Screen name="account" options={{ title: 'Account', headerRight: undefined }} />
+        <Stack.Screen name="checkout" options={{ title: 'Checkout', headerRight: undefined }} />
+        <Stack.Screen name="addresses/new" options={{ title: 'New address', headerRight: undefined }} />
+        <Stack.Screen name="orders/[number]" options={{ title: 'Order' }} />
+        <Stack.Screen name="orders/index" options={{ title: 'Orders' }} />
       </Stack>
     </QueryClientProvider>
   );

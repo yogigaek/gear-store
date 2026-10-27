@@ -82,6 +82,15 @@ export default function CartScreen() {
               ? 'Shipping is added at checkout.'
               : 'Fix the lines marked above before checking out.'}
           </Text>
+          {priced.canCheckout && (
+            <Link href={cart.mode === 'account' ? '/checkout' : '/account'} asChild>
+              <Pressable style={styles.checkout} accessibilityRole="link">
+                <Text style={styles.primaryText}>
+                  {cart.mode === 'account' ? 'Check out' : 'Sign in to check out'}
+                </Text>
+              </Pressable>
+            </Link>
+          )}
         </View>
       }
     />
@@ -264,4 +273,5 @@ const styles = StyleSheet.create({
   total: { fontFamily: mono, fontSize: 18, fontWeight: '700', color: colors.ink },
   note: { fontSize: 13, color: colors.ink3 },
   banner: { fontSize: 13, color: colors.danger, marginBottom: 12 },
+  checkout: { backgroundColor: colors.signal, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
 });
