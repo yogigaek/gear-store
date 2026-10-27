@@ -73,3 +73,10 @@ export const cartSchema = z.object({
   canCheckout: z.boolean(),
 });
 export type Cart = z.infer<typeof cartSchema>;
+
+/**
+ * The account's cart after a merge, and what of the guest cart did not fit: a part left out because the cart
+ * already held its maximum of lines, or the part of a quantity over a line's limit.
+ */
+export const mergeCartResultSchema = cartSchema.extend({ notMerged: z.array(cartLineInputSchema) });
+export type MergeCartResult = z.infer<typeof mergeCartResultSchema>;
