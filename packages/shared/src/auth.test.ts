@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { emailLinkTokenSchema, emailSchema, passwordSchema, registerSchema } from './auth.js';
+import {
+  emailLinkTokenSchema,
+  emailSchema,
+  passwordSchema,
+  refreshTokenInputSchema,
+  registerSchema,
+} from './auth.js';
 
 describe('auth schemas', () => {
   it('normalises email case and whitespace', () => {
@@ -26,6 +32,12 @@ describe('auth schemas', () => {
     expect(
       registerSchema.safeParse({ name: '   ', email: 'a@b.co', password: 'long enough pw' }).success,
     ).toBe(false);
+  });
+
+  it('only accepts a refresh token shaped like the ones the API issues', () => {
+    expect(refreshTokenInputSchema.safeParse({ refreshToken: 'A'.repeat(43) }).success).toBe(true);
+    expect(refreshTokenInputSchema.safeParse({ refreshToken: 'A'.repeat(44) }).success).toBe(false);
+    expect(refreshTokenInputSchema.safeParse({ refreshToken: '' }).success).toBe(false);
   });
 
   it('only accepts 43-character base64url link tokens', () => {

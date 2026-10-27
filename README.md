@@ -143,7 +143,9 @@ repeats it"_.
 
 - 🎟️ **Sessions** — 15-minute access tokens (`Authorization: Bearer`) and a refresh token in an `HttpOnly`,
   `SameSite=Strict` cookie scoped to `/api/auth`. The refresh token rotates on every use; replaying an old one
-  revokes the session. Signing out or resetting a password takes effect at once.
+  revokes the session. Signing out or resetting a password takes effect at once. The mobile app keeps its
+  session in the phone's secure storage rather than a cookie, so `/auth/native/*` returns the refresh token in
+  the body; those routes never read the cookie, so a script in the web page cannot turn it into a readable token.
 - 🔑 **Accounts** — argon2id password hashing, email confirmation, the same reply whether or not an email has an
   account, and only SHA-256 hashes of tokens stored.
 - 🚦 **Abuse** — after 5 failed sign-ins an address pauses for a minute, and every further failure doubles the
@@ -184,6 +186,7 @@ Interactive docs at `/api/docs`, the OpenAPI document at `/api/openapi.json`.
 | 🔩 Catalogue | `GET /categories`, `GET /products`, `GET /products/:slug`, product reviews               |
 | 🧩 Build     | `GET /build` (slots, parts, conflicts), `POST /build/quote`                              |
 | 👤 Account   | `/auth/*` (register, confirm, sign in, demo, refresh, reset), `/me`, addresses, wishlist |
+| 📱 Mobile    | `/auth/native/*` (sign in, demo, refresh, sign out) with the refresh token in the body   |
 | 🛒 Cart      | `POST /cart/quote` (guest cart), `/me/cart` parts and bikes, merge on sign-in            |
 | 📦 Orders    | `POST /me/orders`, list, detail, cancel, pay, payment status                             |
 | 💳 Payments  | `POST /payments/midtrans/notification`                                                   |

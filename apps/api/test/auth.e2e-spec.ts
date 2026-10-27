@@ -1,5 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
-import { authResponseSchema, userSchema } from '@gear-store/shared';
+import { authResponseSchema, nativeAuthResponseSchema, userSchema } from '@gear-store/shared';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
@@ -299,6 +299,80 @@ describe('Auth (e2e)', () => {
       await change(PASSWORD).expect(200);
       await me(here.body.accessToken).expect(200);
       await me(elsewhere.body.accessToken).expect(401);
+    });
+  });
+
+  describe('native apps (refresh token in the body)', () => {
+    const nativeLogin = async (email: string) =>
+      nativeAuthResponseSchema.parse(
+        (await post('/api/auth/native/login', { email, password: PASSWORD }).expect(200)).body,
+      );
+    const nativeRefresh = (refreshToken: string) => post('/api/auth/native/refresh', { refreshToken });
+
+    it('hands the refresh token over in the body and sets no cookie', async () => {
+      const res = await post('/api/auth/native/login', {
+        email: await verifiedUser(),
+        password: PASSWORD,
+      }).expect(200);
+      const body = nativeAuthResponseSchema.parse(res.body);
+      expect(res.headers['set-cookie']).toBeUndefined();
+      expect(new Date(body.refreshExpiresAt).getTime()).toBeGreaterThan(Date.now());
+      await me(body.accessToken).expect(200);
+    });
+
+    it('rotates the token, and a replayed one ends the session', async () => {
+      const first = await nativeLogin(await verifiedUser());
+      const second = nativeAuthResponseSchema.parse(
+        (await nativeRefresh(first.refreshToken).expect(200)).body,
+      );
+      expect(second.refreshToken).not.toBe(first.refreshToken);
+      await nativeRefresh(first.refreshToken).expect(401); // replayed copy
+      await nativeRefresh(second.refreshToken).expect(401); // the holder is signed out too
+      await me(second.accessToken).expect(401);
+    });
+
+    it('never reads the cookie, so a page script cannot turn it into a readable token', async () => {
+      const { cookie } = await login(await verifiedUser());
+      const withCookie = (url: string, body: object) =>
+        request(app.getHttpServer()).post(url).set('X-Forwarded-For', ip).set('Cookie', cookie).send(body);
+      // a well-formed token that is not the cookie's: the cookie must not be used in its place
+      await withCookie('/api/auth/native/refresh', { refreshToken: 'A'.repeat(43) }).expect(401);
+      await withCookie('/api/auth/native/logout', { refreshToken: 'A'.repeat(43) }).expect(204);
+      await refresh(cookie).expect(200); // the cookie session is untouched by both
+    });
+
+    it('signs out: the session is dead', async () => {
+      const session = await nativeLogin(await verifiedUser());
+      await post('/api/auth/native/logout', { refreshToken: session.refreshToken }).expect(204);
+      await nativeRefresh(session.refreshToken).expect(401);
+      await me(session.accessToken).expect(401);
+    });
+
+    it('applies the same sign-in checks as the web', async () => {
+      const email = await verifiedUser();
+      await post('/api/auth/native/login', { email, password: 'wrong password' }).expect(401);
+      // an unconfirmed address cannot sign in
+      const unconfirmed = `user-${randomUUID()}@test.example`;
+      await post('/api/auth/register', { name: 'Test User', email: unconfirmed, password: PASSWORD }).expect(
+        202,
+      );
+      await post('/api/auth/native/login', { email: unconfirmed, password: PASSWORD }).expect(403);
+    });
+
+    it('shares the per-address pause with web sign-in', async () => {
+      const email = await verifiedUser();
+      for (let i = 0; i < 5; i += 1) {
+        ip = nextIp();
+        await post('/api/auth/login', { email, password: 'not the password' });
+      }
+      ip = nextIp();
+      const res = await post('/api/auth/native/login', { email, password: PASSWORD }).expect(429);
+      expect(res.body).toMatchObject({ code: 'SIGN_IN_PAUSED' });
+    });
+
+    it('signs in to the demo shopper', async () => {
+      const res = await post('/api/auth/native/demo', { role: 'shopper' }).expect(200);
+      expect(nativeAuthResponseSchema.parse(res.body).user).toMatchObject({ role: 'CUSTOMER', isDemo: true });
     });
   });
 

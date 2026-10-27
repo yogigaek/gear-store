@@ -18,6 +18,8 @@ import {
   emailOnlySchema,
   loginSchema,
   messageSchema,
+  nativeAuthResponseSchema,
+  refreshTokenInputSchema,
   registerSchema,
   resetPasswordSchema,
   tokenOnlySchema,
@@ -25,6 +27,8 @@ import {
   type DemoLoginInput,
   type LoginInput,
   type Message,
+  type NativeAuthResponse,
+  type RefreshTokenInput,
   type RegisterInput,
   type ResetPasswordInput,
 } from '@gear-store/shared';
@@ -47,6 +51,11 @@ const ApiContract = (input: z.ZodType, output: z.ZodType = messageSchema) =>
     ApiOkResponse({ schema: openApiSchema(output) }),
   );
 const strict = { default: { limit: 5, ttl: 60_000 } };
+
+const toNative = ({ refreshExpiresAt, ...issued }: IssuedSession): NativeAuthResponse => ({
+  ...issued,
+  refreshExpiresAt: refreshExpiresAt.toISOString(),
+});
 
 @ApiTags('Auth')
 @Controller('auth')
@@ -138,6 +147,54 @@ export class AuthController {
     this.assertSameOrigin(req);
     await this.auth.logout(this.cookie(req));
     this.clearCookie(res);
+  }
+
+  // Native apps keep the session in the platform's secure storage rather than a cookie, so the refresh token
+  // travels in the body. These routes never read the cookie: a page script calling them cannot swap the httpOnly cookie for a
+  // token it can read. Sign-in checks, rotation and reuse detection are the same AuthService calls as above.
+
+  @Post('native/login')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Sign in from a native app; the refresh token is returned in the body' })
+  @ApiContract(loginSchema, nativeAuthResponseSchema)
+  async nativeLogin(
+    @Body(body(loginSchema)) input: LoginInput,
+    @Headers('user-agent') userAgent: string | undefined,
+    @Req() req: Request,
+  ): Promise<NativeAuthResponse> {
+    const ip = clientIp(req, this.env.CLIENT_IP_HEADERS);
+    return toNative(await this.auth.login(input, userAgent, ip));
+  }
+
+  @Post('native/demo')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Sign in to a demo account from a native app' })
+  @ApiContract(demoLoginSchema, nativeAuthResponseSchema)
+  async nativeDemo(
+    @Body(body(demoLoginSchema)) input: DemoLoginInput,
+    @Headers('user-agent') userAgent: string | undefined,
+  ): Promise<NativeAuthResponse> {
+    return toNative(await this.auth.demoLogin(input, userAgent));
+  }
+
+  @Post('native/refresh')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Exchange a refresh token for a new pair (the refresh token rotates)' })
+  @ApiContract(refreshTokenInputSchema, nativeAuthResponseSchema)
+  async nativeRefresh(
+    @Body(body(refreshTokenInputSchema)) input: RefreshTokenInput,
+  ): Promise<NativeAuthResponse> {
+    return toNative(await this.auth.refresh(input.refreshToken));
+  }
+
+  @Post('native/logout')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'End the session a native app holds' })
+  @ApiBody({ schema: openApiSchema(refreshTokenInputSchema, 'input') })
+  async nativeLogout(@Body(body(refreshTokenInputSchema)) input: RefreshTokenInput): Promise<void> {
+    await this.auth.logout(input.refreshToken);
   }
 
   @Post('forgot-password')
