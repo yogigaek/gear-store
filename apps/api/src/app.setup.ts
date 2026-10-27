@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import type { Env } from './config/env.js';
 
@@ -10,6 +11,11 @@ export function configureApp(app: INestApplication, env: Env): void {
   const express = app as NestExpressApplication;
   // req.ip must be the visitor, or every rate limit would count the whole site as one client
   express.set('trust proxy', env.TRUST_PROXY);
+  // tokens and sessions never sit in a cache; set first, so replies refused by the body parser or a throttle carry it
+  express.use('/api/auth', (_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   // nothing the API accepts comes close to this; a smaller limit makes oversized bodies cheap to refuse
   express.useBodyParser('json', { limit: '32kb' });
   express.disable('x-powered-by');

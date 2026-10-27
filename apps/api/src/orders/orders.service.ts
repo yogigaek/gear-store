@@ -69,143 +69,148 @@ export class OrdersService {
     const holdMinutes = paymentWindowMinutes(isDemo);
 
     try {
-      const placed = await this.prisma.$transaction(async (tx) => {
-        // one checkout per account at a time: two with different keys must not both read the same cart
-        await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR UPDATE`;
-        const placedMeanwhile = await tx.order.findUnique({
-          where: { userId_idempotencyKey: { userId, idempotencyKey: input.idempotencyKey } },
-          select: { id: true },
-        });
-        if (placedMeanwhile) return { orderId: placedMeanwhile.id };
-
-        const [lines, held] = await Promise.all([
-          tx.cartItem.findMany({
-            where: { userId },
-            orderBy: { createdAt: 'asc' },
-            include: { product: { include: { colors: true } } },
-          }),
-          this.cart.heldBuilds(userId, tx),
-        ]);
-        // the cart hides withdrawn parts and cannot remove them: they go here, and the shopper looks again
-        const withdrawn = lines.filter((l) => !l.product.isActive);
-        if (withdrawn.length > 0) {
-          await tx.cartItem.deleteMany({ where: { id: { in: withdrawn.map((l) => l.id) } } });
-          return { withdrawn: withdrawn.map((l) => l.product.name) };
-        }
-        const book = await this.builds.bookFor(held.length, tx);
-        if (lines.length === 0 && held.length === 0) throw new BadRequestException('Your cart is empty');
-
-        const bikes = held.map((b) => {
-          const checked = checkBuild(book, b.selection, b.quantity);
-          const blocker = checked.problems.find((p) => p.kind !== 'OUT_OF_STOCK');
-          if (blocker)
-            throw new ConflictException(`A bike in your cart can no longer be built: ${blocker.message}`);
-          return { ...checked, quantity: b.quantity };
-        });
-
-        // what the order takes from each part's stock: single parts and bike parts together
-        const demand = new Map<string, { name: string; quantity: number }>();
-        const take = (id: string, name: string, quantity: number) => {
-          const entry = demand.get(id) ?? { name, quantity: 0 };
-          entry.quantity += quantity;
-          demand.set(id, entry);
-        };
-        for (const l of lines) take(l.productId, l.product.name, l.quantity);
-        for (const bike of bikes) {
-          for (const { part } of bike.parts) take(part.id, part.summary.name, bike.quantity);
-        }
-
-        // one guarded decrement per part, in id order so two checkouts never lock rows in opposite orders
-        for (const [productId, { name, quantity }] of [...demand].sort(([a], [b]) => a.localeCompare(b))) {
-          const taken = await tx.product.updateMany({
-            where: { id: productId, isActive: true, stock: { gte: quantity } },
-            data: { stock: { decrement: quantity } },
+      const placed = await this.prisma.$transaction(
+        async (tx) => {
+          // one checkout per account at a time: two with different keys must not both read the same cart. NO KEY UPDATE
+          // leaves the row's key free, so inserts that reference the account (a cart line, a sign-in) never deadlock on it
+          await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR NO KEY UPDATE`;
+          const placedMeanwhile = await tx.order.findUnique({
+            where: { userId_idempotencyKey: { userId, idempotencyKey: input.idempotencyKey } },
+            select: { id: true },
           });
-          if (taken.count === 0) {
-            const left =
-              (await tx.product.findUnique({ where: { id: productId }, select: { stock: true } }))?.stock ??
-              0;
-            throw new ConflictException(
-              left === 0
-                ? `${name} just sold out.`
-                : `Only ${left} of ${name} left. Lower the quantity in your cart.`,
-            );
+          if (placedMeanwhile) return { orderId: placedMeanwhile.id };
+
+          const [lines, held] = await Promise.all([
+            tx.cartItem.findMany({
+              where: { userId },
+              orderBy: { createdAt: 'asc' },
+              include: { product: { include: { colors: true } } },
+            }),
+            this.cart.heldBuilds(userId, tx),
+          ]);
+          // the cart hides withdrawn parts and cannot remove them: they go here, and the shopper looks again
+          const withdrawn = lines.filter((l) => !l.product.isActive);
+          if (withdrawn.length > 0) {
+            await tx.cartItem.deleteMany({ where: { id: { in: withdrawn.map((l) => l.id) } } });
+            return { withdrawn: withdrawn.map((l) => l.product.name) };
           }
-        }
+          const book = await this.builds.bookFor(held.length, tx);
+          if (lines.length === 0 && held.length === 0) throw new BadRequestException('Your cart is empty');
 
-        const items = lines.map((l) => ({
-          productId: l.productId,
-          slug: l.product.slug,
-          name: l.product.name,
-          model: l.product.model,
-          colorKey: l.colorKey,
-          colorLabel: l.product.colors.find((c) => c.key === l.colorKey)?.label ?? null,
-          unitPrice: l.product.price,
-          quantity: l.quantity,
-          lineTotal: l.product.price * l.quantity,
-        }));
-        const subtotal =
-          items.reduce((sum, i) => sum + i.lineTotal, 0) +
-          bikes.reduce((sum, b) => sum + b.unitPrice * b.quantity, 0);
-
-        const created = await tx.order.create({
-          data: {
-            number: newOrderNumber(),
-            userId,
-            subtotal,
-            shippingFee: shipping.fee,
-            total: subtotal + shipping.fee,
-            shippingZone: shipping.zone,
-            shipRecipient: address.recipient,
-            shipPhone: address.phone,
-            shipLine1: address.line1,
-            shipLine2: address.line2,
-            shipCity: address.city,
-            shipProvince: address.province,
-            shipPostalCode: address.postalCode,
-            idempotencyKey: input.idempotencyKey,
-            paymentExpiresAt: new Date(Date.now() + holdMinutes * 60_000),
-            items: { create: items },
-            events: {
-              create: {
-                status: OrderStatus.PENDING_PAYMENT,
-                note: `Order placed. Pay within ${holdMinutes} minutes.`,
-              },
-            },
-          },
-          select: { id: true },
-        });
-        for (const bike of bikes) {
-          await tx.orderBuild.create({
-            data: {
-              orderId: created.id,
-              label: BUILD_NAME,
-              colorKey: bike.colorKey,
-              colorLabel: bike.colorLabel,
-              quantity: bike.quantity,
-              unitPrice: bike.unitPrice,
-              lineTotal: bike.unitPrice * bike.quantity,
-              items: {
-                create: bike.parts.map(({ part }) => ({
-                  orderId: created.id,
-                  productId: part.id,
-                  slug: part.summary.slug,
-                  name: part.summary.name,
-                  model: part.summary.model,
-                  colorKey: carriesColour(part) ? bike.colorKey : '',
-                  colorLabel: carriesColour(part) ? bike.colorLabel : null,
-                  unitPrice: part.summary.price,
-                  quantity: bike.quantity,
-                  lineTotal: part.summary.price * bike.quantity,
-                })),
-              },
-            },
+          const bikes = held.map((b) => {
+            const checked = checkBuild(book, b.selection, b.quantity);
+            const blocker = checked.problems.find((p) => p.kind !== 'OUT_OF_STOCK');
+            if (blocker)
+              throw new ConflictException(`A bike in your cart can no longer be built: ${blocker.message}`);
+            return { ...checked, quantity: b.quantity };
           });
-        }
-        await tx.cartItem.deleteMany({ where: { userId } });
-        await tx.cartBuild.deleteMany({ where: { userId } });
-        return { orderId: created.id };
-      });
+
+          // what the order takes from each part's stock: single parts and bike parts together
+          const demand = new Map<string, { name: string; quantity: number }>();
+          const take = (id: string, name: string, quantity: number) => {
+            const entry = demand.get(id) ?? { name, quantity: 0 };
+            entry.quantity += quantity;
+            demand.set(id, entry);
+          };
+          for (const l of lines) take(l.productId, l.product.name, l.quantity);
+          for (const bike of bikes) {
+            for (const { part } of bike.parts) take(part.id, part.summary.name, bike.quantity);
+          }
+
+          // one guarded decrement per part, in id order so two checkouts never lock rows in opposite orders
+          for (const [productId, { name, quantity }] of [...demand].sort(([a], [b]) => a.localeCompare(b))) {
+            const taken = await tx.product.updateMany({
+              where: { id: productId, isActive: true, stock: { gte: quantity } },
+              data: { stock: { decrement: quantity } },
+            });
+            if (taken.count === 0) {
+              const left =
+                (await tx.product.findUnique({ where: { id: productId }, select: { stock: true } }))?.stock ??
+                0;
+              throw new ConflictException(
+                left === 0
+                  ? `${name} just sold out.`
+                  : `Only ${left} of ${name} left. Lower the quantity in your cart.`,
+              );
+            }
+          }
+
+          const items = lines.map((l) => ({
+            productId: l.productId,
+            slug: l.product.slug,
+            name: l.product.name,
+            model: l.product.model,
+            colorKey: l.colorKey,
+            colorLabel: l.product.colors.find((c) => c.key === l.colorKey)?.label ?? null,
+            unitPrice: l.product.price,
+            quantity: l.quantity,
+            lineTotal: l.product.price * l.quantity,
+          }));
+          const subtotal =
+            items.reduce((sum, i) => sum + i.lineTotal, 0) +
+            bikes.reduce((sum, b) => sum + b.unitPrice * b.quantity, 0);
+
+          const created = await tx.order.create({
+            data: {
+              number: newOrderNumber(),
+              userId,
+              subtotal,
+              shippingFee: shipping.fee,
+              total: subtotal + shipping.fee,
+              shippingZone: shipping.zone,
+              shipRecipient: address.recipient,
+              shipPhone: address.phone,
+              shipLine1: address.line1,
+              shipLine2: address.line2,
+              shipCity: address.city,
+              shipProvince: address.province,
+              shipPostalCode: address.postalCode,
+              idempotencyKey: input.idempotencyKey,
+              paymentExpiresAt: new Date(Date.now() + holdMinutes * 60_000),
+              items: { create: items },
+              events: {
+                create: {
+                  status: OrderStatus.PENDING_PAYMENT,
+                  note: `Order placed. Pay within ${holdMinutes} minutes.`,
+                },
+              },
+            },
+            select: { id: true },
+          });
+          for (const bike of bikes) {
+            await tx.orderBuild.create({
+              data: {
+                orderId: created.id,
+                label: BUILD_NAME,
+                colorKey: bike.colorKey,
+                colorLabel: bike.colorLabel,
+                quantity: bike.quantity,
+                unitPrice: bike.unitPrice,
+                lineTotal: bike.unitPrice * bike.quantity,
+                items: {
+                  create: bike.parts.map(({ part }) => ({
+                    orderId: created.id,
+                    productId: part.id,
+                    slug: part.summary.slug,
+                    name: part.summary.name,
+                    model: part.summary.model,
+                    colorKey: carriesColour(part) ? bike.colorKey : '',
+                    colorLabel: carriesColour(part) ? bike.colorLabel : null,
+                    unitPrice: part.summary.price,
+                    quantity: bike.quantity,
+                    lineTotal: part.summary.price * bike.quantity,
+                  })),
+                },
+              },
+            });
+          }
+          await tx.cartItem.deleteMany({ where: { userId } });
+          await tx.cartBuild.deleteMany({ where: { userId } });
+          return { orderId: created.id };
+        },
+        // checkouts of one account queue on its lock (the shared demo shopper most of all): room to wait their turn
+        { maxWait: 10_000, timeout: 20_000 },
+      );
       if (placed.withdrawn) {
         throw new ConflictException(
           `No longer sold, so taken out of your cart: ${placed.withdrawn.join(', ')}. Check your cart and place the order again.`,

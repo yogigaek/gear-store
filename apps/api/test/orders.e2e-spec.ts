@@ -52,6 +52,8 @@ describe('Addresses and orders (e2e)', () => {
       cart: () => request(server()).get('/api/me/cart').set(auth),
       order: (n: string) => request(server()).get(`/api/me/orders/${n}`).set(auth),
       cancel: (n: string) => request(server()).post(`/api/me/orders/${n}/cancel`).set(auth),
+      merge: (items: object[]) =>
+        request(server()).post('/api/me/cart/merge').set(auth).send({ items, builds: [] }),
     };
   }
 
@@ -196,12 +198,32 @@ describe('Addresses and orders (e2e)', () => {
       await me.cartSet('workshop-hex-set', 1).expect(200);
       const key = randomUUID();
       const [a, b] = await Promise.all([me.checkout(address.id, key), me.checkout(address.id, key)]);
-      const numbers = [a, b].filter((r) => r.status === 201).map((r) => r.body.number);
-      expect(new Set(numbers).size).toBe(1);
+      expect([a.status, b.status]).toEqual([201, 201]);
+      const numbers = [a.body.number as string, b.body.number as string];
+      expect(numbers[1]).toBe(numbers[0]);
       const again = await me.checkout(address.id, key).expect(201);
       expect(again.body.number).toBe(numbers[0]);
       expect(z.array(orderSummarySchema).parse((await me.orders().expect(200)).body)).toHaveLength(1);
       await me.cancel(numbers[0]).expect(200);
+    });
+
+    it('never deadlocks a checkout against a cart merge on the same account', async () => {
+      const { me, address } = await customerWithAddress();
+      for (let round = 0; round < 10; round += 1) {
+        await me.cartSet('workshop-hex-set', 1).expect(200);
+        // the merge updates a line the cart holds and inserts a new one while the checkout holds the account
+        const [placed, merged] = await Promise.all([
+          me.checkout(address.id),
+          me.merge([
+            { slug: 'workshop-hex-set', quantity: 1 },
+            { slug: 'lights-front-rear', quantity: 1 },
+          ]),
+        ]);
+        expect([placed.status, merged.status], JSON.stringify(placed.body)).toEqual([201, 200]);
+        await me.cancel(placed.body.number).expect(200);
+        await me.cartSet('workshop-hex-set', 0).expect(200);
+        await me.cartSet('lights-front-rear', 0).expect(200);
+      }
     });
 
     it('places one order when one account checks out twice at once with different keys', async () => {

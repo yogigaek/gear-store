@@ -298,6 +298,23 @@ describe('Cart (e2e)', () => {
       expect(cart.notMerged).toEqual([{ slug: 'workshop-hex-set', colorKey: '', quantity: 2 }]);
     });
 
+    it('reports one total per part, which may pass the line limit, in a reply that still parses', async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      await me.set({ slug: 'workshop-hex-set', quantity: 8 }).expect(200);
+      // the guest cart's own cut (20 → 10) and the account's (8 + 10 → 10) are one entry
+      const cart = mergeCartResultSchema.parse(
+        (
+          await me
+            .merge([
+              { slug: 'workshop-hex-set', quantity: 10 },
+              { slug: 'workshop-hex-set', quantity: 10 },
+            ])
+            .expect(200)
+        ).body,
+      );
+      expect(cart.notMerged).toEqual([{ slug: 'workshop-hex-set', colorKey: '', quantity: 18 }]);
+    });
+
     it('reports parts that did not fit a full cart, and still adds to lines it holds', async () => {
       const token = await signedInCustomer(app, mail, nextIp());
       const me = as(token);

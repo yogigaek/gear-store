@@ -9,7 +9,6 @@ import {
   Post,
   Req,
   Res,
-  UseInterceptors,
 } from '@nestjs/common';
 import { ApiBody, ApiCookieAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
@@ -36,7 +35,6 @@ import {
 import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import { clientIp } from '../common/client-ip.js';
-import { NoStoreInterceptor } from '../common/no-store.interceptor.js';
 import { openApiSchema } from '../common/openapi.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
@@ -65,7 +63,6 @@ const toNative = (issued: IssuedSession): NativeAuthResponse => ({
 
 @ApiTags('Auth')
 @Controller('auth')
-@UseInterceptors(NoStoreInterceptor)
 @Throttle({ default: { limit: 20, ttl: 60_000 } })
 export class AuthController {
   constructor(

@@ -517,6 +517,13 @@ describe('Auth (e2e)', () => {
       ]);
     });
 
+    it('keeps one live token however many refreshes with one token arrive at once', async () => {
+      const first = await nativeLogin(await verifiedUser());
+      const replies = await Promise.all(Array.from({ length: 8 }, () => nativeRefresh(first.refreshToken)));
+      expect(replies.map((r) => r.status)).toEqual(Array<number>(8).fill(200));
+      expect(await unusedTokens(first.refreshToken)).toHaveLength(1);
+    });
+
     it('refuses a refresh on an expired session', async () => {
       const session = await nativeLogin(await verifiedUser());
       const { sessionId } = await tokenRow(session.refreshToken);
@@ -592,6 +599,8 @@ describe('Auth (e2e)', () => {
         it.each(cases)(`native/${route} with %s`, async (_, type, payload) => {
           const res = await send(`/api/auth/native/${route}`, type, payload);
           expect(res.status).toBe(400);
+          // refused before any handler runs, still never cached
+          expect(res.headers['cache-control']).toBe('no-store');
         });
       }
     });
@@ -662,9 +671,14 @@ describe('Auth (e2e)', () => {
 
     it('limits refreshes to 20 a minute per client', async () => {
       const statuses: number[] = [];
-      for (let i = 0; i < 21; i += 1) statuses.push((await nativeRefresh('C'.repeat(43))).status);
+      let last: request.Response | undefined;
+      for (let i = 0; i < 21; i += 1) {
+        last = await nativeRefresh('C'.repeat(43));
+        statuses.push(last.status);
+      }
       expect(statuses.slice(0, 20).every((s) => s === 401)).toBe(true);
       expect(statuses[20]).toBe(429);
+      expect(last!.headers['cache-control']).toBe('no-store');
     });
 
     it('limits demo sign-ins to 10 a minute per client', async () => {
