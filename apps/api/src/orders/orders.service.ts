@@ -299,6 +299,8 @@ export class OrdersService {
     });
     if (moved.count === 0) return false;
     const items = await tx.orderItem.findMany({ where: { orderId, productId: { not: null } } });
+    // stock goes back in the order checkout takes it, so the two never lock product rows in opposite orders
+    items.sort((a, b) => a.productId!.localeCompare(b.productId!));
     for (const item of items) {
       await tx.product.update({
         where: { id: item.productId! },
