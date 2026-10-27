@@ -2,6 +2,7 @@ import { Link } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../lib/auth';
 import { useCartCount } from '../lib/cart';
+import { count as counted } from '../lib/format';
 import { colors, mono } from '../theme';
 
 /** The header's ways to the account and to the cart, with the number of parts in it. */
@@ -19,7 +20,7 @@ export function HeaderActions() {
         <Pressable
           hitSlop={8}
           accessibilityRole="link"
-          accessibilityLabel={count ? `Cart, ${count} items` : 'Cart, empty'}
+          accessibilityLabel={count ? `Cart, ${counted(count, 'item')}` : 'Cart, empty'}
         >
           <Text style={styles.cart}>Cart{count ? ` · ${count}` : ''}</Text>
         </Pressable>

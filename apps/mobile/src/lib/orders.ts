@@ -8,7 +8,8 @@ import {
 } from '@gear-store/shared';
 import { useQuery, type QueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
-import { ApiError } from './api';
+import { colors } from '../theme';
+import { retryTransient } from './api';
 import { authedApi, useAuth } from './auth';
 
 export const statusLabels: Record<OrderStatus, string> = {
@@ -20,6 +21,16 @@ export const statusLabels: Record<OrderStatus, string> = {
   EXPIRED: 'Expired',
 };
 
+/** as on the web: waiting asks something of the buyer (signal), paid onwards is good news, closed unpaid is muted */
+export const statusColors: Record<OrderStatus, string> = {
+  PENDING_PAYMENT: colors.signal,
+  PAID: colors.ok,
+  SHIPPED: colors.ok,
+  DELIVERED: colors.ok,
+  CANCELLED: colors.ink3,
+  EXPIRED: colors.ink3,
+};
+
 export const addressesKey = (userId: string) => ['me', userId, 'addresses'] as const;
 export const ordersKey = (userId: string) => ['me', userId, 'orders'] as const;
 export const orderKey = (userId: string, number: string) => ['me', userId, 'order', number] as const;
@@ -27,10 +38,6 @@ export const orderKey = (userId: string, number: string) => ['me', userId, 'orde
 const addressListSchema = z.array(addressSchema);
 const orderListSchema = z.array(orderSummarySchema);
 const paymentPageSchema = z.object({ redirectUrl: z.url() });
-
-/** an unknown or malformed order number will not turn up by asking again; anything else may */
-const retryTransient = (count: number, error: Error) =>
-  !(error instanceof ApiError && (error.status === 404 || error.status === 400)) && count < 3;
 
 function useUserId() {
   const state = useAuth();
@@ -59,17 +66,18 @@ export function useOrders() {
 }
 
 /**
- * One order. Once a payment page has been opened for it, it is re-read every few seconds, as the web's order page
- * does, so a payment the API learns of shows up without a tap.
+ * One order. Once a payment page has been opened for it, it is re-read every few seconds while `watching` (its
+ * screen is in view), as the web's order page does, so a payment the API learns of shows up without a tap.
  */
-export function useOrder(number: string) {
+export function useOrder(number: string, watching: boolean) {
   const userId = useUserId();
   return useQuery({
     queryKey: orderKey(userId, number),
     queryFn: () => orders.get(number),
     enabled: userId !== '',
     retry: retryTransient,
-    refetchInterval: (query) => (query.state.data?.canPay && query.state.data.payment ? 8_000 : false),
+    refetchInterval: (query) =>
+      watching && query.state.data?.canPay && query.state.data.payment ? 8_000 : false,
   });
 }
 
@@ -104,7 +112,9 @@ export const orders = {
     authedApi(`/me/orders/${encodeURIComponent(number)}/cancel`, orderDetailSchema, { method: 'POST' }),
 };
 
-export function showOrder(queryClient: QueryClient, userId: string, order: OrderDetail) {
+export async function showOrder(queryClient: QueryClient, userId: string, order: OrderDetail) {
+  // a read of the order already on its way would land after this and put the older order back
+  await queryClient.cancelQueries({ queryKey: orderKey(userId, order.number) });
   queryClient.setQueryData(orderKey(userId, order.number), order);
   void queryClient.invalidateQueries({ queryKey: ordersKey(userId) });
 }

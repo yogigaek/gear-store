@@ -1,13 +1,14 @@
-import type { Address } from '@gear-store/shared';
+import { MAX_ADDRESSES, type Address } from '@gear-store/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
-import { Link, router, useFocusEffect } from 'expo-router';
+import { Link, router, Stack, useFocusEffect, useNavigation, usePreventRemove } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ApiError } from '../src/lib/api';
 import { useAuth } from '../src/lib/auth';
 import { accountCartKey, useCart } from '../src/lib/cart';
-import { formatRupiah } from '../src/lib/format';
+import { checkoutKey, closeCheckout, hasOpenCheckout } from '../src/lib/checkout-key';
+import { count, formatRupiah } from '../src/lib/format';
 import { orders, showOrder, useAddresses } from '../src/lib/orders';
 import { colors, mono } from '../src/theme';
 
@@ -16,13 +17,12 @@ export default function CheckoutScreen() {
   const cart = useCart();
   const addresses = useAddresses();
   const queryClient = useQueryClient();
+  const navigation = useNavigation();
   const [chosen, setChosen] = useState<string>();
-  // one key per visit to this screen: a retry after a lost reply returns the same order, not a second one
-  const [idempotencyKey] = useState(() => randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  // set when an attempt failed without a clear answer (no reply, or a server error): the order may exist
-  const [maybePlaced, setMaybePlaced] = useState(false);
+  // header back, Android back and the iOS swipe all wait while an order is on its way
+  const allowLeave = usePreventRemove(busy);
   // an address just saved on the form is the one to ship to, as on the web
   useFocusEffect(
     useCallback(() => {
@@ -69,23 +69,35 @@ export default function CheckoutScreen() {
   const list = addresses.data;
   const address = list.find((a) => a.id === chosen) ?? list.find((a) => a.isDefault) ?? list[0];
   const userId = state.user.id;
+  // an attempt that ended without a clear answer (no reply, or a server error): the order may exist
+  const maybePlaced = hasOpenCheckout(userId) && !busy;
 
   const place = async () => {
     if (!address) return;
+    const key = checkoutKey(userId, randomUUID);
     setBusy(true);
     setError(undefined);
     try {
-      const order = await orders.place(address.id, idempotencyKey);
-      showOrder(queryClient, userId, order);
-      router.replace({ pathname: '/orders/[number]', params: { number: order.number } });
+      const order = await orders.place(address.id, key);
+      closeCheckout(key);
+      await showOrder(queryClient, userId, order);
       // the API emptied the cart into the order; refreshed in the background, the order opens at once
       void queryClient.invalidateQueries({ queryKey: accountCartKey(userId) });
+      const target = { pathname: '/orders/[number]', params: { number: order.number } } as const;
+      // opened from here, the order takes this screen's place; with another screen on top, it opens over that one
+      if (navigation.isFocused()) {
+        allowLeave();
+        router.replace(target);
+      } else {
+        router.push(target);
+      }
     } catch (e) {
       // The cart is left as shown, so "Place order" stays available: if the order was placed but its reply was
       // lost, the same key brings back that order rather than placing a second one.
       setError(e instanceof Error ? e.message : 'Could not place the order. Try again.');
       if (e instanceof ApiError && e.status === 404) void addresses.refetch();
-      if (!(e instanceof ApiError) || e.status === 0 || e.status >= 500) setMaybePlaced(true);
+      // a refusal (4xx) placed nothing: the next attempt is a new order
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500) closeCheckout(key);
     } finally {
       setBusy(false);
     }
@@ -97,6 +109,7 @@ export default function CheckoutScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
+      <Stack.Screen options={{ headerBackVisible: !busy, gestureEnabled: !busy }} />
       <Text style={styles.label}>Ship to</Text>
       {list.length === 0 ? (
         <Text style={styles.note}>You have no saved address yet.</Text>
@@ -112,14 +125,21 @@ export default function CheckoutScreen() {
           ))}
         </View>
       )}
-      <Link href="/addresses/new" asChild>
-        <Pressable style={styles.secondary} accessibilityRole="link">
-          <Text style={styles.secondaryText}>Add an address</Text>
-        </Pressable>
-      </Link>
+      {list.length < MAX_ADDRESSES ? (
+        <Link href="/addresses/new" asChild>
+          <Pressable style={styles.secondary} accessibilityRole="link">
+            <Text style={styles.secondaryText}>Add an address</Text>
+          </Pressable>
+        </Link>
+      ) : (
+        <Text style={styles.note}>
+          You have saved {MAX_ADDRESSES} addresses, the most an account keeps. Remove one on the website to
+          add another.
+        </Text>
+      )}
 
       <View style={styles.summary}>
-        <Row label={`Subtotal · ${priced.itemCount} items`} value={formatRupiah(priced.subtotal)} />
+        <Row label={`Subtotal · ${count(priced.itemCount, 'item')}`} value={formatRupiah(priced.subtotal)} />
         <Row
           label={address ? `Shipping · ${address.shippingEta}` : 'Shipping'}
           value={address ? formatRupiah(address.shippingFee) : '—'}

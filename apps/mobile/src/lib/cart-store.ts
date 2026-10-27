@@ -62,3 +62,36 @@ export function subtract(cart: CartLineInput[], merged: CartLineInput[]): CartLi
     .map((l) => ({ ...l, quantity: l.quantity - (gone.get(lineKey(l)) ?? 0) }))
     .filter((l) => l.quantity > 0);
 }
+
+/**
+ * A merge waiting to be resent never holds more of a part than the phone now does, so a part lowered or removed
+ * after a failed merge does not come back; it is never raised. Null once nothing is left to merge.
+ */
+export function capPending(pending: PendingMerge, line: CartLineInput): PendingMerge | null {
+  const lines = pending.cart.items
+    .map((l) => (lineKey(l) === lineKey(line) ? { ...l, quantity: Math.min(l.quantity, line.quantity) } : l))
+    .filter((l) => l.quantity > 0);
+  if (lines.length === 0 && pending.cart.builds.length === 0) return null;
+  return { key: pending.key, cart: { ...pending.cart, items: lines } };
+}
+
+/**
+ * The phone's lines as the API reads them (CartService.resolve): a part no longer sold (null) is dropped, a finish
+ * the part no longer has becomes its first finish (or none), and lines that end up the same part and finish are
+ * joined, capped at 10. Parts missing from `finishes` are left as they are.
+ */
+export function reconcile(
+  lines: CartLineInput[],
+  finishes: ReadonlyMap<string, readonly string[] | null>,
+): CartLineInput[] {
+  const joined = new Map<string, CartLineInput>();
+  for (const l of lines) {
+    const known = finishes.get(l.slug);
+    if (known === null) continue;
+    const colorKey = known === undefined || known.includes(l.colorKey) ? l.colorKey : (known[0] ?? '');
+    const key = lineKey({ slug: l.slug, colorKey });
+    const quantity = Math.min(MAX_LINE_QUANTITY, (joined.get(key)?.quantity ?? 0) + l.quantity);
+    joined.set(key, { slug: l.slug, colorKey, quantity });
+  }
+  return [...joined.values()];
+}

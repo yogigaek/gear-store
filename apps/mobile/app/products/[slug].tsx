@@ -4,7 +4,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PartImage, SpecPlate, StockNote } from '../../src/components/parts';
-import { api, ApiError } from '../../src/lib/api';
+import { api, ApiError, retryTransient } from '../../src/lib/api';
 import { useCartActions } from '../../src/lib/cart';
 import { formatRupiah, keepUnits } from '../../src/lib/format';
 import { colors, mono } from '../../src/theme';
@@ -14,6 +14,7 @@ export default function ProductScreen() {
   const product = useQuery({
     queryKey: ['product', slug],
     queryFn: () => api(`/products/${encodeURIComponent(slug)}`, productDetailSchema),
+    retry: retryTransient,
   });
   const [colorKey, setColorKey] = useState<string>();
   const [added, setAdded] = useState<string>();
@@ -30,7 +31,8 @@ export default function ProductScreen() {
     );
   }
 
-  if (product.isError) {
+  // a failed refetch keeps the part on screen; only a first load that failed has nothing to show
+  if (product.isError && !product.data) {
     const missing = product.error instanceof ApiError && product.error.status === 404;
     return (
       <View style={styles.center}>

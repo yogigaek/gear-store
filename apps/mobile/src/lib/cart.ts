@@ -3,6 +3,8 @@ import {
   cartSchema,
   MAX_CART_LINES,
   MAX_LINE_QUANTITY,
+  mergeCartResultSchema,
+  productDetailSchema,
   type Cart,
   type CartLineInput,
 } from '@gear-store/shared';
@@ -11,7 +13,7 @@ import { randomUUID } from 'expo-crypto';
 import { useSyncExternalStore } from 'react';
 import { api, ApiError } from './api';
 import { authedApi, currentUserId, useAuth } from './auth';
-import { parseStored, subtract, type PendingMerge } from './cart-store';
+import { capPending, parseStored, reconcile, subtract, type PendingMerge } from './cart-store';
 
 // Signed out, the cart is only which parts, in which finish, and how many, kept on this phone; prices, stock and
 // the total always come from the API (POST /cart/quote), as on the web. Signed in, the cart is the account's,
@@ -30,6 +32,10 @@ let items: CartLineInput[] = [];
 let pending: PendingMerge | null = null;
 // a launch read that failed leaves the stored record alone: writing would replace a cart this run never saw
 let persistable = false;
+// how many parts the last merge could not fit into that account's cart, until the shopper dismisses it
+let notice: { userId: string; count: number } | null = null;
+
+const notify = () => listeners.forEach((l) => l());
 
 const loaded = AsyncStorage.getItem(STORE_KEY)
   .then((raw) => {
@@ -38,7 +44,7 @@ const loaded = AsyncStorage.getItem(STORE_KEY)
     persistable = true;
   })
   .catch(() => undefined)
-  .finally(() => listeners.forEach((l) => l()));
+  .finally(notify);
 
 let queue: Promise<unknown> = loaded;
 function serial<T>(task: () => Promise<T>): Promise<T> {
@@ -47,16 +53,18 @@ function serial<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function save(next: { items: CartLineInput[]; pending: PendingMerge | null }) {
+/** True once the record is stored; this run keeps the cart in memory either way. */
+async function save(next: { items: CartLineInput[]; pending: PendingMerge | null }): Promise<boolean> {
   items = next.items.filter((l) => l.quantity > 0);
   pending = next.pending;
-  listeners.forEach((l) => l());
-  if (!persistable) return;
+  notify();
+  if (!persistable) return false;
   try {
     if (items.length || pending) await AsyncStorage.setItem(STORE_KEY, JSON.stringify({ items, pending }));
     else await AsyncStorage.removeItem(STORE_KEY);
+    return true;
   } catch {
-    // storage refused: this run keeps the cart in memory; the stored record is the last one written
+    return false;
   }
 }
 
@@ -65,9 +73,15 @@ const sameLine = (l: { slug: string; colorKey: string }, slug: string, colorKey:
 const clamp = (quantity: number) => Math.max(0, Math.min(quantity, MAX_LINE_QUANTITY));
 
 function setGuestLine(slug: string, colorKey: string, quantity: number) {
-  const rest = items.filter((l) => !sameLine(l, slug, colorKey));
   const line = { slug, colorKey, quantity: clamp(quantity) };
-  return save({ items: line.quantity > 0 ? [...rest, line] : rest, pending });
+  // a changed line keeps its place in the list; a new one goes last
+  const next = items.some((l) => sameLine(l, slug, colorKey))
+    ? items.map((l) => (sameLine(l, slug, colorKey) ? line : l))
+    : [...items, line];
+  return save({
+    items: next.filter((l) => l.quantity > 0),
+    pending: pending && capPending(pending, line),
+  });
 }
 
 /** the outcome of adding a part: added, refused because the cart holds 50 parts, or already at 10 of it */
@@ -84,40 +98,42 @@ function forAccount<T>(userId: string, task: () => Promise<T>): Promise<T> {
   });
 }
 
-function showAccountCart(queryClient: QueryClient, userId: string, cart: Cart) {
+async function showAccountCart(queryClient: QueryClient, userId: string, cart: Cart) {
+  if (currentUserId() !== userId) return;
+  // a read of the cart already on its way would land after this and put the older cart back
+  await queryClient.cancelQueries({ queryKey: accountCartKey(userId) });
   if (currentUserId() === userId) queryClient.setQueryData(accountCartKey(userId), cart);
 }
 
-function accountActions(queryClient: QueryClient, userId: string) {
+/** Changes to the account's cart on the server, for `userId` only. */
+export function accountActions(queryClient: QueryClient, userId: string) {
   // checked again right before writing: a sign-out (or another sign-in) can land while the fresh read is out
   const stillSignedIn = () => {
     if (currentUserId() !== userId) throw new ApiError(401, 'You were signed out. Sign in and try again.');
   };
-  const put = async (slug: string, colorKey: string, quantity: number) => {
+  const send = async (path: string, body: unknown) => {
     stillSignedIn();
-    const cart = await authedApi('/me/cart/items', cartSchema, {
-      method: 'PUT',
-      body: { slug, colorKey, quantity: clamp(quantity) },
-    });
-    showAccountCart(queryClient, userId, cart);
+    try {
+      await showAccountCart(queryClient, userId, await authedApi(path, cartSchema, { method: 'PUT', body }));
+    } catch (error) {
+      // e.g. a 404 for a line removed on the web meanwhile: the cart on screen is redrawn as it now is
+      void queryClient.invalidateQueries({ queryKey: accountCartKey(userId) });
+      throw error;
+    }
   };
-  const putBuild = async (id: string, quantity: number) => {
-    stillSignedIn();
-    const cart = await authedApi(`/me/cart/builds/${encodeURIComponent(id)}`, cartSchema, {
-      method: 'PUT',
-      body: { quantity: clamp(quantity) },
-    });
-    showAccountCart(queryClient, userId, cart);
-  };
+  const put = (slug: string, colorKey: string, quantity: number) =>
+    send('/me/cart/items', { slug, colorKey, quantity: clamp(quantity) });
+  const putBuild = (id: string, quantity: number) =>
+    send(`/me/cart/builds/${encodeURIComponent(id)}`, { quantity: clamp(quantity) });
   // the account's cart as it is now, not as cached: lines are set to exact quantities
   const fresh = () => authedApi('/me/cart', cartSchema);
+  const findLine = (cart: Cart, slug: string, colorKey: string) =>
+    cart.items.find((l) => sameLine({ slug: l.product.slug, colorKey: l.colorKey }, slug, colorKey));
   return {
     add: (slug: string, colorKey: string, quantity: number) =>
       forAccount(userId, async (): Promise<AddResult> => {
         const cart = await fresh();
-        const line = cart.items.find((l) =>
-          sameLine({ slug: l.product.slug, colorKey: l.colorKey }, slug, colorKey),
-        );
+        const line = findLine(cart, slug, colorKey);
         if (!line && cart.items.length >= MAX_CART_LINES) return 'cart-full';
         if (line && line.quantity >= MAX_LINE_QUANTITY) return 'line-full';
         await put(slug, colorKey, (line?.quantity ?? 0) + quantity);
@@ -126,22 +142,25 @@ function accountActions(queryClient: QueryClient, userId: string) {
     adjust: (slug: string, colorKey: string, delta: number) =>
       forAccount(userId, async () => {
         const cart = await fresh();
-        const line = cart.items.find((l) =>
-          sameLine({ slug: l.product.slug, colorKey: l.colorKey }, slug, colorKey),
-        );
-        await put(slug, colorKey, (line?.quantity ?? 0) + delta);
+        const line = findLine(cart, slug, colorKey);
+        // gone since it was drawn (removed on the web, say): show the cart as it is rather than add it back
+        if (!line) return showAccountCart(queryClient, userId, cart);
+        await put(slug, colorKey, line.quantity + delta);
       }),
     remove: (slug: string, colorKey: string) => forAccount(userId, () => put(slug, colorKey, 0)),
     adjustBuild: (id: string, delta: number) =>
       forAccount(userId, async () => {
-        const build = (await fresh()).builds.find((b) => b.id === id);
-        await putBuild(id, (build?.quantity ?? 0) + delta);
+        const cart = await fresh();
+        const build = cart.builds.find((b) => b.id === id);
+        if (!build) return showAccountCart(queryClient, userId, cart);
+        await putBuild(id, build.quantity + delta);
       }),
     removeBuild: (id: string) => forAccount(userId, () => putBuild(id, 0)),
   };
 }
 
-const guestActions = {
+/** Changes to the cart kept on this phone while signed out. */
+export const guestActions = {
   add: (slug: string, colorKey: string, quantity: number) =>
     serial(async (): Promise<AddResult> => {
       const line = items.find((l) => sameLine(l, slug, colorKey));
@@ -153,9 +172,7 @@ const guestActions = {
   adjust: (slug: string, colorKey: string, delta: number) =>
     serial(async () => {
       const line = items.find((l) => sameLine(l, slug, colorKey));
-      if (!line && delta > 0 && items.length >= MAX_CART_LINES)
-        throw new Error(`A cart holds up to ${MAX_CART_LINES} different parts.`);
-      await setGuestLine(slug, colorKey, (line?.quantity ?? 0) + delta);
+      if (line) await setGuestLine(slug, colorKey, line.quantity + delta);
     }),
   remove: (slug: string, colorKey: string) => serial(() => setGuestLine(slug, colorKey, 0)),
   adjustBuild: () => Promise.reject(new Error('Bikes are changed on the website')),
@@ -163,21 +180,70 @@ const guestActions = {
 };
 
 /**
- * Moves the phone's cart into `userId`'s account (as the web's CartSync does). A merge cut off before its reply
- * is resent exactly as before under the same key, which the API recognises, so nothing is added twice; the
- * phone's lines go only once the API confirms, keeping anything added since. A 400 (nothing was added) drops
- * the attempt and keeps the lines; any other failure keeps everything for the next sign-in or launch.
+ * Prices the phone's lines (POST /cart/quote). The API drops parts no longer sold and replaces a finish a part no
+ * longer has; the phone's lines are brought in line with that reply, so every row shown is a line −, + and Remove
+ * can reach, and lines that are gone stop counting towards the 50.
+ */
+export async function quoteGuestCart(lines: CartLineInput[]): Promise<Cart> {
+  const cart = await api('/cart/quote', cartSchema, { method: 'POST', body: { items: lines, builds: [] } });
+  void alignWithQuote(lines, cart).catch(() => undefined);
+  return cart;
+}
+
+async function alignWithQuote(lines: CartLineInput[], cart: Cart) {
+  const sold = new Set(cart.items.map((l) => l.product.slug));
+  const shown = (l: CartLineInput) =>
+    cart.items.some((c) => sameLine({ slug: c.product.slug, colorKey: c.colorKey }, l.slug, l.colorKey));
+  const finishes = new Map<string, string[] | null>();
+  for (const l of lines) {
+    if (finishes.has(l.slug)) continue;
+    if (!sold.has(l.slug)) finishes.set(l.slug, null);
+    else if (!shown(l)) {
+      // the reply does not say which finish took the place of this one: the part's own list does (its first)
+      const part = await api(`/products/${encodeURIComponent(l.slug)}`, productDetailSchema);
+      finishes.set(
+        l.slug,
+        part.colors.map((c) => c.key),
+      );
+    }
+  }
+  if (finishes.size === 0) return;
+  await serial(async () => {
+    // a merge waiting to be resent is read the same way, so what it takes off the phone matches its lines
+    const next = {
+      items: reconcile(items, finishes),
+      pending: pending && {
+        key: pending.key,
+        cart: { ...pending.cart, items: reconcile(pending.cart.items, finishes) },
+      },
+    };
+    if (JSON.stringify(next) !== JSON.stringify({ items, pending })) await save(next);
+  });
+}
+
+/**
+ * Moves the phone's cart into `userId`'s account (as the web's CartSync does). The merge and its key are stored
+ * before it is sent, and one cut off before its reply is resent exactly as before under the same key, which the
+ * API recognises, so nothing is added twice; the phone's lines go only once the API confirms, keeping anything
+ * added since. A 400 (nothing was added) drops the attempt and keeps the lines; any other failure keeps
+ * everything for the next try (sign-in, launch, or the app coming back to the foreground).
  */
 export function mergeInto(queryClient: QueryClient, userId: string): Promise<void> {
   return forAccount(userId, async () => {
     for (;;) {
-      const job: PendingMerge | null =
-        pending ?? (items.length ? { key: randomUUID(), cart: { items, builds: [] } } : null);
-      if (!job) return;
-      if (job !== pending) await save({ items, pending: job });
-      let cart: Cart;
+      let job = pending;
+      if (!job) {
+        if (!items.length) return;
+        job = { key: randomUUID(), cart: { items, builds: [] } };
+        // sent only once stored: a merge the next launch cannot see could be sent again under another key
+        if (!(await save({ items, pending: job }))) {
+          pending = null;
+          throw new Error('Could not keep the cart on this phone');
+        }
+      }
+      let reply;
       try {
-        cart = await authedApi('/me/cart/merge', cartSchema, {
+        reply = await authedApi('/me/cart/merge', mergeCartResultSchema, {
           method: 'POST',
           body: { ...job.cart, mergeKey: job.key },
         });
@@ -185,8 +251,14 @@ export function mergeInto(queryClient: QueryClient, userId: string): Promise<voi
         if (error instanceof ApiError && error.status === 400) await save({ items, pending: null });
         throw error;
       }
+      const { notMerged, ...cart } = reply;
       await save({ items: subtract(items, job.cart.items), pending: null });
-      showAccountCart(queryClient, userId, cart);
+      const left = notMerged.reduce((sum, l) => sum + l.quantity, 0);
+      if (left > 0) {
+        notice = { userId, count: left };
+        notify();
+      }
+      await showAccountCart(queryClient, userId, cart);
       if (currentUserId() !== userId) return;
     }
   });
@@ -202,6 +274,22 @@ export function useGuestItems(): CartLineInput[] {
   return useSyncExternalStore(subscribe, () => items);
 }
 
+/** how many parts the last merge into `userId`'s cart could not fit, 0 for none */
+export function mergeNotice(userId: string | null): number {
+  return notice && notice.userId === userId ? notice.count : 0;
+}
+
+export function dismissMergeNotice() {
+  notice = null;
+  notify();
+}
+
+/** mergeNotice, re-rendering when it changes */
+export function useMergeNotice(userId: string | null): number {
+  useSyncExternalStore(subscribe, () => notice);
+  return mergeNotice(userId);
+}
+
 /** The cart as the server prices it: the account's when signed in, else the phone's lines quoted. */
 export function useCart() {
   const state = useAuth();
@@ -214,7 +302,7 @@ export function useCart() {
   });
   const guest = useQuery({
     queryKey: ['cart-quote', lines],
-    queryFn: () => api('/cart/quote', cartSchema, { method: 'POST', body: { items: lines, builds: [] } }),
+    queryFn: () => quoteGuestCart(lines),
     enabled: state.status === 'signed-out' && lines.length > 0,
     placeholderData: keepPreviousData,
   });

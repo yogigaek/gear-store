@@ -1,6 +1,6 @@
 import type { OrderDetail } from '@gear-store/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { Link, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -18,13 +18,23 @@ import { PartImage } from '../../src/components/parts';
 import { ApiError } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { formatRupiah } from '../../src/lib/format';
-import { formatDateTime, orders, ordersKey, showOrder, statusLabels, useOrder } from '../../src/lib/orders';
+import {
+  formatDateTime,
+  orders,
+  ordersKey,
+  showOrder,
+  statusColors,
+  statusLabels,
+  useOrder,
+} from '../../src/lib/orders';
 import { colors, mono } from '../../src/theme';
 
 export default function OrderScreen() {
   const { number } = useLocalSearchParams<{ number: string }>();
   const state = useAuth();
-  const order = useOrder(number);
+  // polling and pulls run only while this screen is the one in view, not from under another screen
+  const focused = useIsFocused();
+  const order = useOrder(number, focused);
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState<'pay' | 'check' | 'cancel'>();
   const [error, setError] = useState<string>();
@@ -35,7 +45,7 @@ export default function OrderScreen() {
   const userId = state.status === 'signed-in' ? state.user.id : null;
   const awaitingPayment = Boolean(order.data?.canPay && order.data.payment);
   useEffect(() => {
-    if (!userId || !awaitingPayment) return;
+    if (!userId || !awaitingPayment || !focused) return;
     const pull = () =>
       void orders
         .pullPayment(number)
@@ -49,17 +59,17 @@ export default function OrderScreen() {
       clearInterval(timer);
       sub.remove();
     };
-  }, [userId, awaitingPayment, number, queryClient]);
+  }, [userId, awaitingPayment, focused, number, queryClient]);
 
   // Coming back to the app re-reads the order, so one that expired or was paid elsewhere shows as it is now.
   const refetchOrder = order.refetch;
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !focused) return;
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active') void refetchOrder();
     });
     return () => sub.remove();
-  }, [userId, refetchOrder]);
+  }, [userId, focused, refetchOrder]);
 
   // the orders list shows each order's status: keep it in step when this one changes (not on first load)
   const status = order.data?.status;
@@ -76,7 +86,14 @@ export default function OrderScreen() {
       <View style={styles.center}>
         <Stack.Screen options={{ title: number }} />
         {state.status === 'signed-out' ? (
-          <Text style={styles.message}>Sign in to see this order.</Text>
+          <>
+            <Text style={styles.message}>Sign in to see this order.</Text>
+            <Link href="/account" asChild>
+              <Pressable style={styles.primary} accessibilityRole="link">
+                <Text style={styles.primaryText}>Sign in</Text>
+              </Pressable>
+            </Link>
+          </>
         ) : (
           <ActivityIndicator color={colors.signal} />
         )}
@@ -110,7 +127,7 @@ export default function OrderScreen() {
     setError(undefined);
     try {
       const next = await task();
-      if (next) showOrder(queryClient, signedInId, next);
+      if (next) await showOrder(queryClient, signedInId, next);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Try again.');
       // e.g. 409 "no longer waiting for payment": show the order as it now stands
@@ -158,7 +175,7 @@ export default function OrderScreen() {
     >
       <Stack.Screen options={{ title: o.number }} />
       <View style={styles.statusRow}>
-        <Text style={[styles.status, waiting && styles.statusWaiting]}>{statusLabels[o.status]}</Text>
+        <Text style={[styles.status, { color: statusColors[o.status] }]}>{statusLabels[o.status]}</Text>
         <Text style={styles.date}>{formatDateTime(o.createdAt)}</Text>
       </View>
       {waiting && (
@@ -277,8 +294,7 @@ const styles = StyleSheet.create({
   message: { color: colors.ink2, textAlign: 'center', fontSize: 15 },
   page: { padding: 16, gap: 12, paddingBottom: 32 },
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
-  status: { fontSize: 20, fontWeight: '800', color: colors.ok, textTransform: 'uppercase' },
-  statusWaiting: { color: colors.signal },
+  status: { fontSize: 20, fontWeight: '800', textTransform: 'uppercase' },
   date: { fontFamily: mono, fontSize: 12, color: colors.ink3 },
   note: { fontSize: 13, color: colors.ink2, lineHeight: 19 },
   problem: { fontSize: 14, color: colors.danger },

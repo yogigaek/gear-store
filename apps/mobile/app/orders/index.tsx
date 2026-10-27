@@ -1,8 +1,8 @@
 import { Link } from 'expo-router';
 import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../src/lib/auth';
-import { formatRupiah } from '../../src/lib/format';
-import { formatDateTime, statusLabels, useOrders } from '../../src/lib/orders';
+import { count, formatRupiah } from '../../src/lib/format';
+import { formatDateTime, statusColors, statusLabels, useOrders } from '../../src/lib/orders';
 import { colors, mono } from '../../src/theme';
 
 export default function OrdersScreen() {
@@ -13,6 +13,11 @@ export default function OrdersScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.message}>Sign in to see your orders.</Text>
+        <Link href="/account" asChild>
+          <Pressable style={styles.primary} accessibilityRole="link">
+            <Text style={styles.primaryText}>Sign in</Text>
+          </Pressable>
+        </Link>
       </View>
     );
   }
@@ -53,13 +58,13 @@ export default function OrdersScreen() {
           <Pressable style={styles.row} accessibilityRole="link">
             <View style={styles.top}>
               <Text style={styles.number}>{item.number}</Text>
-              <Text style={[styles.status, item.status === 'PENDING_PAYMENT' && styles.waiting]}>
+              <Text style={[styles.status, { color: statusColors[item.status] }]}>
                 {statusLabels[item.status]}
               </Text>
             </View>
             <View style={styles.top}>
               <Text style={styles.meta}>
-                {formatDateTime(item.createdAt)} · {item.itemCount} items
+                {formatDateTime(item.createdAt)} · {count(item.itemCount, 'item')}
               </Text>
               <Text style={styles.total}>{formatRupiah(item.total)}</Text>
             </View>
@@ -80,8 +85,7 @@ const styles = StyleSheet.create({
   row: { borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50, padding: 12, gap: 6 },
   top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
   number: { fontFamily: mono, fontSize: 14, fontWeight: '600', color: colors.ink },
-  status: { fontSize: 13, fontWeight: '600', color: colors.ok },
-  waiting: { color: colors.signal },
+  status: { fontSize: 13, fontWeight: '600' },
   meta: { fontSize: 13, color: colors.ink3, flexShrink: 1 },
   total: { fontFamily: mono, fontSize: 14, fontWeight: '600', color: colors.ink },
 });

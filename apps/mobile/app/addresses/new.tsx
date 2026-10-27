@@ -2,11 +2,11 @@ import { addressInputSchema, provinceNames, shippingFor, type Province } from '@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FlatList,
   KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -25,6 +25,7 @@ type Field = 'recipient' | 'phone' | 'line1' | 'line2' | 'city' | 'province' | '
 export default function NewAddressScreen() {
   const state = useAuth();
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
   const [values, setValues] = useState<Record<Field, string>>({
     recipient: '',
     phone: '',
@@ -74,7 +75,8 @@ export default function NewAddressScreen() {
   };
 
   return (
-    <KeyboardAvoidingView style={styles.fill} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    // padding on Android too: edge to edge (SDK 58), the window no longer shrinks for the keyboard
+    <KeyboardAvoidingView style={styles.fill} behavior="padding">
       <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
         <Input
           label="Recipient"
@@ -156,8 +158,15 @@ export default function NewAddressScreen() {
         </Pressable>
       </ScrollView>
 
-      <Modal visible={picking} animationType="slide" onRequestClose={() => setPicking(false)}>
-        <View style={styles.modal}>
+      <Modal
+        visible={picking}
+        animationType="slide"
+        statusBarTranslucent
+        navigationBarTranslucent
+        onRequestClose={() => setPicking(false)}
+      >
+        {/* drawn under the system bars, as the app is edge-to-edge: the insets keep the list clear of them */}
+        <View style={[styles.modal, { paddingTop: insets.top + 16, paddingBottom: insets.bottom }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle}>Province</Text>
             <Pressable onPress={() => setPicking(false)} hitSlop={8} accessibilityRole="button">
@@ -233,7 +242,7 @@ const styles = StyleSheet.create({
   primary: { backgroundColor: colors.signal, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
   primaryText: { color: '#15181a', fontSize: 15, fontWeight: '700' },
   disabled: { opacity: 0.4 },
-  modal: { flex: 1, backgroundColor: colors.alu, paddingTop: Platform.OS === 'ios' ? 48 : 16 },
+  modal: { flex: 1, backgroundColor: colors.alu },
   modalHead: {
     flexDirection: 'row',
     justifyContent: 'space-between',

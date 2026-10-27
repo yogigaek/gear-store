@@ -10,7 +10,14 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://rakit-api.onrender.com/api"
+        "EXPO_PUBLIC_API_URL": "https://yogi-store.vercel.app/api"
+      }
+    },
+    "production": {
+      "extends": "preview",
+      "distribution": "store",
+      "android": {
+        "buildType": "app-bundle"
       }
     }
   }

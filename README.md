@@ -190,18 +190,36 @@ zod contracts from `packages/shared` as the web.
 
 - 🔎 **Catalogue** — search, part types, and each part with its finishes and specs.
 - 🛒 **Cart** — kept on the phone until sign-in, then merged into the account under a merge key, so a cut-off
-  merge is resent and never adds twice. Prices and stock always come from the API.
+  merge is resent and never adds twice; parts that do not fit (50 lines, 10 of each) are named in the cart.
+  Prices and stock always come from the API.
 - 🔑 **Sign-in** — `/auth/native/*`; the refresh token lives in the phone's secure storage (Keychain / Keystore),
-  and refreshes, sign-ins and sign-outs run one at a time so a rotating token is never sent twice.
-- 💳 **Checkout and orders** — saved addresses with their shipping fee, an idempotency key per checkout, Midtrans
-  sandbox payment in an in-app browser, and the order history with pay and cancel.
+  reads and writes of it run one at a time so a rotating token is never sent twice, and a reply that arrives
+  after a sign-out or another sign-in is revoked rather than kept.
+- 💳 **Checkout and orders** — saved addresses with their shipping fee, an idempotency key kept until the order
+  comes back (leaving and re-entering checkout resends it), Midtrans sandbox payment in an in-app browser, and the
+  order history with pay and cancel.
 
 ```sh
+npm run build -w @gear-store/shared      # if packages/shared/dist is missing (`npm run typecheck` builds it too)
 npm run dev:api                          # the API, as above; the phone reaches it on this machine's LAN address
 npm run start -w @gear-store/mobile      # scan the QR code with Expo Go on a phone on the same Wi-Fi
+npm test -w @gear-store/mobile           # unit tests, against a stand-in for the API
 ```
 
-In development the app finds the API on the machine that serves it; a release build reads `EXPO_PUBLIC_API_URL`.
+In development the app finds the API on the machine that serves it. A release build reads `EXPO_PUBLIC_API_URL`,
+set in `apps/mobile/eas.json` to `https://yogi-store.vercel.app/api`: the phone goes through the web's `/api`
+rewrite, as browsers do, so the API sees Vercel's own client address for its rate limits.
+
+**Release build** (EAS, Android). EAS builds from the git tree, where `packages/shared/dist` is not committed, so
+the app's `eas-build-post-install` script builds it; `eas-build-pre-install` installs npm 11, which this workspace
+needs. Sign in to EAS with your own Expo account first:
+
+```sh
+cd apps/mobile
+npx eas-cli login
+npx eas-cli build -p android --profile preview      # an APK to install directly
+npx eas-cli build -p android --profile production   # an app bundle for Google Play
+```
 
 ---
 

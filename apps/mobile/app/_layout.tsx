@@ -1,11 +1,15 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
+import { AppState } from 'react-native';
 import { CartSync } from '../src/components/CartSync';
 import { HeaderActions } from '../src/components/HeaderActions';
 import { auth } from '../src/lib/auth';
 import { colors } from '../src/theme';
+
+// a screen opened from a link (rakit://orders/<n>) has the catalogue under it, so back stays in the app
+export const unstable_settings = { anchor: 'index' };
 
 export default function RootLayout() {
   const [queryClient] = useState(
@@ -13,6 +17,12 @@ export default function RootLayout() {
   );
   useEffect(() => {
     void auth.restore();
+    // the app in the foreground is what "window focus" means to TanStack Query: stale reads refresh on return
+    const sub = AppState.addEventListener('change', (status) => {
+      focusManager.setFocused(status === 'active');
+      if (status === 'active') void auth.resume();
+    });
+    return () => sub.remove();
   }, []);
   return (
     <QueryClientProvider client={queryClient}>

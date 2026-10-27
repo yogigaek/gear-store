@@ -1,10 +1,11 @@
-import { MAX_LINE_QUANTITY, type CartBuild, type CartLine } from '@gear-store/shared';
+import { MAX_CART_LINES, MAX_LINE_QUANTITY, type CartBuild, type CartLine } from '@gear-store/shared';
 import { Link } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { PartImage } from '../src/components/parts';
-import { useCart, useCartActions } from '../src/lib/cart';
-import { formatRupiah } from '../src/lib/format';
+import { useAuth } from '../src/lib/auth';
+import { dismissMergeNotice, useCart, useCartActions, useMergeNotice } from '../src/lib/cart';
+import { count, formatRupiah } from '../src/lib/format';
 import { colors, mono } from '../src/theme';
 
 const lineProblem: Record<NonNullable<CartLine['problem']>, (line: CartLine) => string> = {
@@ -29,6 +30,8 @@ type Row = { kind: 'part'; line: CartLine } | { kind: 'bike'; build: CartBuild }
 
 export default function CartScreen() {
   const cart = useCart();
+  const auth = useAuth();
+  const notMerged = useMergeNotice(auth.status === 'signed-in' ? auth.user.id : null);
 
   if (cart.mode === 'restoring' || (cart.mode === 'account' && cart.query.isPending)) return <Loading />;
   if (cart.mode === 'guest' && cart.lineCount === 0) return <Empty />;
@@ -65,7 +68,20 @@ export default function CartScreen() {
       }
       contentContainerStyle={styles.list}
       ListHeaderComponent={
-        cart.query.isError ? <Text style={styles.banner}>{cart.query.error.message}</Text> : undefined
+        <>
+          {cart.query.isError && <Text style={styles.banner}>{cart.query.error.message}</Text>}
+          {notMerged > 0 && (
+            <View style={styles.notice} accessibilityLiveRegion="polite">
+              <Text style={styles.noticeText}>
+                {count(notMerged, 'part')} from this phone did not fit in your cart: a cart holds up to{' '}
+                {MAX_CART_LINES} different parts, {MAX_LINE_QUANTITY} of each.
+              </Text>
+              <Pressable onPress={dismissMergeNotice} hitSlop={8} accessibilityRole="button">
+                <Text style={styles.dismiss}>Dismiss</Text>
+              </Pressable>
+            </View>
+          )}
+        </>
       }
       ItemSeparatorComponent={() => <View style={styles.gap} />}
       renderItem={({ item }) =>
@@ -74,7 +90,7 @@ export default function CartScreen() {
       ListFooterComponent={
         <View style={styles.summary}>
           <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Subtotal · {priced.itemCount} items</Text>
+            <Text style={styles.totalLabel}>Subtotal · {count(priced.itemCount, 'item')}</Text>
             <Text style={styles.total}>{formatRupiah(priced.subtotal)}</Text>
           </View>
           <Text style={styles.note}>
@@ -273,5 +289,15 @@ const styles = StyleSheet.create({
   total: { fontFamily: mono, fontSize: 18, fontWeight: '700', color: colors.ink },
   note: { fontSize: 13, color: colors.ink3 },
   banner: { fontSize: 13, color: colors.danger, marginBottom: 12 },
+  notice: {
+    borderWidth: 1,
+    borderColor: colors.signal,
+    padding: 12,
+    gap: 8,
+    marginBottom: 12,
+    alignItems: 'flex-start',
+  },
+  noticeText: { fontSize: 13, color: colors.ink2, lineHeight: 19 },
+  dismiss: { fontFamily: mono, fontSize: 12, color: colors.signal, textDecorationLine: 'underline' },
   checkout: { backgroundColor: colors.signal, paddingVertical: 14, alignItems: 'center', marginTop: 8 },
 });
