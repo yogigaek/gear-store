@@ -1,20 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  cartLineInputSchema,
   cartSchema,
-  guestCartSchema,
   MAX_CART_LINES,
   MAX_LINE_QUANTITY,
   type Cart,
   type CartLineInput,
-  type GuestCart,
 } from '@gear-store/shared';
 import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
 import { useSyncExternalStore } from 'react';
-import { z } from 'zod';
 import { api, ApiError } from './api';
 import { authedApi, currentUserId, useAuth } from './auth';
+import { parseStored, subtract, type PendingMerge } from './cart-store';
 
 // Signed out, the cart is only which parts, in which finish, and how many, kept on this phone; prices, stock and
 // the total always come from the API (POST /cart/quote), as on the web. Signed in, the cart is the account's,
@@ -26,31 +23,6 @@ import { authedApi, currentUserId, useAuth } from './auth';
 // the one before (two quick taps add two, not one).
 const STORE_KEY = 'rakit:mobile-cart:v1';
 
-export interface PendingMerge {
-  key: string;
-  cart: GuestCart;
-}
-// line by line: one line a later release no longer accepts drops alone, not the whole cart
-const storedSchema = z.object({
-  items: z
-    .array(z.unknown())
-    .catch([])
-    .transform((lines) =>
-      lines
-        .flatMap((l) => {
-          // a quantity above today's limit (from a release that allowed more) is capped rather than dropped
-          const capped =
-            typeof l === 'object' && l !== null && 'quantity' in l && typeof l.quantity === 'number'
-              ? { ...l, quantity: Math.min(l.quantity, MAX_LINE_QUANTITY) }
-              : l;
-          const line = cartLineInputSchema.safeParse(capped);
-          return line.success ? [line.data] : [];
-        })
-        .slice(0, MAX_CART_LINES),
-    ),
-  pending: z.object({ key: z.uuid(), cart: guestCartSchema }).nullable().catch(null),
-});
-
 export const accountCartKey = (userId: string) => ['me', userId, 'cart'] as const;
 
 const listeners = new Set<() => void>();
@@ -61,14 +33,8 @@ let persistable = false;
 
 const loaded = AsyncStorage.getItem(STORE_KEY)
   .then((raw) => {
-    let value: unknown = {};
-    try {
-      value = raw === null ? {} : JSON.parse(raw);
-    } catch {
-      // an unreadable record holds nothing to keep: start empty and write over it
-    }
-    const parsed = storedSchema.safeParse(value);
-    if (parsed.success) ({ items, pending } = parsed.data);
+    // an unreadable record holds nothing to keep: start empty and write over it
+    ({ items, pending } = parseStored(raw));
     persistable = true;
   })
   .catch(() => undefined)
@@ -96,16 +62,7 @@ async function save(next: { items: CartLineInput[]; pending: PendingMerge | null
 
 const sameLine = (l: { slug: string; colorKey: string }, slug: string, colorKey: string) =>
   l.slug === slug && l.colorKey === colorKey;
-const lineKey = (l: { slug: string; colorKey: string }) => `${l.slug}\u0000${l.colorKey}`;
 const clamp = (quantity: number) => Math.max(0, Math.min(quantity, MAX_LINE_QUANTITY));
-
-/** what is left of the phone's cart once `merged` has gone to the account: quantities taken off, part by part */
-export function subtract(cart: CartLineInput[], merged: CartLineInput[]): CartLineInput[] {
-  const gone = new Map(merged.map((l) => [lineKey(l), l.quantity]));
-  return cart
-    .map((l) => ({ ...l, quantity: l.quantity - (gone.get(lineKey(l)) ?? 0) }))
-    .filter((l) => l.quantity > 0);
-}
 
 function setGuestLine(slug: string, colorKey: string, quantity: number) {
   const rest = items.filter((l) => !sameLine(l, slug, colorKey));
