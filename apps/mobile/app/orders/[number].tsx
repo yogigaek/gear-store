@@ -139,6 +139,8 @@ export default function OrderScreen() {
     }
     // once the screen has slid in: iOS will not present the browser over a screen still in its transition
     const timer = setTimeout(() => {
+      // Pay tapped by hand in the meantime: that tap already opened it
+      if (!autoPay.current) return;
       autoPay.current = false;
       void pay();
     }, 450);
