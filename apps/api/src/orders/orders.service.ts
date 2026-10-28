@@ -17,7 +17,7 @@ import { OrderStatus, Prisma } from '../generated/prisma/client.js';
 import { AddressesService } from '../addresses/addresses.service.js';
 import { carriesColour, checkBuild } from '../build/build-rules.js';
 import { BUILD_NAME, BuildService } from '../build/build.service.js';
-import { CartService } from '../cart/cart.service.js';
+import { CartService, lockCart } from '../cart/cart.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { newOrderNumber } from './order-number.js';
 
@@ -71,9 +71,8 @@ export class OrdersService {
     try {
       const placed = await this.prisma.$transaction(
         async (tx) => {
-          // one checkout per account at a time: two with different keys must not both read the same cart. NO KEY UPDATE
-          // leaves the row's key free, so inserts that reference the account (a cart line, a sign-in) never deadlock on it
-          await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR NO KEY UPDATE`;
+          // one checkout per account at a time, and no cart change between reading the cart and emptying it
+          await lockCart(tx, userId);
           const placedMeanwhile = await tx.order.findUnique({
             where: { userId_idempotencyKey: { userId, idempotencyKey: input.idempotencyKey } },
             select: { id: true },

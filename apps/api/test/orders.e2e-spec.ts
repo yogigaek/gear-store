@@ -32,28 +32,25 @@ describe('Addresses and orders (e2e)', () => {
 
   function as(token: string) {
     const server = () => app.getHttpServer();
-    const auth = { Authorization: `Bearer ${token}` };
+    // each request from its own address, so a test making many stays clear of the per-client rate limit
+    const auth = () => ({ Authorization: `Bearer ${token}`, 'X-Forwarded-For': nextIp() });
     return {
       addAddress: (body: object = ADDRESS) =>
-        request(server()).post('/api/me/addresses').set(auth).send(body),
-      addresses: () => request(server()).get('/api/me/addresses').set(auth),
-      deleteAddress: (id: string) => request(server()).delete(`/api/me/addresses/${id}`).set(auth),
+        request(server()).post('/api/me/addresses').set(auth()).send(body),
+      addresses: () => request(server()).get('/api/me/addresses').set(auth()),
+      deleteAddress: (id: string) => request(server()).delete(`/api/me/addresses/${id}`).set(auth()),
       cartSet: (slug: string, quantity: number, colorKey = '') =>
-        request(server()).put('/api/me/cart/items').set(auth).send({ slug, quantity, colorKey }),
+        request(server()).put('/api/me/cart/items').set(auth()).send({ slug, quantity, colorKey }),
       addBike: (parts: Record<string, string>, colorKey = 'signal', quantity = 1) =>
-        request(server()).post('/api/me/cart/builds').set(auth).send({ parts, colorKey, quantity }),
+        request(server()).post('/api/me/cart/builds').set(auth()).send({ parts, colorKey, quantity }),
       checkout: (addressId: string, idempotencyKey = randomUUID()) =>
-        request(server())
-          .post('/api/me/orders')
-          .set(auth)
-          .set('X-Forwarded-For', nextIp())
-          .send({ addressId, idempotencyKey }),
-      orders: () => request(server()).get('/api/me/orders').set(auth),
-      cart: () => request(server()).get('/api/me/cart').set(auth),
-      order: (n: string) => request(server()).get(`/api/me/orders/${n}`).set(auth),
-      cancel: (n: string) => request(server()).post(`/api/me/orders/${n}/cancel`).set(auth),
+        request(server()).post('/api/me/orders').set(auth()).send({ addressId, idempotencyKey }),
+      orders: () => request(server()).get('/api/me/orders').set(auth()),
+      cart: () => request(server()).get('/api/me/cart').set(auth()),
+      order: (n: string) => request(server()).get(`/api/me/orders/${n}`).set(auth()),
+      cancel: (n: string) => request(server()).post(`/api/me/orders/${n}/cancel`).set(auth()),
       merge: (items: object[]) =>
-        request(server()).post('/api/me/cart/merge').set(auth).send({ items, builds: [] }),
+        request(server()).post('/api/me/cart/merge').set(auth()).send({ items, builds: [] }),
     };
   }
 
@@ -207,9 +204,9 @@ describe('Addresses and orders (e2e)', () => {
       await me.cancel(numbers[0]).expect(200);
     });
 
-    it('never deadlocks a checkout against a cart merge on the same account', async () => {
+    it('runs a checkout and a cart merge on one account one after the other: no deadlock, nothing lost', async () => {
       const { me, address } = await customerWithAddress();
-      for (let round = 0; round < 10; round += 1) {
+      for (let round = 0; round < 40; round += 1) {
         await me.cartSet('workshop-hex-set', 1).expect(200);
         // the merge updates a line the cart holds and inserts a new one while the checkout holds the account
         const [placed, merged] = await Promise.all([
@@ -220,7 +217,14 @@ describe('Addresses and orders (e2e)', () => {
           ]),
         ]);
         expect([placed.status, merged.status], JSON.stringify(placed.body)).toEqual([201, 200]);
-        await me.cancel(placed.body.number).expect(200);
+        // whichever ran first, every unit sent is either in the order or still in the cart
+        const order = orderDetailSchema.parse(placed.body);
+        const cart = cartSchema.parse((await me.cart().expect(200)).body);
+        const held = (slug: string) =>
+          (order.items.find((i) => i.slug === slug)?.quantity ?? 0) +
+          (cart.items.find((i) => i.product.slug === slug)?.quantity ?? 0);
+        expect([held('workshop-hex-set'), held('lights-front-rear')]).toEqual([2, 1]);
+        await me.cancel(order.number).expect(200);
         await me.cartSet('workshop-hex-set', 0).expect(200);
         await me.cartSet('lights-front-rear', 0).expect(200);
       }

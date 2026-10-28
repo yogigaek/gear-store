@@ -19,6 +19,15 @@ import { BuildService, toQuote } from '../build/build.service.js';
 import { summarySelect, toSummary } from '../catalog/catalog.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
+/**
+ * Every change to an account's cart, and checkout, first locks the account's row, so they run one after another: a
+ * checkout never empties lines written after it read the cart. NO KEY UPDATE leaves the row's key free, so inserts
+ * that only reference the account (a sign-in, an address) never wait on it.
+ */
+export async function lockCart(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+  await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR NO KEY UPDATE`;
+}
+
 const productSelect = {
   ...summarySelect,
   id: true,
@@ -92,19 +101,22 @@ export class CartService {
     const colorKey = this.finish(product, input.colorKey);
     const key = { userId_productId_colorKey: { userId, productId: product.id, colorKey } };
 
-    if (input.quantity === 0) {
-      await this.prisma.cartItem.deleteMany({ where: key.userId_productId_colorKey });
-    } else {
-      const exists = await this.prisma.cartItem.findUnique({ where: key, select: { id: true } });
-      if (!exists && (await this.countLines(this.prisma, userId)) >= MAX_CART_LINES) {
+    await this.prisma.$transaction(async (tx) => {
+      await lockCart(tx, userId);
+      if (input.quantity === 0) {
+        await tx.cartItem.deleteMany({ where: key.userId_productId_colorKey });
+        return;
+      }
+      const exists = await tx.cartItem.findUnique({ where: key, select: { id: true } });
+      if (!exists && (await this.countLines(tx, userId)) >= MAX_CART_LINES) {
         throw new ConflictException(`A cart holds up to ${MAX_CART_LINES} different parts`);
       }
-      await this.prisma.cartItem.upsert({
+      await tx.cartItem.upsert({
         where: key,
         create: { userId, productId: product.id, colorKey, quantity: input.quantity },
         update: { quantity: input.quantity },
       });
-    }
+    });
     return this.get(userId);
   }
 
@@ -114,17 +126,22 @@ export class CartService {
    */
   async addBuild(userId: string, input: CartBuildInput): Promise<Cart> {
     const book = await this.builds.book();
-    await this.prisma.$transaction((tx) => this.putBuild(tx, userId, input, book, 'refuse'));
+    await this.prisma.$transaction(async (tx) => {
+      await lockCart(tx, userId);
+      await this.putBuild(tx, userId, input, book, 'refuse');
+    });
     return this.get(userId);
   }
 
   /** Sets a bike in the cart to an exact quantity; 0 removes it. */
   async setBuildQuantity(userId: string, id: string, quantity: number): Promise<Cart> {
     const where = { id, userId };
-    const { count } =
-      quantity === 0
-        ? await this.prisma.cartBuild.deleteMany({ where })
-        : await this.prisma.cartBuild.updateMany({ where, data: { quantity } });
+    const { count } = await this.prisma.$transaction(async (tx) => {
+      await lockCart(tx, userId);
+      return quantity === 0
+        ? tx.cartBuild.deleteMany({ where })
+        : tx.cartBuild.updateMany({ where, data: { quantity } });
+    });
     if (!count) throw new NotFoundException('That bike is not in your cart');
     return this.get(userId);
   }
@@ -146,6 +163,7 @@ export class CartService {
       this.builds.bookFor(guest.builds.length),
     ]);
     const notMerged = await this.prisma.$transaction(async (tx) => {
+      await lockCart(tx, userId);
       if (guest.mergeKey) {
         const first = await tx.cartMerge.createMany({
           data: [{ userId, key: guest.mergeKey }],

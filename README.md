@@ -195,7 +195,7 @@ zod contracts from `packages/shared` as the web.
   Prices and stock always come from the API.
 - 🔑 **Sign-in** — `/auth/native/*`; the refresh token lives in the phone's secure storage (Keychain / Keystore).
   Reads and writes of it run one at a time and refreshes of a session share one request, so a token goes out a
-  second time only after a refresh reply was lost (the API's two-minute grace answers it). A reply that arrives
+  second time only after a refresh did not complete (the API's two-minute grace answers it if the server had used it). A reply that arrives
   after a sign-out or another sign-in is revoked rather than kept.
 - 💳 **Checkout and orders** — saved addresses with their shipping fee, an idempotency key kept until the order
   comes back (leaving and re-entering checkout resends it), Midtrans sandbox payment in an in-app browser, and the
