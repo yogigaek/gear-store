@@ -117,7 +117,7 @@ export default function ProductScreen() {
             <Text style={styles.price}>{formatRupiah(p.price)}</Text>
             <StockNote stock={p.stock} />
           </View>
-          <SpecPlate specs={p.plate} />
+          <SpecPlate specs={p.plate} kind="page" />
         </View>
 
         {p.colors.length > 0 && (

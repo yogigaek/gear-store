@@ -47,6 +47,12 @@ describe('plateFitsColumns', () => {
     expect(plateFitsColumns(frame, cardPlate(320), 1)).toBe(false);
   });
 
+  it('counts the labels too: a long label alone can turn a plate into rows', () => {
+    const labelled = [spec('Adjustments', '2'), spec('Travel', '150'), spec('Lockout', 'Yes')];
+    expect(plateFitsColumns(labelled, cardPlate(320), 1)).toBe(false);
+    expect(plateFitsColumns(labelled, pagePlate(430), 1)).toBe(true);
+  });
+
   it('counts the text size the phone is set to', () => {
     expect(plateFitsColumns(frame, pagePlate(390), 1)).toBe(true);
     expect(plateFitsColumns(frame, pagePlate(390), 1.5)).toBe(false);

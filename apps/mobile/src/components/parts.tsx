@@ -98,23 +98,32 @@ export function StockNote({ stock }: { stock: number }) {
   );
 }
 
-// the last plate width measured: the cards of a list share one, so each new card starts in the right layout
-let lastPlateWidth = 0;
+// the last width measured per kind of plate, so each new card of a list starts in the right layout
+const lastPlateWidth = { card: 0, page: 0 };
 
 /**
  * The three numbers that define a product, set like a label stamped on the device: side by side when every word
  * fits its column, else one row each (plateFitsColumns), so no word ever breaks in the middle.
  */
-export function SpecPlate({ specs, style }: { specs: readonly Spec[]; style?: StyleProp<ViewStyle> }) {
+export function SpecPlate({
+  specs,
+  kind = 'card',
+  style,
+}: {
+  specs: readonly Spec[];
+  /** a product card's plate or the product page's, which is wider */
+  kind?: 'card' | 'page';
+  style?: StyleProp<ViewStyle>;
+}) {
   const { fontScale } = useWindowDimensions();
-  const [width, setWidth] = useState(lastPlateWidth);
+  const [width, setWidth] = useState(lastPlateWidth[kind]);
   const columns = width === 0 || plateFitsColumns(specs, width, fontScale);
   return (
     <View
       style={[styles.plate, !columns && styles.plateRows, style]}
       onLayout={(e) => {
-        lastPlateWidth = e.nativeEvent.layout.width;
-        setWidth(lastPlateWidth);
+        lastPlateWidth[kind] = e.nativeEvent.layout.width;
+        setWidth(lastPlateWidth[kind]);
       }}
     >
       {specs.map((spec, i) => (
