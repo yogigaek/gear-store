@@ -1,4 +1,4 @@
-import { MAX_ADDRESSES, type Address } from '@gear-store/shared';
+import { MAX_ADDRESSES, MAX_CART_LINES, MAX_LINE_QUANTITY, type Address } from '@gear-store/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
 import { Link, router, Stack, useFocusEffect, useNavigation, usePreventRemove } from 'expo-router';
@@ -6,7 +6,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ApiError } from '../src/lib/api';
 import { useAuth } from '../src/lib/auth';
-import { accountCartKey, useCart, usePhoneLinesWaiting } from '../src/lib/cart';
+import { accountCartKey, mergeInto, useCart, useMergeNotice, usePhoneLines } from '../src/lib/cart';
 import { checkoutKey, closeCheckout, hasOpenCheckout } from '../src/lib/checkout-key';
 import { count, formatRupiah } from '../src/lib/format';
 import { orders, showOrder, useAddresses } from '../src/lib/orders';
@@ -15,8 +15,9 @@ import { colors, mono } from '../src/theme';
 export default function CheckoutScreen() {
   const state = useAuth();
   const cart = useCart();
-  // just signed in from "Buy now": the phone's lines are still joining the account's cart
-  const joining = usePhoneLinesWaiting();
+  // just signed in (from "Buy now", say): the parts put in the cart on this phone are joining the account's
+  const phone = usePhoneLines();
+  const notMerged = useMergeNotice(state.status === 'signed-in' ? state.user.id : null);
   const addresses = useAddresses();
   const queryClient = useQueryClient();
   const navigation = useNavigation();
@@ -111,7 +112,9 @@ export default function CheckoutScreen() {
 
   const empty = priced.items.length + priced.builds.length === 0;
   // after an unclear failure the cart may already have become the order: the same key then simply returns it
-  const canPlace = ((!empty && priced.canCheckout) || maybePlaced) && !!address && !busy;
+  // an order placed while the phone's parts are still on their way would leave them out
+  const canPlace =
+    ((!empty && priced.canCheckout) || maybePlaced) && !!address && !busy && phone !== 'joining';
 
   return (
     <ScrollView contentContainerStyle={styles.page}>
@@ -159,12 +162,30 @@ export default function CheckoutScreen() {
         <Row label="Total" value={formatRupiah(priced.subtotal + (address?.shippingFee ?? 0))} strong />
       </View>
 
-      {joining && (
+      {phone === 'joining' && (
         <Text style={styles.note} accessibilityLiveRegion="polite">
           Bringing the parts from this phone into your cart…
         </Text>
       )}
-      {empty && !maybePlaced && !joining && <Text style={styles.problem}>Your cart is empty.</Text>}
+      {phone === 'failed' && (
+        <View style={styles.joinFailed} accessibilityLiveRegion="polite">
+          <Text style={styles.problem}>The parts added on this phone have not reached your cart yet.</Text>
+          <Pressable
+            onPress={() => void mergeInto(queryClient, userId).catch(() => undefined)}
+            hitSlop={8}
+            accessibilityRole="button"
+          >
+            <Text style={styles.retry}>Try again</Text>
+          </Pressable>
+        </View>
+      )}
+      {notMerged > 0 && (
+        <Text style={styles.note}>
+          {count(notMerged, 'part')} from this phone did not fit in your cart: a cart holds up to{' '}
+          {MAX_CART_LINES} different parts, {MAX_LINE_QUANTITY} of each.
+        </Text>
+      )}
+      {empty && !maybePlaced && phone === 'none' && <Text style={styles.problem}>Your cart is empty.</Text>}
       {maybePlaced && (
         <Text style={styles.note}>
           The order may have gone through. Placing it again opens that order instead of making a second one.
@@ -265,6 +286,8 @@ const styles = StyleSheet.create({
   strong: { fontSize: 17, fontWeight: '700', color: colors.ink },
   problem: { fontSize: 14, color: colors.danger },
   note: { fontSize: 13, color: colors.ink3, lineHeight: 19 },
+  joinFailed: { gap: 6 },
+  retry: { fontSize: 14, fontWeight: '600', color: colors.ink, textDecorationLine: 'underline' },
   primary: {
     backgroundColor: colors.signal,
     paddingVertical: 14,

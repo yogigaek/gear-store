@@ -1,7 +1,7 @@
 import { MAX_CART_LINES, MAX_LINE_QUANTITY, productDetailSchema } from '@gear-store/shared';
 import { useQuery } from '@tanstack/react-query';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PartImage, SpecPlate, StockNote } from '../../src/components/parts';
 import { api, ApiError, retryTransient } from '../../src/lib/api';
@@ -18,10 +18,12 @@ export default function ProductScreen() {
     retry: retryTransient,
   });
   const [colorKey, setColorKey] = useState<string>();
-  const [added, setAdded] = useState<string>();
+  const [added, setAdded] = useState<{ text: string; ok: boolean }>();
   // taps stay live while one is on its way: each one queues and adds, so the label only says work is under way
   const [adding, setAdding] = useState(0);
   const [buying, setBuying] = useState(false);
+  // a second tap before the first re-render would add twice and open checkout twice
+  const buyingNow = useRef(false);
   const { add } = useCartActions();
   const signedIn = useAuth().status === 'signed-in';
 
@@ -54,19 +56,22 @@ export default function ProductScreen() {
   const color = p.colors.find((c) => c.key === colorKey) ?? p.colors[0];
   const soldOut = p.stock === 0;
 
-  const said = (result: AddResult) =>
-    result === 'added'
-      ? `Added${color ? ` in ${color.label}` : ''}. Open the cart from the top right.`
-      : result === 'line-full'
-        ? `Your cart already holds ${MAX_LINE_QUANTITY} of this part, the most per order.`
-        : `A cart holds up to ${MAX_CART_LINES} different parts.`;
+  const said = (result: AddResult) => ({
+    ok: result === 'added',
+    text:
+      result === 'added'
+        ? `Added${color ? ` in ${color.label}` : ''}. Open the cart from the top right.`
+        : result === 'line-full'
+          ? `Your cart already holds ${MAX_LINE_QUANTITY} of this part, the most per order.`
+          : `A cart holds up to ${MAX_CART_LINES} different parts.`,
+  });
 
   const addToCart = async () => {
     setAdding((n) => n + 1);
     try {
       setAdded(said(await add(p.slug, color?.key ?? '', 1)));
     } catch (error) {
-      setAdded(error instanceof Error ? error.message : 'Could not add it. Try again.');
+      setAdded({ ok: false, text: error instanceof Error ? error.message : 'Could not add it. Try again.' });
     } finally {
       setAdding((n) => n - 1);
     }
@@ -74,6 +79,8 @@ export default function ProductScreen() {
 
   // one part into the cart, then straight to checkout (through sign-in for a guest, whose cart joins the account)
   const buyNow = async () => {
+    if (buyingNow.current) return;
+    buyingNow.current = true;
     setBuying(true);
     try {
       const result = await add(p.slug, color?.key ?? '', 1);
@@ -83,8 +90,9 @@ export default function ProductScreen() {
       if (signedIn) router.push('/checkout');
       else router.push({ pathname: '/account', params: { next: 'checkout' } });
     } catch (error) {
-      setAdded(error instanceof Error ? error.message : 'Could not add it. Try again.');
+      setAdded({ ok: false, text: error instanceof Error ? error.message : 'Could not add it. Try again.' });
     } finally {
+      buyingNow.current = false;
       setBuying(false);
     }
   };
@@ -131,8 +139,8 @@ export default function ProductScreen() {
           </Pressable>
         )}
         {added && (
-          <Text style={styles.added} accessibilityLiveRegion="polite">
-            {added}
+          <Text style={added.ok ? styles.added : styles.addFailed} accessibilityLiveRegion="polite">
+            {added.text}
           </Text>
         )}
       </View>
@@ -207,6 +215,7 @@ const styles = StyleSheet.create({
   buyBusy: { opacity: 0.5 },
   buyText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
   added: { fontSize: 13, color: colors.ok },
+  addFailed: { fontSize: 13, color: colors.danger },
   label: {
     fontFamily: mono,
     fontSize: 12,

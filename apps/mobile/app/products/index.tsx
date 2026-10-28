@@ -49,10 +49,14 @@ function useProducts(category: string | undefined, q: string) {
   });
 }
 
+/** a route param given twice (`?category=a&category=b`) arrives as a list: the first one counts */
+const firstParam = (value: string | string[] | undefined) =>
+  (Array.isArray(value) ? value[0] : value) || undefined;
+
 export default function ProductsScreen() {
   // the home screen opens a part type straight away; the chips change it from here
-  const params = useLocalSearchParams<{ category?: string }>();
-  const [category, setCategory] = useState(params.category || undefined);
+  const params = useLocalSearchParams<{ category?: string | string[] }>();
+  const [category, setCategory] = useState(firstParam(params.category));
   const [typed, setTyped] = useState('');
   const settled = useSettled(typed.trim());
   // clearing the box applies at once, so a reset does not first search the old term without its category

@@ -99,7 +99,12 @@ export default function CartScreen() {
               : 'Fix the lines marked above before checking out.'}
           </Text>
           {priced.canCheckout && (
-            <Link href={cart.mode === 'account' ? '/checkout' : '/account'} asChild>
+            <Link
+              href={
+                cart.mode === 'account' ? '/checkout' : { pathname: '/account', params: { next: 'checkout' } }
+              }
+              asChild
+            >
               <Pressable style={styles.checkout} accessibilityRole="link">
                 <Text style={styles.primaryText}>
                   {cart.mode === 'account' ? 'Check out' : 'Sign in to check out'}

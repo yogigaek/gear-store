@@ -32,6 +32,8 @@ export default function HomeScreen() {
         source={require('../../web/src/assets/e1-poster-wide.jpg')}
         style={styles.poster}
         resizeMode="cover"
+        accessible
+        accessibilityRole="image"
         accessibilityLabel="The Rakit E-1, a yellow full-suspension e-bike"
       />
       <View style={styles.hero}>
@@ -59,6 +61,14 @@ export default function HomeScreen() {
       <View style={styles.section}>
         <Text style={styles.label}>Shop by part</Text>
         {categories.isPending && <ActivityIndicator color={colors.signal} style={styles.spinner} />}
+        {categories.isError && !categories.data && (
+          <View style={styles.failed}>
+            <Text style={styles.note}>{categories.error.message}</Text>
+            <Pressable onPress={() => void categories.refetch()} hitSlop={8} accessibilityRole="button">
+              <Text style={styles.retry}>Try again</Text>
+            </Pressable>
+          </View>
+        )}
         <View style={styles.types}>
           {categories.data
             ?.filter((c) => c.productCount > 0)
@@ -143,12 +153,13 @@ const styles = StyleSheet.create({
   types: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   type: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     gap: 8,
     borderWidth: 1,
     borderColor: colors.benchStrong,
     paddingHorizontal: 12,
     paddingVertical: 11,
+    minHeight: 44,
   },
   typeName: { fontSize: 14, fontWeight: '600', color: colors.ink },
   typeCount: { fontFamily: mono, fontSize: 12, color: colors.ink3 },
@@ -156,4 +167,6 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 17, fontWeight: '700', color: colors.ink },
   note: { fontSize: 13, color: colors.ink3, lineHeight: 19 },
   error: { color: colors.danger, fontSize: 14 },
+  failed: { gap: 6 },
+  retry: { fontSize: 14, fontWeight: '600', color: colors.ink, textDecorationLine: 'underline' },
 });

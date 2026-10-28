@@ -36,6 +36,12 @@ let persistable = false;
 let notice: { userId: string; count: number } | null = null;
 
 const notify = () => listeners.forEach((l) => l());
+// the last merge's outcome, so checkout can say when the phone's lines did not make it into the account
+let merge: 'idle' | 'running' | 'failed' = 'idle';
+const setMerge = (next: typeof merge) => {
+  merge = next;
+  notify();
+};
 
 const loaded = AsyncStorage.getItem(STORE_KEY)
   .then((raw) => {
@@ -229,6 +235,17 @@ async function alignWithQuote(lines: CartLineInput[], cart: Cart) {
  * everything for the next try (sign-in, launch, or the app coming back to the foreground).
  */
 export function mergeInto(queryClient: QueryClient, userId: string): Promise<void> {
+  setMerge('running');
+  return mergeAll(queryClient, userId).then(
+    () => setMerge('idle'),
+    (error: unknown) => {
+      setMerge('failed');
+      throw error;
+    },
+  );
+}
+
+function mergeAll(queryClient: QueryClient, userId: string): Promise<void> {
   return forAccount(userId, async () => {
     for (;;) {
       let job = pending;
@@ -252,13 +269,11 @@ export function mergeInto(queryClient: QueryClient, userId: string): Promise<voi
         throw error;
       }
       const { notMerged, ...cart } = reply;
-      await save({ items: subtract(items, job.cart.items), pending: null });
       const left = notMerged.reduce((sum, l) => sum + l.quantity, 0);
-      if (left > 0) {
-        notice = { userId, count: left };
-        notify();
-      }
+      if (left > 0) notice = { userId, count: left };
+      // the merged cart is on screen before the phone's lines go, so checkout never shows it empty in between
       await showAccountCart(queryClient, userId, cart);
+      await save({ items: subtract(items, job.cart.items), pending: null });
       if (currentUserId() !== userId) return;
     }
   });
@@ -274,9 +289,14 @@ export function useGuestItems(): CartLineInput[] {
   return useSyncExternalStore(subscribe, () => items);
 }
 
-/** true while this phone still holds lines (or a merge) on their way into the signed-in account's cart */
-export function usePhoneLinesWaiting(): boolean {
-  return useSyncExternalStore(subscribe, () => items.length > 0 || pending !== null);
+/** the phone's own lines, seen from a signed-in account: none left, on their way in, or stuck after a failed merge */
+export function phoneLines(): 'none' | 'joining' | 'failed' {
+  if (!items.length && !pending) return 'none';
+  return merge === 'failed' ? 'failed' : 'joining';
+}
+
+export function usePhoneLines(): 'none' | 'joining' | 'failed' {
+  return useSyncExternalStore(subscribe, phoneLines);
 }
 
 /** how many parts the last merge into `userId`'s cart could not fit, 0 for none */

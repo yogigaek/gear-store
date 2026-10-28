@@ -11,7 +11,7 @@ export function AdminOnWeb() {
       accessibilityRole="link"
       accessibilityHint="Opens the Rakit website"
     >
-      <Text style={styles.text}>Admin dashboard on the web: try it with "Try as admin" →</Text>
+      <Text style={styles.text}>Admin dashboard on the web: sign in with the demo "Admin" (read-only)</Text>
     </Pressable>
   );
 }

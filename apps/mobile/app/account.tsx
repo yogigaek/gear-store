@@ -38,7 +38,7 @@ export default function AccountScreen() {
 
   const { user } = state;
   return (
-    <View style={styles.page}>
+    <ScrollView contentContainerStyle={styles.page}>
       <Text style={styles.label}>Signed in as</Text>
       <Text style={styles.name}>{user.name}</Text>
       <Text style={styles.email}>{user.email}</Text>
@@ -56,7 +56,7 @@ export default function AccountScreen() {
         <Text style={styles.secondaryText}>Sign out</Text>
       </Pressable>
       <AdminOnWeb />
-    </View>
+    </ScrollView>
   );
 }
 

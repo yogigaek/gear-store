@@ -83,6 +83,42 @@ describe('mergeInto', () => {
     expect(stored()).toEqual({ items: [line('folding-lock', 2)], pending: null });
   });
 
+  it("tells checkout where the phone's parts are: on their way, stuck after a failure, then none", async () => {
+    onPhone([line('folding-lock', 2)]);
+    const m = await launch();
+    await signIn(m, 'a');
+    expect(m.phoneLines()).toBe('joining');
+
+    server.gate('/me/cart/merge', { reply: { status: 503, body: {} } });
+    await expect(m.mergeInto(m.queryClient, USERS.a.id)).rejects.toMatchObject({ status: 503 });
+    expect(m.phoneLines()).toBe('failed');
+
+    server.gate('/me/cart/merge', { reply: { status: 400, body: { message: 'Bad cart' } } });
+    await expect(m.mergeInto(m.queryClient, USERS.a.id)).rejects.toMatchObject({ status: 400 });
+    expect(m.phoneLines()).toBe('failed');
+
+    const hold = deferred();
+    server.gate('/me/cart/merge', { wait: hold.wait });
+    const retry = m.mergeInto(m.queryClient, USERS.a.id);
+    expect(m.phoneLines()).toBe('joining');
+    hold.resolve();
+    await retry;
+    expect(m.phoneLines()).toBe('none');
+  });
+
+  it('shows the merged cart before the phone lets go of its lines, so checkout is never empty between', async () => {
+    onPhone([line('folding-lock', 2)]);
+    const m = await launch();
+    await signIn(m, 'a');
+    let shownWhenDropped: unknown = 'not dropped';
+    fakes.beforeStorageWrite = () => {
+      if (stored()?.items.length && server.calls('/me/cart/merge').length > 0)
+        shownWhenDropped = m.queryClient.getQueryData(m.accountCartKey(USERS.a.id));
+    };
+    await m.mergeInto(m.queryClient, USERS.a.id);
+    expect(shownWhenDropped).toMatchObject({ itemCount: 2 });
+  });
+
   it('keeps the attempt, key and all, after any other failure, and sends it again next time', async () => {
     onPhone([line('folding-lock', 2)]);
     const m = await launch();
