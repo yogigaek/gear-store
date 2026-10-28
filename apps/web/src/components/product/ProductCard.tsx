@@ -9,8 +9,9 @@ import { SaveButton } from './SaveButton';
 
 // phones: the still and the name side by side, the spec plate and price across the card below them, so the
 // plate keeps the card's full width. Below 360 px the card stacks.
-const card =
-  'group relative flex flex-col border border-bench bg-alu-50 transition-colors hover:border-ink min-[360px]:grid min-[360px]:grid-cols-[7rem_minmax(0,1fr)] sm:flex sm:flex-col';
+const cardBox =
+  'flex flex-col border border-bench bg-alu-50 min-[360px]:grid min-[360px]:grid-cols-[7rem_minmax(0,1fr)] sm:flex sm:flex-col';
+const card = `group relative transition-colors hover:border-ink ${cardBox}`;
 const artFrame =
   'h-28 overflow-hidden border-b border-bench min-[360px]:aspect-square min-[360px]:h-auto min-[360px]:border-r sm:aspect-[4/3] sm:border-r-0';
 
@@ -33,7 +34,8 @@ export function ProductCard({ product }: { product: ProductSummary }) {
           {/* the whole card is the link target; the heading carries the accessible name */}
           <Link
             to={`/products/${product.slug}`}
-            className="after:absolute after:inset-0 focus-visible:outline-none"
+            // the focus ring goes round the whole card, on the overlay that makes it one link
+            className="after:absolute after:inset-0 focus-visible:outline-none focus-visible:after:outline-3 focus-visible:after:outline-offset-2 focus-visible:after:outline-signal"
           >
             {product.name}
           </Link>
@@ -53,16 +55,15 @@ export function ProductCard({ product }: { product: ProductSummary }) {
 
 export function ProductCardSkeleton() {
   return (
-    <div
-      aria-hidden="true"
-      className="grid grid-cols-[6.5rem_minmax(0,1fr)] border border-bench bg-alu-50 sm:flex sm:flex-col"
-    >
-      <div className="bg-grid border-r border-bench sm:aspect-[4/3] sm:border-b sm:border-r-0" />
-      <div className="flex flex-col gap-3 p-3 sm:p-4">
+    <div aria-hidden="true" className={cardBox}>
+      <div className={`bg-grid ${artFrame}`} />
+      <div className="flex min-w-0 flex-col gap-2 p-3 min-[360px]:justify-center min-[360px]:border-b min-[360px]:border-bench sm:gap-3 sm:border-b-0 sm:p-4 sm:pb-0">
         <div className="h-3 w-1/3 bg-bench/60" />
         <div className="h-4 w-3/4 bg-bench/60" />
-        <div className="h-10 border border-bench" />
-        <div className="h-4 w-1/2 bg-bench/60" />
+      </div>
+      <div className="flex flex-1 flex-col gap-3 p-3 pt-0 min-[360px]:col-span-2 min-[360px]:pt-3 sm:p-4 sm:pt-3">
+        <div className="h-12 border border-bench" />
+        <div className="h-5 w-1/3 bg-bench/60" />
       </div>
     </div>
   );

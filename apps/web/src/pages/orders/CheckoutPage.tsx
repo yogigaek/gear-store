@@ -9,7 +9,9 @@ import { PartImage } from '../../components/product/PartImage';
 import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { Price } from '../../components/ui/Price';
+import { SlowServerNote } from '../../components/ui/SlowServerNote';
 import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
 import { parseBuyLine } from '../../lib/buy-now';
@@ -27,6 +29,7 @@ export function CheckoutPage() {
   if (buying && !parseBuyLine(params)) {
     return (
       <div className="mx-auto max-w-7xl space-y-3 px-4 py-16 sm:px-6">
+        <PageTitle>Buy now</PageTitle>
         <h1 className="font-expanded text-3xl font-extrabold uppercase">Buy now</h1>
         <p className="text-ink-2">This link does not name a part to buy.</p>
         <Link to="/products" className="font-semibold underline underline-offset-4">
@@ -63,18 +66,28 @@ function Checkout({
   const showForm = adding || (addresses.isSuccess && list.length === 0);
   const title = buying ? 'Buy now' : 'Checkout';
 
+  const head = <PageTitle>{title}</PageTitle>;
   if ((buying ? quote.isPending : isLoading) || addresses.isPending) {
     return (
-      <p className="mx-auto max-w-7xl px-4 py-16 font-mono text-sm text-ink-3 sm:px-6">Loading checkout…</p>
+      <div className="mx-auto max-w-7xl space-y-2 px-4 py-16 sm:px-6">
+        {head}
+        <p className="font-mono text-sm text-ink-3">Loading checkout…</p>
+        <SlowServerNote />
+      </div>
     );
   }
   if (buying && !quote.data) {
     return (
       <div className="mx-auto max-w-7xl space-y-3 px-4 py-16 sm:px-6">
+        {head}
         <h1 className="font-expanded text-3xl font-extrabold uppercase">{title}</h1>
         <Notice tone="error">
-          {quote.error?.message ?? 'Something went wrong.'}{' '}
-          <button type="button" className="font-semibold underline" onClick={() => void quote.refetch()}>
+          {quote.error?.message ?? 'Something went wrong on our side.'}{' '}
+          <button
+            type="button"
+            className="min-h-11 font-semibold underline"
+            onClick={() => void quote.refetch()}
+          >
             Try again
           </button>
         </Notice>
@@ -85,6 +98,7 @@ function Checkout({
   if (!priced || priced.items.length + priced.builds.length === 0) {
     return (
       <div className="mx-auto max-w-7xl space-y-3 px-4 py-16 sm:px-6">
+        {head}
         <h1 className="font-expanded text-3xl font-extrabold uppercase">{title}</h1>
         {buying ? (
           <>
@@ -152,6 +166,7 @@ function Checkout({
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      {head}
       <div className="mb-8 space-y-1 border-b border-ink pb-4">
         <Label>Step 1 of 2 · then pay with Midtrans (sandbox)</Label>
         <h1 className="font-expanded text-4xl font-extrabold uppercase">{title}</h1>
@@ -170,7 +185,7 @@ function Checkout({
               {list.map((a) => (
                 <label
                   key={a.id}
-                  className={`flex cursor-pointer gap-3 border bg-alu-50 p-4 ${a.id === address?.id ? 'border-ink' : 'border-bench hover:border-bench-strong'}`}
+                  className={`flex cursor-pointer gap-3 border bg-alu-50 p-4 ${a.id === address?.id ? 'border-ink-2' : 'border-field hover:border-ink-3'}`}
                 >
                   <input
                     type="radio"

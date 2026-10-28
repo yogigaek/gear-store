@@ -53,7 +53,8 @@ export function PartImage({
       alt=""
       loading={eager ? 'eager' : 'lazy'}
       decoding="async"
-      className={`bg-stage object-cover ${className}`}
+      // a hair larger than its frame (which clips it): the stills carry a light 2 px column on their right edge
+      className={`scale-[1.01] bg-stage object-cover ${className}`}
     />
   );
 }

@@ -10,6 +10,7 @@ import { SandboxPaymentGuide } from '../../components/checkout/SandboxPaymentGui
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { Price } from '../../components/ui/Price';
 import { ApiError } from '../../lib/api';
 import { formatDateTime } from '../../lib/date';
@@ -70,7 +71,7 @@ export function OrderPage() {
   }, [returnedFromPayment, order.data?.status, checkStatus]);
 
   if (order.error instanceof ApiError && (order.error.status === 404 || order.error.status === 400))
-    return <NotFoundPage />;
+    return <NotFoundPage title="Order not found" />;
   if (order.isError) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
@@ -90,6 +91,7 @@ export function OrderPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      <PageTitle>{`Order ${o.number}`}</PageTitle>
       <nav aria-label="Breadcrumb" className="mb-6 font-mono text-xs text-ink-3">
         <Link to="/orders" className="hover:text-ink">
           Orders

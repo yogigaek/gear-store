@@ -192,7 +192,9 @@ test('Buy now signs a guest in, orders that one part and leaves the cart as it i
   await expectCart(page, ['Front and rear lights']);
 });
 
-test('Buy now keeps the finish chosen and the cart checkout keeps its own lines', async ({ page }) => {
+test('Buy now keeps the finish and quantity chosen, and the cart checkout keeps its own lines', async ({
+  page,
+}) => {
   const email = await confirmedAccount('buy-now-member', 'Rina Wijaya');
   await signIn(page, email);
   await addToCart(page, 'fender-set', 'Fender set');
@@ -203,13 +205,15 @@ test('Buy now keeps the finish chosen and the cart checkout keeps its own lines'
     .filter({ has: page.getByRole('radio', { name: 'Moss green' }) })
     .click();
   await expect(page.getByRole('radio', { name: 'Moss green' })).toBeChecked();
+  await page.getByRole('button', { name: 'Increase quantity' }).click();
   await page.getByRole('button', { name: 'Buy now' }).click();
-  await expect(page).toHaveURL(/\/checkout\?buy=e1-frame-m&finish=moss&qty=1$/);
+  await expect(page).toHaveURL(/\/checkout\?buy=e1-frame-m&finish=moss&qty=2$/);
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Buy now');
   const summary = page.getByRole('region', { name: 'Order summary' });
   await expect(summary.getByRole('listitem')).toHaveCount(1);
   await expect(summary.getByText('E-1 Frame M')).toBeVisible();
   await expect(summary.getByText('E1-FR-M · Moss green')).toBeVisible();
+  await expect(summary.getByText(/^2 × Rp\s16\.900\.000$/)).toBeVisible();
   await expect(summary.getByText('Fender set')).toHaveCount(0);
 
   await addAddress(page);
@@ -217,7 +221,7 @@ test('Buy now keeps the finish chosen and the cart checkout keeps its own lines'
   const items = page.getByRole('region', { name: 'Items' });
   await expect(items.getByRole('listitem')).toHaveCount(1);
   await expect(items.getByText('E1-FR-M · Moss green')).toBeVisible();
-  await expect(items.getByText(/^1 × Rp\s16\.900\.000$/)).toBeVisible();
+  await expect(items.getByText(/^2 × Rp\s16\.900\.000$/)).toBeVisible();
   await expectCart(page, ['Fender set']);
 
   // the cart's own checkout still holds what the cart holds

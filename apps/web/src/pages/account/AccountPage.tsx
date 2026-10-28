@@ -12,6 +12,7 @@ import { Link, useNavigate } from 'react-router';
 import { Button } from '../../components/ui/Button';
 import { Field, Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
 import { useWishlist } from '../../lib/queries';
@@ -68,6 +69,7 @@ export function AccountPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      <PageTitle>Account</PageTitle>
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-2">
           <Label>

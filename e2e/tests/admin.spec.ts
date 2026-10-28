@@ -83,6 +83,6 @@ test('shoppers cannot open the admin area', async ({ page }) => {
   // wait for the sign-in to land; navigating earlier would reload the page before the session exists
   await page.waitForURL('**/account');
   await page.goto('/admin');
-  await expect(page.getByRole('heading', { name: 'Part not found' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
   await expect(page.locator('header a[href="/admin"]')).toHaveCount(0);
 });

@@ -12,6 +12,7 @@
   --color-alu-50: #f5f6f6; /* raised surfaces: cards, plates */
   --color-bench: #c3c8ca; /* hairlines and grid */
   --color-bench-strong: #9aa2a6;
+  --color-field: #6b747a; /* form control borders: 3:1 or more on both grounds, so it is not turned over */
   --color-ink: #15181a; /* text, primary action */
   --color-ink-2: #3c4449; /* secondary text */
   --color-ink-3: #555e63; /* captions, labels (4.7:1 on alu) */

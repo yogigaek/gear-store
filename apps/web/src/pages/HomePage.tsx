@@ -7,6 +7,7 @@ import type { ScrollSource } from '../three/bike/BikeStage';
 import { Link, useSearchParams } from 'react-router';
 import { Configurator } from '../components/build/Configurator';
 import { Price } from '../components/ui/Price';
+import { SlowServerNote } from '../components/ui/SlowServerNote';
 import { useBuildCatalog } from '../lib/queries';
 import { E1_COLOURS } from '../three/bike/layout';
 import { formatRupiah } from '../lib/format';
@@ -185,8 +186,16 @@ export function HomePage() {
     };
   }, [scroll]);
 
+  // without WebGL the stage is one still: shorter chapters, and a backing so the copy never sits on the bike
+  const chapter = can3D ? 'h-[120vh]' : 'h-[90vh]';
+  const scrim = can3D ? '' : 'bg-stage/85 p-4 backdrop-blur-sm sm:p-5';
+
   return (
-    <div ref={story} id="e1-story" className="relative h-[600vh] bg-stage text-alu-50">
+    <div
+      ref={story}
+      id="e1-story"
+      className={`relative bg-stage text-alu-50 ${can3D ? 'h-[600vh]' : 'h-[510vh]'}`}
+    >
       <div className="sticky top-16 h-[calc(100dvh-4rem)] overflow-hidden">
         {/* a still of the stage: shown while the 3D loads, and instead of it where WebGL is missing */}
         {/* until the 3D is ready: the empty studio it will appear in. A still of the bike would be framed for
@@ -322,7 +331,7 @@ export function HomePage() {
         <section className="h-[120vh] px-4 sm:px-6">
           {/* centred in the visible screen below the header, not in the taller scroll section */}
           <div className="mx-auto flex h-[calc(100dvh-4rem)] w-full max-w-7xl items-start pt-[5vh] lg:items-center lg:pt-0">
-            <div className="pointer-events-auto max-w-xl space-y-4 sm:space-y-6">
+            <div className={`pointer-events-auto max-w-xl space-y-4 sm:space-y-6 ${scrim}`}>
               <p className="font-mono text-[0.72rem] uppercase tracking-[0.08em] text-signal">
                 Rakit E-1 · Full-suspension e-MTB
               </p>
@@ -378,7 +387,7 @@ export function HomePage() {
           </div>
         </section>
 
-        <section id="e1-specs" className="flex h-[120vh] items-end px-4 pb-[22vh] sm:px-6">
+        <section id="e1-specs" className={`flex items-end px-4 pb-[22vh] sm:px-6 ${chapter}`}>
           <div className="mx-auto w-full max-w-7xl">
             <dl
               ref={specs}
@@ -396,9 +405,9 @@ export function HomePage() {
           </div>
         </section>
 
-        <section className="flex h-[120vh] items-start px-4 pt-[18vh] sm:px-6 lg:pt-[24vh]">
+        <section className={`flex items-start px-4 pt-[18vh] sm:px-6 lg:pt-[24vh] ${chapter}`}>
           <div className="mx-auto w-full max-w-7xl">
-            <div className="pointer-events-auto max-w-md space-y-3">
+            <div className={`pointer-events-auto max-w-md space-y-3 ${scrim}`}>
               <p className="font-mono text-[0.72rem] uppercase tracking-[0.08em] text-signal">Teardown</p>
               <h2 className="font-expanded text-3xl font-extrabold uppercase leading-none sm:text-4xl">
                 Eight modules. Each one sold on its own.
@@ -409,7 +418,9 @@ export function HomePage() {
               </p>
               {/* the numbered dots on the bike, spelled out: the only labels on small screens, and the
                   accessible list everywhere */}
-              <ol className="grid gap-x-4 gap-y-1 font-mono text-xs uppercase tracking-[0.04em] sm:grid-cols-2 lg:sr-only">
+              <ol
+                className={`grid gap-x-4 gap-y-1 font-mono text-xs uppercase tracking-[0.04em] ${can3D ? 'sm:grid-cols-2 lg:sr-only' : ''}`}
+              >
                 {modules.map((p) => (
                   <li key={p.n} className="flex gap-2">
                     <span className="text-signal">{p.n}</span>
@@ -422,16 +433,19 @@ export function HomePage() {
           </div>
         </section>
 
-        <section className="flex h-[120vh] items-start px-4 pt-[34vh] sm:px-6 lg:items-center lg:pt-0">
+        <section className={`flex items-start px-4 pt-[34vh] sm:px-6 lg:items-center lg:pt-0 ${chapter}`}>
           <div className="mx-auto flex w-full max-w-7xl justify-end">
-            <div className="pointer-events-auto max-w-sm space-y-3 text-right">
+            <div className={`pointer-events-auto max-w-sm space-y-3 text-right ${scrim}`}>
               <p className="font-mono text-[0.72rem] uppercase tracking-[0.08em] text-signal">Drivetrain</p>
               <h2 className="font-expanded text-4xl font-extrabold uppercase leading-none">
                 Twelve gears. One hex key.
               </h2>
-              <p className="text-bench">
-                Scroll and the chain runs, the cranks turn, the jockey wheels spin: every link is drawn.
-              </p>
+              {/* the 3D drivetrain moves with the scroll; the still does not */}
+              {can3D && (
+                <p className="text-bench">
+                  Scroll and the chain runs, the cranks turn, the jockey wheels spin: every link is drawn.
+                </p>
+              )}
             </div>
           </div>
         </section>
@@ -454,11 +468,14 @@ export function HomePage() {
                   start={params.get('part')}
                 />
               ) : (
-                <p className="self-start border border-ink-2 bg-stage/90 p-5 font-mono text-sm text-bench">
-                  {catalog.isError
-                    ? 'The parts list did not load. Reload the page to try again.'
-                    : 'Loading parts…'}
-                </p>
+                <div className="self-start space-y-2 border border-ink-2 bg-stage/90 p-5">
+                  <p className="font-mono text-sm text-bench">
+                    {catalog.isError
+                      ? 'The parts list did not load. Reload the page to try again.'
+                      : 'Loading parts…'}
+                  </p>
+                  {catalog.isPending && <SlowServerNote className="text-bench" />}
+                </div>
               )}
             </div>
           </div>

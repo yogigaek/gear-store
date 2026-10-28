@@ -24,6 +24,8 @@ export function ReviewsSection({ slug }: { slug: string }) {
         <h2 id="reviews-title" className="font-expanded text-2xl font-bold uppercase">
           Reviews
         </h2>
+        {/* phones: said before the sign-in link below, not after it */}
+        {data?.count === 0 && <p className="text-ink-2 lg:hidden">No reviews yet.</p>}
         {data && data.count > 0 && (
           <>
             <p className="flex items-baseline gap-3">
@@ -54,7 +56,7 @@ export function ReviewsSection({ slug }: { slug: string }) {
 
       <div className="min-w-0">
         {reviews.isError && <Notice tone="error">{reviews.error.message}</Notice>}
-        {data?.count === 0 && <p className="text-ink-2">No reviews yet.</p>}
+        {data?.count === 0 && <p className="text-ink-2 max-lg:hidden">No reviews yet.</p>}
         <ul className="divide-y divide-bench">
           {data?.items.map((r) => (
             <li key={r.id} className="space-y-2 py-4 first:pt-0">

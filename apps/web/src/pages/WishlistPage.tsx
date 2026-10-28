@@ -1,16 +1,19 @@
 import { Link } from 'react-router';
 import { ProductCard, ProductCardSkeleton } from '../components/product/ProductCard';
 import { Notice } from '../components/ui/Field';
+import { AccountCrumb } from '../components/layout/AccountCrumb';
 import { Label } from '../components/ui/Label';
+import { PageTitle } from '../components/ui/PageTitle';
 import { useWishlist } from '../lib/queries';
 
 export function WishlistPage() {
   const wishlist = useWishlist();
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      <PageTitle>Wishlist</PageTitle>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-ink pb-4">
         <div className="space-y-1">
-          <Label>Account</Label>
+          <AccountCrumb page="Wishlist" />
           <h1 className="font-expanded text-4xl font-extrabold uppercase">Wishlist</h1>
         </div>
         {wishlist.data && <Label>{wishlist.data.length} saved</Label>}

@@ -58,7 +58,7 @@ export async function api<S extends z.ZodType = z.ZodVoid>(
     });
   } catch (error) {
     if (signal?.aborted) throw error;
-    throw new ApiError(0, 'Cannot reach the store right now. Check your connection and try again.');
+    throw new ApiError(0, 'Cannot reach the store right now.');
   }
 
   if (!res.ok) throw await toApiError(res);
@@ -68,9 +68,7 @@ export async function api<S extends z.ZodType = z.ZodVoid>(
 
 async function toApiError(res: Response): Promise<ApiError> {
   const fallback =
-    res.status === 429
-      ? 'Too many attempts. Wait a minute and try again.'
-      : 'Something went wrong. Try again.';
+    res.status === 429 ? 'Too many attempts. Wait a minute.' : 'Something went wrong on our side.';
   try {
     const body = (await res.json()) as {
       message?: unknown;
@@ -83,7 +81,8 @@ async function toApiError(res: Response): Promise<ApiError> {
     const own = typeof body.code === 'string';
     return new ApiError(
       res.status,
-      typeof message !== 'string' || (res.status === 429 && !own) ? fallback : message,
+      // a server failure's own words are not the shopper's to read (stack details, provider names)
+      typeof message !== 'string' || res.status >= 500 || (res.status === 429 && !own) ? fallback : message,
       Array.isArray(body.issues) ? (body.issues as ApiIssue[]) : [],
       own ? (body.code as string) : undefined,
       typeof body.retryAfter === 'number' ? body.retryAfter : undefined,

@@ -4,6 +4,8 @@ import { lazy, Suspense, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { Button } from '../components/ui/Button';
 import { Label } from '../components/ui/Label';
+import { PageTitle } from '../components/ui/PageTitle';
+import { SlowServerNote } from '../components/ui/SlowServerNote';
 import { Price } from '../components/ui/Price';
 import { SpecPlate } from '../components/ui/SpecPlate';
 import { StockNote } from '../components/ui/StockNote';
@@ -55,16 +57,27 @@ function ProductDetail({ slug }: { slug: string }) {
   const [opened, setOpened] = useState(false);
   const can3D = useCanRender3D(!coarsePointer || opened);
 
-  if (query.error instanceof ApiError && query.error.status === 404) return <NotFoundPage />;
+  if (query.error instanceof ApiError && query.error.status === 404)
+    return <NotFoundPage title="Part not found" />;
   if (query.isError) {
     return (
-      <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+      <div className="mx-auto max-w-7xl space-y-4 px-4 py-16 sm:px-6">
         <Notice tone="error">
           {query.error.message}{' '}
-          <button type="button" className="font-semibold underline" onClick={() => void query.refetch()}>
+          <button
+            type="button"
+            className="min-h-11 font-semibold underline"
+            onClick={() => void query.refetch()}
+          >
             Try again
           </button>
         </Notice>
+        <Link
+          to="/products"
+          className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4"
+        >
+          Back to all parts
+        </Link>
       </div>
     );
   }
@@ -87,9 +100,10 @@ function ProductDetail({ slug }: { slug: string }) {
         </Link>
         <span aria-hidden="true"> / </span>
         <span aria-current="page" className="text-ink">
-          {product.model}
+          {product.name}
         </span>
       </nav>
+      <PageTitle>{product.name}</PageTitle>
 
       <div className="grid gap-10 lg:grid-cols-[1.25fr_1fr]">
         <section aria-label="Part view" className="min-w-0">
@@ -213,7 +227,8 @@ function ProductDetail({ slug }: { slug: string }) {
             </fieldset>
           )}
 
-          <div className="flex flex-wrap gap-3">
+          {/* two rows, so neither label wraps at 320 px: how many and the cart, then Buy now and save */}
+          <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
             <QuantityStepper
               label="Quantity"
               value={qty}
@@ -222,7 +237,6 @@ function ProductDetail({ slug }: { slug: string }) {
               onChange={setQty}
             />
             <Button
-              className="flex-1"
               disabled={soldOut}
               // not `disabled` while adding: a disabled button drops keyboard focus, and the cart drawer then
               // cannot hand focus back to it when it closes
@@ -231,18 +245,20 @@ function ProductDetail({ slug }: { slug: string }) {
             >
               {soldOut ? 'Out of stock' : addToCart.isPending ? 'Adding…' : 'Add to cart'}
             </Button>
-            <SaveButton product={product} />
-            {/* this part alone, straight to checkout (via sign-in when signed out); the cart is not touched */}
-            <Button
-              variant="secondary"
-              className="basis-full"
-              disabled={soldOut}
-              onClick={() =>
-                void navigate(buyNowPath({ slug: product.slug, colorKey: color?.key ?? '', quantity: 1 }))
-              }
-            >
-              Buy now
-            </Button>
+            <div className="col-span-2 flex gap-3">
+              {/* this part alone, straight to checkout (via sign-in when signed out); the cart is not touched */}
+              <Button
+                variant="secondary"
+                className="flex-1"
+                disabled={soldOut}
+                onClick={() =>
+                  void navigate(buyNowPath({ slug: product.slug, colorKey: color?.key ?? '', quantity: qty }))
+                }
+              >
+                Buy now
+              </Button>
+              <SaveButton product={product} />
+            </div>
           </div>
 
           {addToCart.error && <Notice tone="error">{addToCart.error.message}</Notice>}
@@ -287,6 +303,7 @@ function ProductSkeleton() {
           <div className="h-12 border border-bench" />
         </div>
       </div>
+      <SlowServerNote className="mt-6 text-ink-3" />
     </div>
   );
 }
