@@ -20,12 +20,24 @@ function tagEnd(src: string, from: number): number {
     const c = src[i];
     if (quote) {
       if (c === quote) quote = '';
-    } else if (c === '"' || c === "'" || c === '`') quote = c;
+    } else if (src.startsWith('//', i)) i = src.indexOf('\n', i);
+    else if (src.startsWith('/*', i)) i = src.indexOf('*/', i) + 1;
+    else if (c === '"' || c === "'" || c === '`') quote = c;
     else if (c === '{') depth += 1;
     else if (c === '}') depth -= 1;
     else if (c === '>' && depth === 0) return i;
   }
   return -1;
+}
+
+/** the index of the `}` closing the brace at `open` */
+function closingBrace(src: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < src.length; i += 1) {
+    if (src[i] === '{') depth += 1;
+    else if (src[i] === '}' && (depth -= 1) === 0) return i;
+  }
+  return src.length;
 }
 
 /** the expression inside `style={…}` of an opening tag, or null */
@@ -48,9 +60,19 @@ function linkChildStyles(): { file: string; style: string }[] {
     const found: { file: string; style: string }[] = [];
     for (const match of src.matchAll(/<Link\b/g)) {
       const linkEnd = tagEnd(src, match.index);
+      if (linkEnd < 0) throw new Error(`could not read a <Link> in ${file}`);
       if (!/\basChild\b/.test(src.slice(match.index, linkEnd))) continue;
-      const childStart = src.indexOf('<', linkEnd);
-      const style = styleOf(src.slice(childStart, tagEnd(src, childStart)));
+      // the first element after the tag, past whitespace and {…} expressions such as JSX comments
+      let childStart = linkEnd + 1;
+      while (/[\s{]/.test(src[childStart] ?? '')) {
+        childStart = src[childStart] === '{' ? closingBrace(src, childStart) + 1 : childStart + 1;
+      }
+      const childEnd = tagEnd(src, childStart);
+      if (childEnd < 0) throw new Error(`could not read a <Link asChild> child in ${file}`);
+      const child = src.slice(childStart, childEnd);
+      // a spread could carry any style past this check
+      if (/\{\s*\.\.\./.test(child)) found.push({ file, style: child });
+      const style = styleOf(child);
       if (style !== null) found.push({ file, style });
     }
     return found;
