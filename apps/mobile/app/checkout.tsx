@@ -17,7 +17,7 @@ import {
   useNavigation,
   usePreventRemove,
 } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useLayoutEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BottomBar } from '../src/components/BottomBar';
 import { Button } from '../src/components/Button';
@@ -64,6 +64,11 @@ export default function CheckoutScreen() {
   const addresses = useAddresses();
   const queryClient = useQueryClient();
   const navigation = useNavigation();
+  // the title is right from the first frame, loading and error states included
+  useLayoutEffect(
+    () => navigation.setOptions({ title: buying ? 'Buy now' : 'Checkout' }),
+    [navigation, buying],
+  );
   const bottom = useBottomSpace(true);
   const [chosen, setChosen] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -88,10 +93,14 @@ export default function CheckoutScreen() {
       >
         <Button
           label="Sign in"
-          href={{
-            pathname: '/account',
-            params: { next: 'checkout', ...(requested ? buyParams(requested) : {}) },
-          }}
+          // replaced, not pushed: after sign-in the account screen opens a fresh checkout, and this one must not stay
+          // underneath, where Back would lead to a second live checkout
+          onPress={() =>
+            router.replace({
+              pathname: '/account',
+              params: { next: 'checkout', ...(requested ? buyParams(requested) : {}) },
+            })
+          }
         />
       </EmptyState>
     );

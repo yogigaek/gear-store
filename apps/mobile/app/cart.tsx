@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
     borderLeftWidth: 1,
     borderLeftColor: colors.bench,
   },
-  nameLink: { alignSelf: 'flex-start' },
+  nameLink: { alignSelf: 'flex-start', minHeight: 44, justifyContent: 'center' },
   name: { fontSize: 15, fontWeight: '600', color: colors.ink },
   finish: { fontFamily: mono, fontSize: 11, color: colors.ink3 },
   problem: { fontSize: 13, color: colors.danger },

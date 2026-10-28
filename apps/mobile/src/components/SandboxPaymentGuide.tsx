@@ -55,7 +55,7 @@ export function SandboxPaymentGuide({ initiallyOpen = false }: { initiallyOpen?:
           />
           <Text style={styles.quiet}>
             No real money moves. Back in the app, the payment is checked by itself and the order turns to Paid
-            within a few seconds.
+            once Midtrans confirms it, usually within a minute.
           </Text>
         </View>
       )}

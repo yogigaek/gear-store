@@ -1,5 +1,8 @@
 import { vi } from 'vitest';
 
+// UTC, not this machine's zone: a date shown without its Asia/Jakarta zone must fail the tests
+process.env.TZ = 'UTC';
+
 // The native modules the app's libraries use, replaced for tests that run in Node.
 vi.mock('react-native', () => ({
   AppState: { addEventListener: () => ({ remove: () => undefined }) },

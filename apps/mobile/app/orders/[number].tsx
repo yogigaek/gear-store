@@ -115,6 +115,7 @@ export default function OrderScreen() {
   const pay = useCallback(
     () =>
       run('pay', async () => {
+        autoPay.current = false;
         const { redirectUrl } = await orders.paymentPage(number);
         const result = await WebBrowser.openBrowserAsync(redirectUrl);
         // Android reports only that the page opened: re-read the order, which now carries its payment, so the
@@ -126,6 +127,10 @@ export default function OrderScreen() {
   );
 
   const canPayNow = order.data?.canPay;
+  // leaving the screen before the page opened means the shopper chose something else: it does not open later
+  useEffect(() => {
+    if (!focused) autoPay.current = false;
+  }, [focused]);
   useEffect(() => {
     if (!autoPay.current || !focused || canPayNow === undefined) return;
     if (!canPayNow) {

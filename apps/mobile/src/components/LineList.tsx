@@ -34,10 +34,18 @@ export const lineArt = { width: 56, height: 56 } as const;
 
 const styles = StyleSheet.create({
   box: { borderWidth: 1, borderColor: colors.bench },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10 },
+  // a total that does not fit beside the details (narrow screen, large text) goes under them, right-aligned
+  row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: 10 },
   divider: { borderTopWidth: 1, borderTopColor: colors.bench },
-  body: { flex: 1, minWidth: 0, gap: 2 },
+  body: { flex: 1, minWidth: 140, gap: 2 },
   name: { fontSize: 15, fontWeight: '600', color: colors.ink },
   detail: { fontFamily: mono, fontSize: 11, color: colors.ink3 },
-  total: { flexShrink: 0, fontFamily: mono, fontSize: 14, fontWeight: '600', color: colors.ink },
+  total: {
+    flexShrink: 0,
+    marginLeft: 'auto',
+    fontFamily: mono,
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.ink,
+  },
 });
