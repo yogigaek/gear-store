@@ -294,7 +294,15 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
   message: { color: colors.ink2, textAlign: 'center', fontSize: 15 },
   page: { padding: 16, gap: 12, paddingBottom: 32 },
-  statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
+  // a long status ("Waiting for payment") puts the date on the next line instead of pushing the page wider
+  statusRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    columnGap: 12,
+    rowGap: 2,
+  },
   status: { fontSize: 20, fontWeight: '800', textTransform: 'uppercase' },
   date: { fontFamily: mono, fontSize: 12, color: colors.ink3 },
   note: { fontSize: 13, color: colors.ink2, lineHeight: 19 },

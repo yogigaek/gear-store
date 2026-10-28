@@ -132,7 +132,8 @@ export default function CheckoutScreen() {
       {list.length < MAX_ADDRESSES ? (
         <Link href="/addresses/new" asChild>
           <Pressable
-            style={[styles.secondary, busy && styles.disabled]}
+            // a Link's child takes one style object, not an array (expo-router's Slot refuses arrays)
+            style={StyleSheet.flatten([styles.secondary, busy && styles.disabled])}
             disabled={busy}
             accessibilityRole="link"
             accessibilityState={{ disabled: busy }}
