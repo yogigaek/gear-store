@@ -266,6 +266,6 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.bench,
   },
   optionSelected: { backgroundColor: colors.alu50 },
-  optionText: { fontSize: 15, color: colors.ink },
+  optionText: { fontSize: 15, color: colors.ink, flexShrink: 1 },
   optionFee: { fontFamily: mono, fontSize: 13, color: colors.ink3 },
 });

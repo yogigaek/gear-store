@@ -13,7 +13,9 @@ export function PaymentDonePage() {
   const { status } = useAuth();
   const number = orderNumberSchema.safeParse(params.get('order_id'));
 
-  if (number.success && status === 'signed-in') return <Navigate to={`/orders/${number.data}`} replace />;
+  // the order page reads Midtrans' query too: it checks the payment once on arrival and thanks the shopper
+  if (number.success && status === 'signed-in')
+    return <Navigate to={`/orders/${number.data}?${params}`} replace />;
   if (status === 'restoring') {
     return (
       <p role="status" className="mx-auto max-w-7xl px-4 py-16 font-mono text-sm text-ink-3 sm:px-6">

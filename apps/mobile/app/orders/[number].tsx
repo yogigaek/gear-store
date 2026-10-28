@@ -138,8 +138,8 @@ export default function OrderScreen() {
     }
   };
 
-  // Midtrans' page opens in an in-app browser. Its "back to store" link points at the web store, so the shopper
-  // closes the browser; iOS reports the close here, Android only that the page opened (the effect above covers it).
+  // Midtrans' page opens in an in-app browser. After paying it lands on the web's /payment-done, which asks the
+  // shopper to close it; iOS reports the close here, Android only that the page opened (the effect above covers it).
   const pay = () =>
     run('pay', async () => {
       const { redirectUrl } = await orders.paymentPage(o.number);
@@ -331,7 +331,7 @@ const styles = StyleSheet.create({
   lineTotal: { fontFamily: mono, fontSize: 13, fontWeight: '600', color: colors.ink },
   summary: { gap: 8, paddingTop: 4 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  rowLabel: { fontSize: 14, color: colors.ink2 },
+  rowLabel: { fontSize: 14, color: colors.ink2, flexShrink: 1 },
   rowValue: { fontFamily: mono, fontSize: 14, color: colors.ink },
   strong: { fontSize: 17, fontWeight: '700', color: colors.ink },
   card: { borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50, padding: 12, gap: 3 },

@@ -83,7 +83,14 @@ const styles = StyleSheet.create({
   list: { padding: 16, flexGrow: 1 },
   gap: { height: 10 },
   row: { borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50, padding: 12, gap: 6 },
-  top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
+  // a long status at a large text size goes to the next line rather than past the screen's edge
+  top: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    columnGap: 12,
+  },
   number: { fontFamily: mono, fontSize: 14, fontWeight: '600', color: colors.ink },
   status: { fontSize: 13, fontWeight: '600' },
   meta: { fontSize: 13, color: colors.ink3, flexShrink: 1 },

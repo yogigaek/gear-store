@@ -78,7 +78,8 @@ export const routes: RouteObject[] = [
         path: 'checkout',
         ...page(async () => (await import('./pages/orders/CheckoutPage')).CheckoutPage, auth),
       },
-      { path: 'orders', ...page(async () => (await import('./pages/orders/OrdersPage')).OrdersPage, auth) },
+      // signs in inside the page: a return from Midtrans (?order_id=…) must not meet the sign-in wall
+      { path: 'orders', ...page(async () => (await import('./pages/orders/OrdersPage')).OrdersPage) },
       {
         path: 'payment-done',
         ...page(async () => (await import('./pages/orders/PaymentDonePage')).PaymentDonePage),

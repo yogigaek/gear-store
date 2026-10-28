@@ -1,6 +1,7 @@
 import { orderNumberSchema } from '@gear-store/shared';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
+import { RequireAuth } from '../../components/layout/RequireAuth';
 import { Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
 import { Price } from '../../components/ui/Price';
@@ -8,13 +9,21 @@ import { formatDateTime } from '../../lib/date';
 import { useOrders } from '../../lib/orders';
 
 export function OrdersPage() {
-  // back from Midtrans through the dashboard's redirect URL, which adds ?order_id=…: open that order
+  // back from Midtrans through the dashboard's redirect URL, which adds ?order_id=…: the return page opens the
+  // order when this browser is signed in, and otherwise says where to go (no sign-in wall after paying in the app)
   const [params] = useSearchParams();
-  const fromPayment = orderNumberSchema.safeParse(params.get('order_id'));
-  const orders = useOrders({ enabled: !fromPayment.success });
-  if (fromPayment.success) {
-    return <Navigate to={`/orders/${fromPayment.data}?${params}`} replace />;
+  if (orderNumberSchema.safeParse(params.get('order_id')).success) {
+    return <Navigate to={`/payment-done?${params}`} replace />;
   }
+  return (
+    <RequireAuth>
+      <OrderList />
+    </RequireAuth>
+  );
+}
+
+function OrderList() {
+  const orders = useOrders();
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
       <div className="mb-8 space-y-1 border-b border-ink pb-4">

@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
   remove: { fontSize: 13, color: colors.ink3, textDecorationLine: 'underline', marginTop: 4 },
   summary: { marginTop: 20, gap: 8, borderTopWidth: 1, borderTopColor: colors.bench, paddingTop: 16 },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  totalLabel: { fontSize: 14, color: colors.ink2 },
+  totalLabel: { fontSize: 14, color: colors.ink2, flexShrink: 1 },
   total: { fontFamily: mono, fontSize: 18, fontWeight: '700', color: colors.ink },
   note: { fontSize: 13, color: colors.ink3 },
   banner: { fontSize: 13, color: colors.danger, marginBottom: 12 },

@@ -1,5 +1,5 @@
 import type { ProductSummary } from '@gear-store/shared';
-import { Link } from 'expo-router';
+import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { formatRupiah } from '../lib/format';
 import { colors, mono } from '../theme';
@@ -8,26 +8,26 @@ import { PartImage, SpecPlate, StockNote } from './parts';
 /** Mirrors the web card: still and name side by side, then the spec plate and the price across the card. */
 export function ProductCard({ product }: { product: ProductSummary }) {
   return (
-    <Link href={{ pathname: '/products/[slug]', params: { slug: product.slug } }} asChild>
-      <Pressable
-        style={({ pressed }) => [styles.card, pressed && styles.pressed]}
-        accessibilityRole="link"
-        accessibilityLabel={`${product.name}, ${formatRupiah(product.price)}`}
-      >
-        <View style={styles.top}>
-          <PartImage slug={product.slug} module={product.module} style={styles.art} />
-          <View style={styles.heading}>
-            <View style={styles.meta}>
-              <Text style={styles.model}>{product.model}</Text>
-              <StockNote stock={product.stock} />
-            </View>
-            <Text style={styles.name}>{product.name}</Text>
+    // not a Link with asChild: its Slot merges the child's style as an object, so a pressed-state style would be lost
+    <Pressable
+      onPress={() => router.push({ pathname: '/products/[slug]', params: { slug: product.slug } })}
+      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      accessibilityRole="link"
+      accessibilityLabel={`${product.name}, ${formatRupiah(product.price)}`}
+    >
+      <View style={styles.top}>
+        <PartImage slug={product.slug} module={product.module} style={styles.art} />
+        <View style={styles.heading}>
+          <View style={styles.meta}>
+            <Text style={styles.model}>{product.model}</Text>
+            <StockNote stock={product.stock} />
           </View>
+          <Text style={styles.name}>{product.name}</Text>
         </View>
-        <SpecPlate specs={product.plate} style={styles.plate} />
-        <Text style={styles.price}>{formatRupiah(product.price)}</Text>
-      </Pressable>
-    </Link>
+      </View>
+      <SpecPlate specs={product.plate} style={styles.plate} />
+      <Text style={styles.price}>{formatRupiah(product.price)}</Text>
+    </Pressable>
   );
 }
 
