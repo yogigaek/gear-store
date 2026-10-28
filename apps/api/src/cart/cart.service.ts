@@ -78,14 +78,23 @@ export class CartService {
   }
 
   async get(userId: string): Promise<Cart> {
-    const [rows, held] = await Promise.all([
+    const read = () =>
       this.prisma.cartItem.findMany({
         where: { userId },
         orderBy: { createdAt: 'asc' },
         select: { colorKey: true, quantity: true, product: { select: productSelect } },
-      }),
-      this.heldBuilds(userId),
-    ]);
+      });
+    const [stored, held] = await Promise.all([read(), this.heldBuilds(userId)]);
+    const unsettled = stored.some(
+      (r) => r.product.isActive && this.finish(r.product, r.colorKey) !== r.colorKey,
+    );
+    if (unsettled) {
+      await this.prisma.$transaction(async (tx) => {
+        await lockCart(tx, userId);
+        await this.settleFinishes(tx, userId);
+      }, CART_WRITE);
+    }
+    const rows = unsettled ? await read() : stored;
     const book = await this.builds.bookFor(held.length);
     const lines = rows
       .filter((r) => r.product.isActive)
@@ -105,6 +114,7 @@ export class CartService {
 
     await this.prisma.$transaction(async (tx) => {
       await lockCart(tx, userId);
+      await this.settleFinishes(tx, userId);
       if (input.quantity === 0) {
         await tx.cartItem.deleteMany({ where: key.userId_productId_colorKey });
         return;
@@ -166,6 +176,7 @@ export class CartService {
     ]);
     const notMerged = await this.prisma.$transaction(async (tx) => {
       await lockCart(tx, userId);
+      await this.settleFinishes(tx, userId);
       if (guest.mergeKey) {
         const first = await tx.cartMerge.createMany({
           data: [{ userId, key: guest.mergeKey }],
@@ -276,6 +287,43 @@ export class CartService {
         parts: { create: checked.parts.map(({ part }) => ({ productId: part.id })) },
       },
     });
+  }
+
+  /**
+   * Moves part lines saved under a finish the part no longer has onto the finish the cart shows for them, joining
+   * a line already there (capped per line), so one shown line is always one stored row. The caller holds the
+   * cart lock. Lines of parts no longer sold are left alone: the cart hides them and checkout removes them.
+   */
+  async settleFinishes(tx: Prisma.TransactionClient, userId: string): Promise<void> {
+    const rows = await tx.cartItem.findMany({
+      where: { userId, product: { isActive: true } },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        productId: true,
+        colorKey: true,
+        quantity: true,
+        product: { select: { colors: productSelect.colors } },
+      },
+    });
+    const kept = new Map<string, { id: string; quantity: number }>();
+    for (const r of rows) {
+      if (this.finish(r.product, r.colorKey) === r.colorKey) kept.set(`${r.productId}:${r.colorKey}`, r);
+    }
+    for (const r of rows) {
+      const colorKey = this.finish(r.product, r.colorKey);
+      if (colorKey === r.colorKey) continue;
+      const id = `${r.productId}:${colorKey}`;
+      const into = kept.get(id);
+      if (into) {
+        into.quantity = Math.min(MAX_LINE_QUANTITY, into.quantity + r.quantity);
+        await tx.cartItem.delete({ where: { id: r.id } });
+        await tx.cartItem.update({ where: { id: into.id }, data: { quantity: into.quantity } });
+      } else {
+        await tx.cartItem.update({ where: { id: r.id }, data: { colorKey } });
+        kept.set(id, { id: r.id, quantity: r.quantity });
+      }
+    }
   }
 
   /** a cart's part lines; lines of parts no longer sold are hidden, so they do not count against the limit */

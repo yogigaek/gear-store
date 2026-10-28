@@ -23,6 +23,7 @@ const ADDRESS = {
 };
 const TEMP_SLUG = `e2e-last-unit-${Date.now()}`;
 const WITHDRAWN_SLUG = `e2e-withdrawn-${Date.now()}`;
+const FINISH_SLUG = `e2e-finish-${Date.now()}`;
 
 describe('Addresses and orders (e2e)', () => {
   let app: INestApplication<App>;
@@ -98,12 +99,31 @@ describe('Addresses and orders (e2e)', () => {
         categoryId: accessories.id,
       },
     });
+    await prisma.product.create({
+      data: {
+        slug: FINISH_SLUG,
+        name: 'Finish Test Bell',
+        model: 'F-1',
+        module: 'ACCESSORY',
+        description: 'Created by the e2e suite',
+        price: 40000,
+        stock: 5,
+        categoryId: accessories.id,
+        colors: {
+          create: [
+            { key: 'signal', label: 'Signal yellow', hex: '#f2c230', position: 0 },
+            { key: 'moss', label: 'Moss green', hex: '#5b6b3a', position: 1 },
+          ],
+        },
+      },
+    });
   });
 
   afterAll(async () => {
     await deleteTestUsers(app);
     await prisma.product.delete({ where: { slug: TEMP_SLUG } });
     await prisma.product.delete({ where: { slug: WITHDRAWN_SLUG } });
+    await prisma.product.delete({ where: { slug: FINISH_SLUG } });
     await app.close();
   });
 
@@ -315,8 +335,62 @@ describe('Addresses and orders (e2e)', () => {
       await me.addBike({ ...start, forks: TEMP_SLUG }).expect(200);
       await me.cartSet(TEMP_SLUG, 1).expect(200);
       const res = await me.checkout(address.id).expect(409);
-      expect(res.body.message).toMatch(/Only 1 of Last Unit Test Fork left/);
+      expect(res.body.message).toBe('Only 1 of Last Unit Test Fork left. Lower the quantity in your cart.');
       expect(await stockOf(TEMP_SLUG)).toBe(1);
+    });
+
+    it('keeps a part whose finish was withdrawn as one line under its first finish, through changes and checkout', async () => {
+      const { me, address } = await customerWithAddress();
+      const { userId } = await prisma.address.findUniqueOrThrow({
+        where: { id: address.id },
+        select: { userId: true },
+      });
+      const { id: productId } = await prisma.product.findUniqueOrThrow({ where: { slug: FINISH_SLUG } });
+      const stored = () =>
+        prisma.cartItem.findMany({ where: { userId }, select: { colorKey: true, quantity: true } });
+      const shown = (cart: unknown) =>
+        cartSchema.parse(cart).items.map((i) => [i.product.slug, i.colorKey, i.colorLabel, i.quantity]);
+
+      await me.cartSet(FINISH_SLUG, 1, 'signal').expect(200);
+      await me.cartSet(FINISH_SLUG, 2, 'moss').expect(200);
+      const moss = await prisma.productColor.findUniqueOrThrow({
+        where: { productId_key: { productId, key: 'moss' } },
+      });
+      await prisma.productColor.delete({ where: { id: moss.id } });
+      try {
+        expect(shown((await me.cart().expect(200)).body)).toEqual([
+          [FINISH_SLUG, 'signal', 'Signal yellow', 3],
+        ]);
+        expect(await stored()).toEqual([{ colorKey: 'signal', quantity: 3 }]);
+
+        // a client still holding the old finish changes that same line, and removing it empties the cart
+        const changed = await me.cartSet(FINISH_SLUG, 4, 'moss').expect(200);
+        expect(shown(changed.body)).toEqual([[FINISH_SLUG, 'signal', 'Signal yellow', 4]]);
+        expect(await stored()).toEqual([{ colorKey: 'signal', quantity: 4 }]);
+        await me.cartSet(FINISH_SLUG, 0, 'signal').expect(200);
+        expect(shown((await me.cart().expect(200)).body)).toEqual([]);
+        expect(await stored()).toEqual([]);
+
+        // a row still saved under the old finish, changed before the cart is read again
+        await prisma.cartItem.create({ data: { userId, productId, colorKey: 'moss', quantity: 2 } });
+        const set = await me.cartSet(FINISH_SLUG, 1, 'signal').expect(200);
+        expect(shown(set.body)).toEqual([[FINISH_SLUG, 'signal', 'Signal yellow', 1]]);
+        expect(await stored()).toEqual([{ colorKey: 'signal', quantity: 1 }]);
+
+        // and one checked out before the cart is read again: ordered under the finish the cart shows
+        await prisma.cartItem.create({ data: { userId, productId, colorKey: 'moss', quantity: 2 } });
+        const order = orderDetailSchema.parse((await me.checkout(address.id).expect(201)).body);
+        expect(order.items.map((i) => [i.slug, i.colorKey, i.colorLabel, i.quantity])).toEqual([
+          [FINISH_SLUG, 'signal', 'Signal yellow', 3],
+        ]);
+        expect(await stockOf(FINISH_SLUG)).toBe(2);
+        expect(await stored()).toEqual([]);
+        await me.cancel(order.number).expect(200);
+        expect(await stockOf(FINISH_SLUG)).toBe(5);
+      } finally {
+        const { id: _id, ...colour } = moss;
+        await prisma.productColor.create({ data: colour });
+      }
     });
 
     it('refuses an empty cart', async () => {
@@ -475,7 +549,8 @@ describe('Addresses and orders (e2e)', () => {
     it('refuses more than is in stock with the checkout’s 409', async () => {
       const { me, address } = await customerWithAddress();
       const res = await me.buyNow(address.id, [{ slug: TEMP_SLUG, quantity: 2 }]).expect(409);
-      expect(res.body.message).toMatch(/Only 1 of Last Unit Test Fork left/);
+      // Buy now leaves the cart alone, so the message does not send the shopper there
+      expect(res.body.message).toBe('Only 1 of Last Unit Test Fork left.');
       expect(await stockOf(TEMP_SLUG)).toBe(1);
     });
   });

@@ -119,7 +119,9 @@ export class OrdersService {
               throw new ConflictException(
                 left === 0
                   ? `${name} just sold out.`
-                  : `Only ${left} of ${name} left. Lower the quantity in your cart.`,
+                  : input.items
+                    ? `Only ${left} of ${name} left.`
+                    : `Only ${left} of ${name} left. Lower the quantity in your cart.`,
               );
             }
           }
@@ -308,6 +310,7 @@ export class OrdersService {
     userId: string,
   ): Promise<{ lines: PartLine[]; bikes: Bike[] } | { withdrawn: string[] }> {
     // one after the other: a transaction is one connection, and pg is dropping queries sent over one at once
+    await this.cart.settleFinishes(tx, userId);
     const lines = await tx.cartItem.findMany({
       where: { userId },
       orderBy: { createdAt: 'asc' },
