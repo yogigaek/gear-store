@@ -1,6 +1,15 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { AdminOnWeb } from '../src/components/AdminOnWeb';
 import { auth, useAuth } from '../src/lib/auth';
 import { useCategories } from '../src/lib/catalog';
@@ -13,6 +22,8 @@ export default function HomeScreen() {
   const categories = useCategories();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  // sized from the screen: a percentage width let iOS draw the photo at its own size, cropped to its dark corner
+  const { width } = useWindowDimensions();
 
   const tryAsShopper = async () => {
     setBusy(true);
@@ -27,10 +38,11 @@ export default function HomeScreen() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
+    // the stage colour of the header and the photo, so pulling past the top shows no lighter band
+    <ScrollView style={styles.screen} contentContainerStyle={styles.page}>
       <Image
         source={require('../../web/src/assets/e1-poster-wide.jpg')}
-        style={styles.poster}
+        style={[styles.poster, { width, height: (width * 836) / 1440 }]}
         resizeMode="cover"
         accessible
         accessibilityRole="image"
@@ -124,8 +136,9 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  screen: { backgroundColor: colors.stage },
   page: { paddingBottom: 32 },
-  poster: { width: '100%', aspectRatio: 1440 / 836, backgroundColor: colors.stage },
+  poster: { backgroundColor: colors.stage },
   hero: { paddingHorizontal: 16, paddingTop: 20, gap: 12 },
   eyebrow: {
     fontFamily: mono,
