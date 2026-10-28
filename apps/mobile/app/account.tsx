@@ -1,6 +1,6 @@
-import { Link } from 'expo-router';
+import { Link, router, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -11,11 +11,22 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { AdminOnWeb } from '../src/components/AdminOnWeb';
 import { auth, useAuth } from '../src/lib/auth';
+import { afterSignIn } from '../src/lib/web';
 import { colors, mono } from '../src/theme';
 
 export default function AccountScreen() {
   const state = useAuth();
+  const next = afterSignIn(useLocalSearchParams<{ next?: string }>().next);
+  // sent here by "Buy now": once signed in, carry on to checkout instead of stopping on the account page
+  const carriedOn = useRef(false);
+  useEffect(() => {
+    if (state.status !== 'signed-in' || !next || carriedOn.current) return;
+    carriedOn.current = true;
+    router.replace(next);
+  }, [state.status, next]);
+
   if (state.status === 'restoring') {
     return (
       <View style={styles.center}>
@@ -44,6 +55,7 @@ export default function AccountScreen() {
       <Pressable onPress={() => void auth.signOut()} style={styles.secondary} accessibilityRole="button">
         <Text style={styles.secondaryText}>Sign out</Text>
       </Pressable>
+      <AdminOnWeb />
     </View>
   );
 }
@@ -131,6 +143,7 @@ function SignIn() {
         <Text style={styles.note}>
           A shared demo account with sample orders. Create your own account on the Rakit website.
         </Text>
+        <AdminOnWeb />
       </ScrollView>
     </KeyboardAvoidingView>
   );

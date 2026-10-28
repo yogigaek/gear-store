@@ -189,7 +189,11 @@ npm run dev:web                      # http://localhost:5173
 `apps/mobile` is the store on a phone: Expo SDK 58, React Native 0.88 and Expo Router, on the same API and the same
 zod contracts from `packages/shared` as the web.
 
-- 🔎 **Catalogue** — search, part types, and each part with its finishes and specs.
+- 🏠 **Home** — the E-1 still and the web's story, part types to start from, "Try as shopper", and links to the
+  3D configurator and the admin dashboard, both on the web (the app is the shop; building a bike and running
+  the store stay on the website).
+- 🔎 **Catalogue** — search, part types, and each part with its finishes and specs; **Buy now** adds the part and
+  opens checkout, through sign-in for a guest.
 - 🛒 **Cart** — kept on the phone until sign-in, then merged into the account under a merge key, so a cut-off
   merge is resent and never adds twice; parts that do not fit (50 lines, 10 of each) are named in the cart.
   Prices and stock always come from the API.

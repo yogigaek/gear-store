@@ -8,7 +8,7 @@ import { HeaderActions } from '../src/components/HeaderActions';
 import { auth } from '../src/lib/auth';
 import { colors } from '../src/theme';
 
-// a screen opened from a link (rakit://orders/<n>) has the catalogue under it, so back stays in the app
+// a screen opened from a link (rakit://orders/<n>) has the home screen under it, so back stays in the app
 export const unstable_settings = { anchor: 'index' };
 
 export default function RootLayout() {
@@ -37,7 +37,8 @@ export default function RootLayout() {
           headerRight: () => <HeaderActions />,
         }}
       >
-        <Stack.Screen name="index" options={{ title: 'Rakit · Parts' }} />
+        <Stack.Screen name="index" options={{ title: 'Rakit' }} />
+        <Stack.Screen name="products/index" options={{ title: 'Parts' }} />
         <Stack.Screen name="cart" options={{ title: 'Cart', headerRight: undefined }} />
         <Stack.Screen name="account" options={{ title: 'Account', headerRight: undefined }} />
         <Stack.Screen name="checkout" options={{ title: 'Checkout', headerRight: undefined }} />

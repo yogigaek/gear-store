@@ -125,7 +125,7 @@ function Empty() {
   return (
     <View style={styles.center}>
       <Text style={styles.message}>Your cart is empty.</Text>
-      <Link href="/" asChild>
+      <Link href="/products" asChild>
         <Pressable style={styles.primary} accessibilityRole="link">
           <Text style={styles.primaryText}>Browse parts</Text>
         </Pressable>

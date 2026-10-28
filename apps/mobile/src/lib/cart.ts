@@ -274,6 +274,11 @@ export function useGuestItems(): CartLineInput[] {
   return useSyncExternalStore(subscribe, () => items);
 }
 
+/** true while this phone still holds lines (or a merge) on their way into the signed-in account's cart */
+export function usePhoneLinesWaiting(): boolean {
+  return useSyncExternalStore(subscribe, () => items.length > 0 || pending !== null);
+}
+
 /** how many parts the last merge into `userId`'s cart could not fit, 0 for none */
 export function mergeNotice(userId: string | null): number {
   return notice && notice.userId === userId ? notice.count : 0;

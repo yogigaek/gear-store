@@ -6,7 +6,7 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ApiError } from '../src/lib/api';
 import { useAuth } from '../src/lib/auth';
-import { accountCartKey, useCart } from '../src/lib/cart';
+import { accountCartKey, useCart, usePhoneLinesWaiting } from '../src/lib/cart';
 import { checkoutKey, closeCheckout, hasOpenCheckout } from '../src/lib/checkout-key';
 import { count, formatRupiah } from '../src/lib/format';
 import { orders, showOrder, useAddresses } from '../src/lib/orders';
@@ -15,6 +15,8 @@ import { colors, mono } from '../src/theme';
 export default function CheckoutScreen() {
   const state = useAuth();
   const cart = useCart();
+  // just signed in from "Buy now": the phone's lines are still joining the account's cart
+  const joining = usePhoneLinesWaiting();
   const addresses = useAddresses();
   const queryClient = useQueryClient();
   const navigation = useNavigation();
@@ -157,7 +159,12 @@ export default function CheckoutScreen() {
         <Row label="Total" value={formatRupiah(priced.subtotal + (address?.shippingFee ?? 0))} strong />
       </View>
 
-      {empty && !maybePlaced && <Text style={styles.problem}>Your cart is empty.</Text>}
+      {joining && (
+        <Text style={styles.note} accessibilityLiveRegion="polite">
+          Bringing the parts from this phone into your cart…
+        </Text>
+      )}
+      {empty && !maybePlaced && !joining && <Text style={styles.problem}>Your cart is empty.</Text>}
       {maybePlaced && (
         <Text style={styles.note}>
           The order may have gone through. Placing it again opens that order instead of making a second one.

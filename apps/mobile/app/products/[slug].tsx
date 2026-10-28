@@ -1,11 +1,12 @@
 import { MAX_CART_LINES, MAX_LINE_QUANTITY, productDetailSchema } from '@gear-store/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { PartImage, SpecPlate, StockNote } from '../../src/components/parts';
 import { api, ApiError, retryTransient } from '../../src/lib/api';
-import { useCartActions } from '../../src/lib/cart';
+import { useAuth } from '../../src/lib/auth';
+import { useCartActions, type AddResult } from '../../src/lib/cart';
 import { formatRupiah, keepUnits } from '../../src/lib/format';
 import { colors, mono } from '../../src/theme';
 
@@ -20,7 +21,9 @@ export default function ProductScreen() {
   const [added, setAdded] = useState<string>();
   // taps stay live while one is on its way: each one queues and adds, so the label only says work is under way
   const [adding, setAdding] = useState(0);
+  const [buying, setBuying] = useState(false);
   const { add } = useCartActions();
+  const signedIn = useAuth().status === 'signed-in';
 
   if (product.isPending) {
     return (
@@ -51,21 +54,38 @@ export default function ProductScreen() {
   const color = p.colors.find((c) => c.key === colorKey) ?? p.colors[0];
   const soldOut = p.stock === 0;
 
+  const said = (result: AddResult) =>
+    result === 'added'
+      ? `Added${color ? ` in ${color.label}` : ''}. Open the cart from the top right.`
+      : result === 'line-full'
+        ? `Your cart already holds ${MAX_LINE_QUANTITY} of this part, the most per order.`
+        : `A cart holds up to ${MAX_CART_LINES} different parts.`;
+
   const addToCart = async () => {
     setAdding((n) => n + 1);
     try {
-      const result = await add(p.slug, color?.key ?? '', 1);
-      setAdded(
-        result === 'added'
-          ? `Added${color ? ` in ${color.label}` : ''}. Open the cart from the top right.`
-          : result === 'line-full'
-            ? `Your cart already holds ${MAX_LINE_QUANTITY} of this part, the most per order.`
-            : `A cart holds up to ${MAX_CART_LINES} different parts.`,
-      );
+      setAdded(said(await add(p.slug, color?.key ?? '', 1)));
     } catch (error) {
       setAdded(error instanceof Error ? error.message : 'Could not add it. Try again.');
     } finally {
       setAdding((n) => n - 1);
+    }
+  };
+
+  // one part into the cart, then straight to checkout (through sign-in for a guest, whose cart joins the account)
+  const buyNow = async () => {
+    setBuying(true);
+    try {
+      const result = await add(p.slug, color?.key ?? '', 1);
+      // at its limit the part is already in the cart, so checkout still makes sense; a full cart does not
+      if (result === 'cart-full') return setAdded(said(result));
+      setAdded(undefined);
+      if (signedIn) router.push('/checkout');
+      else router.push({ pathname: '/account', params: { next: 'checkout' } });
+    } catch (error) {
+      setAdded(error instanceof Error ? error.message : 'Could not add it. Try again.');
+    } finally {
+      setBuying(false);
     }
   };
 
@@ -98,6 +118,18 @@ export default function ProductScreen() {
             {soldOut ? 'Out of stock' : adding > 0 ? 'Adding…' : 'Add to cart'}
           </Text>
         </Pressable>
+        {!soldOut && (
+          <Pressable
+            onPress={() => void buyNow()}
+            disabled={buying}
+            style={StyleSheet.flatten([styles.buy, buying && styles.buyBusy])}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: buying, busy: buying }}
+            accessibilityHint={signedIn ? 'Adds it and opens checkout' : 'Adds it, then asks you to sign in'}
+          >
+            <Text style={styles.buyText}>{buying ? 'One moment…' : 'Buy now'}</Text>
+          </Pressable>
+        )}
         {added && (
           <Text style={styles.added} accessibilityLiveRegion="polite">
             {added}
@@ -171,6 +203,9 @@ const styles = StyleSheet.create({
   addDisabled: { backgroundColor: colors.alu50, borderWidth: 1, borderColor: colors.bench },
   addText: { color: '#15181a', fontSize: 15, fontWeight: '700' },
   addTextDisabled: { color: colors.ink3 },
+  buy: { borderWidth: 1, borderColor: colors.ink, paddingVertical: 13, alignItems: 'center' },
+  buyBusy: { opacity: 0.5 },
+  buyText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
   added: { fontSize: 13, color: colors.ok },
   label: {
     fontFamily: mono,

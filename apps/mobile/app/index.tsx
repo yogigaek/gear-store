@@ -1,234 +1,159 @@
-import { categorySchema, productPageSchema } from '@gear-store/shared';
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
-import { z } from 'zod';
-import { ProductCard } from '../src/components/ProductCard';
-import { api } from '../src/lib/api';
+import { router } from 'expo-router';
+import { useState } from 'react';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AdminOnWeb } from '../src/components/AdminOnWeb';
+import { auth, useAuth } from '../src/lib/auth';
+import { useCategories } from '../src/lib/catalog';
+import { openWeb } from '../src/lib/web';
 import { colors, mono } from '../src/theme';
 
-const PAGE_SIZE = 24;
-/** the API's limit for a search term (productQuerySchema) */
-const MAX_QUERY = 80;
+/** The web's landing page without its 3D: the bike, what Rakit is, and the ways in. */
+export default function HomeScreen() {
+  const state = useAuth();
+  const categories = useCategories();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
 
-/** what the shopper typed, settled: a search is sent once typing pauses, not on every keystroke */
-function useSettled(value: string, ms = 300): string {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return settled;
-}
-
-/** the parts matching a category and a search term, a page at a time */
-function useProducts(category: string | undefined, q: string) {
-  return useInfiniteQuery({
-    queryKey: ['products', { category, q }],
-    queryFn: ({ pageParam }) => {
-      const params = new URLSearchParams({ page: String(pageParam), pageSize: String(PAGE_SIZE) });
-      if (category) params.set('category', category);
-      if (q) params.set('q', q);
-      return api(`/products?${params.toString()}`, productPageSchema);
-    },
-    initialPageParam: 1,
-    getNextPageParam: (last) => (last.page * last.pageSize < last.total ? last.page + 1 : undefined),
-    // the previous results stay while a new filter loads, so the list does not flash empty
-    placeholderData: keepPreviousData,
-  });
-}
-
-export default function ProductsScreen() {
-  const [category, setCategory] = useState<string>();
-  const [typed, setTyped] = useState('');
-  const settled = useSettled(typed.trim());
-  // clearing the box applies at once, so a reset does not first search the old term without its category
-  const q = typed.trim() === '' ? '' : settled;
-
-  const categories = useQuery({
-    queryKey: ['categories'],
-    queryFn: () => api('/categories', z.array(categorySchema)),
-    staleTime: 10 * 60_000,
-  });
-
-  const products = useProducts(category, q);
+  const tryAsShopper = async () => {
+    setBusy(true);
+    setError(undefined);
+    try {
+      await auth.signInDemo('shopper');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not sign in. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
-    <View style={styles.fill}>
-      <View style={styles.filters}>
-        <TextInput
-          value={typed}
-          onChangeText={setTyped}
-          placeholder="Search parts"
-          placeholderTextColor={colors.ink3}
-          style={styles.search}
-          maxLength={MAX_QUERY}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
-          clearButtonMode="while-editing"
-          accessibilityLabel="Search parts"
-        />
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-          keyboardShouldPersistTaps="handled"
+    <ScrollView contentContainerStyle={styles.page}>
+      <Image
+        source={require('../../web/src/assets/e1-poster-wide.jpg')}
+        style={styles.poster}
+        resizeMode="cover"
+        accessibilityLabel="The Rakit E-1, a yellow full-suspension e-bike"
+      />
+      <View style={styles.hero}>
+        <Text style={styles.eyebrow}>Rakit E-1 · Full-suspension e-MTB</Text>
+        <Text style={styles.title} accessibilityRole="header">
+          Built to be taken apart.
+        </Text>
+        <Text style={styles.lead}>
+          A 29-inch trail bike with a mid-drive motor, every part of it listed, priced, and serviceable with
+          the tools in a home workshop.
+        </Text>
+        <Pressable onPress={() => router.push('/products')} style={styles.primary} accessibilityRole="link">
+          <Text style={styles.primaryText}>Browse parts</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => void openWeb('/#configure')}
+          style={styles.secondary}
+          accessibilityRole="link"
+          accessibilityHint="Opens the Rakit website"
         >
-          <Chip label="All" selected={!category} onPress={() => setCategory(undefined)} />
+          <Text style={styles.secondaryText}>Configure yours in 3D on the web</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.label}>Shop by part</Text>
+        {categories.isPending && <ActivityIndicator color={colors.signal} style={styles.spinner} />}
+        <View style={styles.types}>
           {categories.data
             ?.filter((c) => c.productCount > 0)
             .map((c) => (
-              <Chip
+              <Pressable
                 key={c.slug}
-                label={c.name}
-                selected={category === c.slug}
-                onPress={() => setCategory(category === c.slug ? undefined : c.slug)}
-              />
+                onPress={() => router.push({ pathname: '/products', params: { category: c.slug } })}
+                style={styles.type}
+                accessibilityRole="link"
+                accessibilityLabel={`${c.name}, ${c.productCount} on sale`}
+              >
+                <Text style={styles.typeName}>{c.name}</Text>
+                <Text style={styles.typeCount}>{c.productCount}</Text>
+              </Pressable>
             ))}
-        </ScrollView>
+        </View>
       </View>
-      <Results
-        products={products}
-        filterKey={`${category ?? ''}|${q}`}
-        onClear={() => {
-          setTyped('');
-          setCategory(undefined);
-        }}
-      />
-    </View>
-  );
-}
 
-function Results({
-  products,
-  filterKey,
-  onClear,
-}: {
-  products: ReturnType<typeof useProducts>;
-  filterKey: string;
-  onClear: () => void;
-}) {
-  if (products.isPending) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.signal} />
-      </View>
-    );
-  }
-
-  if (products.isError && !products.data) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.message}>{products.error.message}</Text>
-        <Pressable onPress={() => void products.refetch()} style={styles.retry} accessibilityRole="button">
-          <Text style={styles.retryText}>Try again</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  const items = products.data?.pages.flatMap((page) => page.items) ?? [];
-  const total = products.data?.pages[0]?.total ?? 0;
-
-  return (
-    <FlatList
-      // a new filter opens its results at the top, not at the old list's scroll position
-      key={filterKey}
-      data={items}
-      keyExtractor={(product) => product.slug}
-      renderItem={({ item }) => <ProductCard product={item} />}
-      contentContainerStyle={styles.list}
-      keyboardShouldPersistTaps="handled"
-      keyboardDismissMode="on-drag"
-      ItemSeparatorComponent={() => <View style={styles.gap} />}
-      ListHeaderComponent={
-        <>
-          {products.isError && <Text style={styles.banner}>{products.error.message}</Text>}
-          <Text style={styles.count}>
-            {total} {total === 1 ? 'part' : 'parts'}
-            {products.isPlaceholderData ? ' · updating…' : ''}
+      {state.status === 'signed-out' && (
+        <View style={[styles.section, styles.card]}>
+          <Text style={styles.cardTitle}>Try it as a shopper</Text>
+          <Text style={styles.note}>
+            A shared demo account with sample orders. Payments run in Midtrans sandbox; no money moves.
           </Text>
-        </>
-      }
-      ListEmptyComponent={
-        <View style={styles.empty}>
-          <Text style={styles.message}>No parts match.</Text>
-          <Pressable onPress={onClear} style={styles.retry} accessibilityRole="button">
-            <Text style={styles.retryText}>Show all parts</Text>
+          {error && (
+            <Text style={styles.error} accessibilityLiveRegion="polite">
+              {error}
+            </Text>
+          )}
+          <Pressable
+            onPress={() => void tryAsShopper()}
+            disabled={busy}
+            style={StyleSheet.flatten([styles.primary, busy && styles.disabled])}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: busy, busy }}
+          >
+            <Text style={styles.primaryText}>{busy ? 'Signing in…' : 'Try as shopper'}</Text>
           </Pressable>
         </View>
-      }
-      onEndReached={() => {
-        if (products.hasNextPage && !products.isFetchingNextPage) void products.fetchNextPage();
-      }}
-      onEndReachedThreshold={0.5}
-      ListFooterComponent={
-        products.isFetchingNextPage ? (
-          <ActivityIndicator color={colors.signal} style={styles.footer} />
-        ) : undefined
-      }
-      refreshControl={
-        <RefreshControl
-          refreshing={products.isRefetching && !products.isFetchingNextPage && !products.isPlaceholderData}
-          onRefresh={() => void products.refetch()}
-          tintColor={colors.signal}
-        />
-      }
-    />
-  );
-}
+      )}
 
-function Chip({ label, selected, onPress }: { label: string; selected: boolean; onPress: () => void }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.chip, selected && styles.chipSelected]}
-      hitSlop={{ top: 8, bottom: 8 }}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-    >
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
-    </Pressable>
+      <View style={styles.section}>
+        <AdminOnWeb />
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
-  filters: { paddingTop: 12, gap: 10, borderBottomWidth: 1, borderBottomColor: colors.bench },
-  search: {
-    marginHorizontal: 16,
+  page: { paddingBottom: 32 },
+  poster: { width: '100%', aspectRatio: 1440 / 836, backgroundColor: colors.stage },
+  hero: { paddingHorizontal: 16, paddingTop: 20, gap: 12 },
+  eyebrow: {
+    fontFamily: mono,
+    fontSize: 12,
+    color: colors.signal,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  title: { fontSize: 34, lineHeight: 36, fontWeight: '900', color: colors.ink, textTransform: 'uppercase' },
+  lead: { fontSize: 16, lineHeight: 23, color: colors.ink2 },
+  primary: { backgroundColor: colors.signal, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
+  primaryText: {
+    color: '#15181a',
+    fontSize: 15,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  secondary: { borderWidth: 1, borderColor: colors.ink, paddingVertical: 13, alignItems: 'center' },
+  secondaryText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
+  disabled: { opacity: 0.5 },
+  section: { marginHorizontal: 16, marginTop: 28, gap: 10 },
+  label: {
+    fontFamily: mono,
+    fontSize: 12,
+    color: colors.ink3,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  spinner: { alignSelf: 'flex-start' },
+  types: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  type: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
     borderWidth: 1,
     borderColor: colors.benchStrong,
-    backgroundColor: colors.alu50,
-    color: colors.ink,
-    fontSize: 16,
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 11,
   },
-  chips: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
-  chip: { borderWidth: 1, borderColor: colors.benchStrong, paddingHorizontal: 12, paddingVertical: 7 },
-  chipSelected: { borderColor: colors.signal, backgroundColor: colors.signal },
-  chipText: { fontFamily: mono, fontSize: 12, color: colors.ink2 },
-  chipTextSelected: { color: '#15181a', fontWeight: '600' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
-  empty: { alignItems: 'center', gap: 16, paddingTop: 48 },
-  message: { color: colors.ink2, textAlign: 'center', fontSize: 15 },
-  retry: { backgroundColor: colors.signal, paddingHorizontal: 20, paddingVertical: 12 },
-  retryText: { color: '#15181a', fontWeight: '600' },
-  list: { padding: 16, flexGrow: 1 },
-  gap: { height: 12 },
-  count: { fontFamily: mono, fontSize: 12, color: colors.ink3, marginBottom: 12 },
-  footer: { marginVertical: 16 },
-  banner: { fontSize: 13, color: colors.danger, marginBottom: 8 },
+  typeName: { fontSize: 14, fontWeight: '600', color: colors.ink },
+  typeCount: { fontFamily: mono, fontSize: 12, color: colors.ink3 },
+  card: { borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50, padding: 14 },
+  cardTitle: { fontSize: 17, fontWeight: '700', color: colors.ink },
+  note: { fontSize: 13, color: colors.ink3, lineHeight: 19 },
+  error: { color: colors.danger, fontSize: 14 },
 });
