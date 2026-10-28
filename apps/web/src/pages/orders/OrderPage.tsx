@@ -1,9 +1,10 @@
-import { paymentMethodLabel } from '@gear-store/shared';
+import { paymentMethodLabel, type OrderDetail } from '@gear-store/shared';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { AddressLines } from '../../components/checkout/AddressForm';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
 import { PartImage } from '../../components/product/PartImage';
+import { LineList, type Line } from '../../components/checkout/LineList';
 import { Button } from '../../components/ui/Button';
 import { SandboxPaymentGuide } from '../../components/checkout/SandboxPaymentGuide';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -176,60 +177,7 @@ export function OrderPage() {
             <h2 id="items-title" className="mb-2 font-mono text-xs uppercase tracking-[0.08em] text-ink-3">
               Items
             </h2>
-            <ul className="border-t border-ink">
-              {groupOrderLines(o).bikes.map(({ build, parts }) => (
-                <li key={build.id} className="border-b border-bench py-3">
-                  <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3">
-                    <div className="aspect-square overflow-hidden border border-bench">
-                      <PartImage
-                        slug="e1-bike"
-                        colorKey={build.colorKey}
-                        module="FRAME"
-                        className="size-full"
-                      />
-                    </div>
-                    <div className="min-w-0 text-sm">
-                      <p className="font-semibold">{build.label}</p>
-                      <p className="font-mono text-xs text-ink-3">
-                        {build.quantity} × <Price amount={build.unitPrice} className="font-normal" />
-                        {build.colorLabel && ` · ${build.colorLabel}`}
-                      </p>
-                    </div>
-                    <Price amount={build.lineTotal} className="text-sm" />
-                  </div>
-                  <ul className="mt-2 ml-[4.25rem] space-y-0.5 font-mono text-xs text-ink-2">
-                    {parts.map((p) => (
-                      <li key={p.slug} className="flex justify-between gap-3">
-                        <Link to={`/products/${p.slug}`} className="truncate hover:underline">
-                          {p.name}
-                        </Link>
-                        <span className="shrink-0 text-ink-3">{p.model}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-              {groupOrderLines(o).singles.map((i) => (
-                <li
-                  key={`${i.slug}:${i.colorLabel}`}
-                  className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3 border-b border-bench py-3"
-                >
-                  <div className="aspect-square overflow-hidden border border-bench">
-                    <PartImage slug={i.slug} colorKey={i.colorKey} className="size-full" />
-                  </div>
-                  <div className="min-w-0 text-sm">
-                    <Link to={`/products/${i.slug}`} className="font-semibold hover:underline">
-                      {i.name}
-                    </Link>
-                    <p className="font-mono text-xs text-ink-3">
-                      {i.quantity} × <Price amount={i.unitPrice} className="font-normal" /> · {i.model}
-                      {i.colorLabel && ` · ${i.colorLabel}`}
-                    </p>
-                  </div>
-                  <Price amount={i.lineTotal} className="text-sm" />
-                </li>
-              ))}
-            </ul>
+            <LineList lines={orderLines(o)} className="border-y border-bench border-t-ink" />
             <dl className="ml-auto mt-3 max-w-xs space-y-1 text-sm">
               <div className="flex justify-between">
                 <dt>Subtotal</dt>
@@ -308,4 +256,49 @@ export function OrderPage() {
       </div>
     </div>
   );
+}
+
+/** each bike (with the parts it was built from), then the parts bought on their own */
+function orderLines(o: OrderDetail): Line[] {
+  const { bikes, singles } = groupOrderLines(o);
+  return [
+    ...bikes.map(({ build, parts }) => ({
+      key: `bike:${build.id}`,
+      art: <PartImage slug="e1-bike" colorKey={build.colorKey} module="FRAME" className="size-full" />,
+      name: build.label,
+      what: `${parts.length} ${parts.length === 1 ? 'part' : 'parts'}`,
+      finish: build.colorLabel,
+      quantity: build.quantity,
+      unitPrice: build.unitPrice,
+      lineTotal: build.lineTotal,
+      extra: (
+        <ul className="mt-2 ml-[4.25rem] space-y-0.5 font-mono text-xs text-ink-2">
+          {parts.map((p) => (
+            <li key={p.slug} className="flex justify-between gap-3">
+              <Link to={`/products/${p.slug}`} className="truncate hover:underline">
+                {p.name}
+              </Link>
+              <span className="shrink-0 text-ink-3">{p.model}</span>
+            </li>
+          ))}
+        </ul>
+      ),
+    })),
+    ...singles.map((i) => ({
+      key: `part:${i.slug}:${i.colorKey}`,
+      art: (
+        <PartImage slug={i.slug} colorKey={i.colorKey} module={i.module ?? undefined} className="size-full" />
+      ),
+      name: (
+        <Link to={`/products/${i.slug}`} className="hover:underline">
+          {i.name}
+        </Link>
+      ),
+      what: i.model,
+      finish: i.colorLabel,
+      quantity: i.quantity,
+      unitPrice: i.unitPrice,
+      lineTotal: i.lineTotal,
+    })),
+  ];
 }

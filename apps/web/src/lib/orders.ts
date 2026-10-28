@@ -3,6 +3,7 @@ import {
   orderDetailSchema,
   orderSummarySchema,
   type AddressInput,
+  type CheckoutInput,
   type OrderDetail,
 } from '@gear-store/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -133,23 +134,26 @@ export function useOrderActions(number: string) {
   };
 }
 
+/** Places an order: the whole cart, or with `items` (Buy now) only those parts, leaving the cart as it is. */
 export function useCheckout() {
   const { authed } = useAuth();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: { addressId: string; idempotencyKey: string }) =>
+    mutationFn: (input: CheckoutInput) =>
       authed((accessToken) =>
         api('/me/orders', { method: 'POST', body: input, accessToken, schema: orderDetailSchema }),
       ),
-    onSuccess: (order) => {
+    onSuccess: (order, input) => {
       queryClient.setQueryData([...ORDERS, order.number], order);
-      // the cart is empty now, and stock counts on product pages have changed
-      void queryClient.invalidateQueries({ queryKey: ['me', 'cart'] });
+      // the cart is empty now (unless this was a Buy now), and stock counts on product pages have changed
+      if (!input.items) void queryClient.invalidateQueries({ queryKey: ['me', 'cart'] });
       void queryClient.invalidateQueries({ queryKey: ORDERS, exact: true });
       void queryClient.invalidateQueries({ queryKey: ['products'] });
       void queryClient.invalidateQueries({ queryKey: ['product'] });
+      void queryClient.invalidateQueries({ queryKey: ['cart', 'lines'] });
     },
-    // a refused checkout may have changed the cart (a part no longer sold is taken out), so it is read again
-    onError: () => void queryClient.invalidateQueries({ queryKey: ['me', 'cart'] }),
+    // a refused checkout may have changed the cart (a part no longer sold is taken out), or Buy now's price and stock
+    onError: (_error, input) =>
+      void queryClient.invalidateQueries({ queryKey: input.items ? ['cart', 'lines'] : ['me', 'cart'] }),
   });
 }

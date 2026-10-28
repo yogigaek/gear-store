@@ -4,6 +4,7 @@ import {
   MAX_LINE_QUANTITY,
   type BuildSelection,
   type Cart,
+  type CartLineInput,
 } from '@gear-store/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
@@ -97,4 +98,19 @@ export function useCart() {
       return Promise.resolve();
     },
   };
+}
+
+/** Parts priced on their own, outside any cart (Buy now): the same public quote a guest's cart gets. */
+export function useLinesQuote(lines: CartLineInput[] | null) {
+  return useQuery({
+    queryKey: ['cart', 'lines', lines],
+    queryFn: ({ signal }) =>
+      api('/cart/quote', {
+        method: 'POST',
+        body: { items: lines ?? [], builds: [] },
+        schema: cartSchema,
+        signal,
+      }),
+    enabled: lines !== null,
+  });
 }

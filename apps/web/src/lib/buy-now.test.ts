@@ -1,0 +1,51 @@
+import { describe, expect, it } from 'vitest';
+import { buyNowPath, parseBuyLine } from './buy-now';
+
+const read = (query: string) => parseBuyLine(new URLSearchParams(query));
+
+describe('parseBuyLine', () => {
+  it('reads a part, its finish and a quantity', () => {
+    expect(read('buy=e1-frame-m&finish=signal&qty=1')).toEqual({
+      slug: 'e1-frame-m',
+      colorKey: 'signal',
+      quantity: 1,
+    });
+    expect(read('buy=folding-lock&qty=10')).toEqual({ slug: 'folding-lock', colorKey: '', quantity: 10 });
+    expect(read('buy=folding-lock&finish=')).toEqual({ slug: 'folding-lock', colorKey: '', quantity: 1 });
+  });
+
+  it('refuses anything a link could slip in', () => {
+    for (const query of [
+      '',
+      'buy=',
+      'buy=Folding-Lock',
+      'buy=..%2Forders',
+      'buy=folding-lock&buy=rear-rack',
+      'buy=folding-lock&finish=Signal+yellow',
+      `buy=folding-lock&finish=${'a'.repeat(41)}`,
+      'buy=folding-lock&finish=signal&finish=moss',
+      'buy=folding-lock&qty=0',
+      'buy=folding-lock&qty=11',
+      'buy=folding-lock&qty=1.5',
+      'buy=folding-lock&qty=-1',
+      'buy=folding-lock&qty=',
+      'buy=folding-lock&qty=1&qty=2',
+    ]) {
+      expect(read(query), query).toBeNull();
+    }
+  });
+
+  it('round-trips through buyNowPath', () => {
+    for (const line of [
+      { slug: 'e1-frame-m', colorKey: 'moss', quantity: 2 },
+      { slug: 'folding-lock', colorKey: '', quantity: 1 },
+    ]) {
+      const path = buyNowPath(line);
+      expect(path.startsWith('/checkout?')).toBe(true);
+      expect(read(path.slice('/checkout?'.length))).toEqual(line);
+    }
+    expect(buyNowPath({ slug: 'folding-lock', colorKey: '', quantity: 1 })).toBe(
+      '/checkout?buy=folding-lock&qty=1',
+    );
+  });
+});

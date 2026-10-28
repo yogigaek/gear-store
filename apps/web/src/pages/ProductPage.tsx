@@ -1,7 +1,7 @@
 import { MAX_LINE_QUANTITY } from '@gear-store/shared';
 import { useMutation } from '@tanstack/react-query';
 import { lazy, Suspense, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { Button } from '../components/ui/Button';
 import { Label } from '../components/ui/Label';
 import { Price } from '../components/ui/Price';
@@ -16,6 +16,7 @@ import { QuantityStepper } from '../components/cart/QuantityStepper';
 import { useCart } from '../lib/cart';
 import { Notice } from '../components/ui/Field';
 import { ApiError } from '../lib/api';
+import { buyNowPath } from '../lib/buy-now';
 import { useCategories, useProduct, useProductReviews } from '../lib/queries';
 import { useCanRender3D, useCoarsePointer, usePrefersReducedMotion } from '../three/useCanRender3D';
 import { NotFoundPage } from './NotFoundPage';
@@ -38,6 +39,7 @@ function ProductDetail({ slug }: { slug: string }) {
   const [colorId, setColorId] = useState<string>();
   const [qty, setQty] = useState(1);
   const cart = useCart();
+  const navigate = useNavigate();
   const addToCart = useMutation({
     mutationFn: () => cart.add(slug, colorId ?? query.data?.colors[0]?.key ?? '', qty),
     onSuccess: () => {
@@ -230,6 +232,17 @@ function ProductDetail({ slug }: { slug: string }) {
               {soldOut ? 'Out of stock' : addToCart.isPending ? 'Adding…' : 'Add to cart'}
             </Button>
             <SaveButton product={product} />
+            {/* this part alone, straight to checkout (via sign-in when signed out); the cart is not touched */}
+            <Button
+              variant="secondary"
+              className="basis-full"
+              disabled={soldOut}
+              onClick={() =>
+                void navigate(buyNowPath({ slug: product.slug, colorKey: color?.key ?? '', quantity: 1 }))
+              }
+            >
+              Buy now
+            </Button>
           </div>
 
           {addToCart.error && <Notice tone="error">{addToCart.error.message}</Notice>}

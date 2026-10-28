@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router';
 import { useAuth } from '../../lib/auth-context';
+import { signInPath } from '../../lib/navigation';
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { status } = useAuth();
@@ -13,9 +14,7 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     );
   }
   if (status === 'signed-out') {
-    return (
-      <Navigate to={`/sign-in?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
-    );
+    return <Navigate to={signInPath(location.pathname + location.search)} replace />;
   }
   return children;
 }
