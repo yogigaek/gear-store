@@ -60,11 +60,17 @@ export default function HomeScreen() {
 
       <View style={styles.section}>
         <Text style={styles.label}>Shop by part</Text>
-        {categories.isPending && <ActivityIndicator color={colors.signal} style={styles.spinner} />}
+        {categories.isFetching && !categories.data && (
+          <ActivityIndicator color={colors.signal} style={styles.spinner} />
+        )}
         {categories.isError && !categories.data && (
           <View style={styles.failed}>
             <Text style={styles.note}>{categories.error.message}</Text>
-            <Pressable onPress={() => void categories.refetch()} hitSlop={8} accessibilityRole="button">
+            <Pressable
+              onPress={() => void categories.refetch()}
+              style={styles.retryButton}
+              accessibilityRole="button"
+            >
               <Text style={styles.retry}>Try again</Text>
             </Pressable>
           </View>
@@ -169,4 +175,5 @@ const styles = StyleSheet.create({
   error: { color: colors.danger, fontSize: 14 },
   failed: { gap: 6 },
   retry: { fontSize: 14, fontWeight: '600', color: colors.ink, textDecorationLine: 'underline' },
+  retryButton: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
 });

@@ -36,12 +36,10 @@ let persistable = false;
 let notice: { userId: string; count: number } | null = null;
 
 const notify = () => listeners.forEach((l) => l());
-// the last merge's outcome, so checkout can say when the phone's lines did not make it into the account
-let merge: 'idle' | 'running' | 'failed' = 'idle';
-const setMerge = (next: typeof merge) => {
-  merge = next;
-  notify();
-};
+// merges under way, and whether the last one to finish failed: checkout says when the phone's lines did not
+// make it into the account (several can overlap: sign-in, the app's return to the foreground, "Try again")
+let merging = 0;
+let lastMergeFailed = false;
 
 const loaded = AsyncStorage.getItem(STORE_KEY)
   .then((raw) => {
@@ -235,11 +233,17 @@ async function alignWithQuote(lines: CartLineInput[], cart: Cart) {
  * everything for the next try (sign-in, launch, or the app coming back to the foreground).
  */
 export function mergeInto(queryClient: QueryClient, userId: string): Promise<void> {
-  setMerge('running');
+  merging += 1;
+  notify();
+  const settle = (failed: boolean) => {
+    merging -= 1;
+    lastMergeFailed = failed;
+    notify();
+  };
   return mergeAll(queryClient, userId).then(
-    () => setMerge('idle'),
+    () => settle(false),
     (error: unknown) => {
-      setMerge('failed');
+      settle(true);
       throw error;
     },
   );
@@ -292,7 +296,7 @@ export function useGuestItems(): CartLineInput[] {
 /** the phone's own lines, seen from a signed-in account: none left, on their way in, or stuck after a failed merge */
 export function phoneLines(): 'none' | 'joining' | 'failed' {
   if (!items.length && !pending) return 'none';
-  return merge === 'failed' ? 'failed' : 'joining';
+  return merging === 0 && lastMergeFailed ? 'failed' : 'joining';
 }
 
 export function usePhoneLines(): 'none' | 'joining' | 'failed' {

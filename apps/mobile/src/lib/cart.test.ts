@@ -106,6 +106,22 @@ describe('mergeInto', () => {
     expect(m.phoneLines()).toBe('none');
   });
 
+  it('still says "on their way" when one merge failed while another is running', async () => {
+    onPhone([line('folding-lock', 2)]);
+    const m = await launch();
+    await signIn(m, 'a');
+    server.gate('/me/cart/merge', { reply: { status: 503, body: {} } });
+    const hold = deferred();
+    server.gate('/me/cart/merge', { wait: hold.wait });
+    const first = m.mergeInto(m.queryClient, USERS.a.id).catch(() => undefined);
+    const second = m.mergeInto(m.queryClient, USERS.a.id);
+    await first;
+    expect(m.phoneLines()).toBe('joining');
+    hold.resolve();
+    await second;
+    expect(m.phoneLines()).toBe('none');
+  });
+
   it('shows the merged cart before the phone lets go of its lines, so checkout is never empty between', async () => {
     onPhone([line('folding-lock', 2)]);
     const m = await launch();

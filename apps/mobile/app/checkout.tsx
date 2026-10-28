@@ -6,7 +6,14 @@ import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { ApiError } from '../src/lib/api';
 import { useAuth } from '../src/lib/auth';
-import { accountCartKey, mergeInto, useCart, useMergeNotice, usePhoneLines } from '../src/lib/cart';
+import {
+  accountCartKey,
+  dismissMergeNotice,
+  mergeInto,
+  useCart,
+  useMergeNotice,
+  usePhoneLines,
+} from '../src/lib/cart';
 import { checkoutKey, closeCheckout, hasOpenCheckout } from '../src/lib/checkout-key';
 import { count, formatRupiah } from '../src/lib/format';
 import { orders, showOrder, useAddresses } from '../src/lib/orders';
@@ -83,6 +90,8 @@ export default function CheckoutScreen() {
     try {
       const order = await orders.place(address.id, key);
       closeCheckout(key);
+      // what did not fit is old news once the order is placed
+      dismissMergeNotice();
       await showOrder(queryClient, userId, order);
       // the API emptied the cart into the order; refreshed in the background, the order opens at once
       void queryClient.invalidateQueries({ queryKey: accountCartKey(userId) });
@@ -172,7 +181,7 @@ export default function CheckoutScreen() {
           <Text style={styles.problem}>The parts added on this phone have not reached your cart yet.</Text>
           <Pressable
             onPress={() => void mergeInto(queryClient, userId).catch(() => undefined)}
-            hitSlop={8}
+            style={styles.retryButton}
             accessibilityRole="button"
           >
             <Text style={styles.retry}>Try again</Text>
@@ -288,6 +297,7 @@ const styles = StyleSheet.create({
   note: { fontSize: 13, color: colors.ink3, lineHeight: 19 },
   joinFailed: { gap: 6 },
   retry: { fontSize: 14, fontWeight: '600', color: colors.ink, textDecorationLine: 'underline' },
+  retryButton: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   primary: {
     backgroundColor: colors.signal,
     paddingVertical: 14,
