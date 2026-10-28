@@ -1,14 +1,30 @@
 import { MAX_CART_LINES, MAX_LINE_QUANTITY, productDetailSchema } from '@gear-store/shared';
 import { useQuery } from '@tanstack/react-query';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { BottomBar } from '../../src/components/BottomBar';
+import { Button } from '../../src/components/Button';
+import { EmptyState } from '../../src/components/EmptyState';
 import { PartImage, SpecPlate, StockNote } from '../../src/components/parts';
 import { api, ApiError, retryTransient } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
+import { buyParams } from '../../src/lib/buy-now';
 import { useCartActions, type AddResult } from '../../src/lib/cart';
+import { useCategories } from '../../src/lib/catalog';
 import { formatRupiah, keepUnits } from '../../src/lib/format';
+import { useBottomSpace } from '../../src/lib/use-bottom-space';
 import { colors, mono } from '../../src/theme';
+
+type Said = { ok: true; finish?: string } | { ok: false; text: string };
 
 export default function ProductScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
@@ -17,20 +33,27 @@ export default function ProductScreen() {
     queryFn: () => api(`/products/${encodeURIComponent(slug)}`, productDetailSchema),
     retry: retryTransient,
   });
+  const categories = useCategories();
   const [colorKey, setColorKey] = useState<string>();
-  const [added, setAdded] = useState<{ text: string; ok: boolean }>();
+  const [said, setSaid] = useState<Said>();
   // taps stay live while one is on its way: each one queues and adds, so the label only says work is under way
   const [adding, setAdding] = useState(0);
-  const [buying, setBuying] = useState(false);
-  // a second tap before the first re-render would add twice and open checkout twice
-  const buyingNow = useRef(false);
+  // a second tap before the screen changes would open checkout twice
+  const leaving = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      leaving.current = false;
+    }, []),
+  );
   const { add } = useCartActions();
   const signedIn = useAuth().status === 'signed-in';
+  const bottom = useBottomSpace(true);
+  // sized from the screen: a percentage width let iOS draw a photo at its own size
+  const { width } = useWindowDimensions();
 
   if (product.isPending) {
     return (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: '' }} />
         <ActivityIndicator color={colors.signal} />
       </View>
     );
@@ -39,163 +62,157 @@ export default function ProductScreen() {
   // a failed refetch keeps the part on screen; only a first load that failed has nothing to show
   if (product.isError && !product.data) {
     const missing = product.error instanceof ApiError && product.error.status === 404;
-    return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: '' }} />
-        <Text style={styles.message}>{missing ? 'This part is no longer sold.' : product.error.message}</Text>
-        {!missing && (
-          <Pressable onPress={() => void product.refetch()} style={styles.retry} accessibilityRole="button">
-            <Text style={styles.retryText}>Try again</Text>
-          </Pressable>
-        )}
-      </View>
+    return missing ? (
+      <EmptyState message="This part is no longer sold.">
+        <Button label="Browse parts" href="/products" />
+      </EmptyState>
+    ) : (
+      <EmptyState message={product.error.message}>
+        <Button label="Try again" onPress={() => void product.refetch()} />
+      </EmptyState>
     );
   }
 
   const p = product.data;
   const color = p.colors.find((c) => c.key === colorKey) ?? p.colors[0];
   const soldOut = p.stock === 0;
+  const category = categories.data?.find((c) => c.slug === p.category)?.name ?? '';
 
-  const said = (result: AddResult) => ({
-    ok: result === 'added',
+  const refused = (result: Exclude<AddResult, 'added'>): Said => ({
+    ok: false,
     text:
-      result === 'added'
-        ? `Added${color ? ` in ${color.label}` : ''}. Open the cart from the top right.`
-        : result === 'line-full'
-          ? `Your cart already holds ${MAX_LINE_QUANTITY} of this part, the most per order.`
-          : `A cart holds up to ${MAX_CART_LINES} different parts.`,
+      result === 'line-full'
+        ? `Your cart already holds ${MAX_LINE_QUANTITY} of this part, the most per order.`
+        : `A cart holds up to ${MAX_CART_LINES} different parts.`,
   });
 
   const addToCart = async () => {
     setAdding((n) => n + 1);
     try {
-      setAdded(said(await add(p.slug, color?.key ?? '', 1)));
+      const result = await add(p.slug, color?.key ?? '', 1);
+      setSaid(result === 'added' ? { ok: true, finish: color?.label } : refused(result));
     } catch (error) {
-      setAdded({ ok: false, text: error instanceof Error ? error.message : 'Could not add it. Try again.' });
-    } finally {
-      setAdding((n) => n - 1);
+      setSaid({ ok: false, text: error instanceof Error ? error.message : 'Could not add it. Try again.' });
     }
+    setAdding((n) => n - 1);
   };
 
-  // one part into the cart, then straight to checkout (through sign-in for a guest, whose cart joins the account)
-  const buyNow = async () => {
-    if (buyingNow.current) return;
-    buyingNow.current = true;
-    setBuying(true);
-    try {
-      const result = await add(p.slug, color?.key ?? '', 1);
-      // at its limit the part is already in the cart, so checkout still makes sense; a full cart does not
-      if (result === 'cart-full') return setAdded(said(result));
-      setAdded(undefined);
-      if (signedIn) router.push('/checkout');
-      else router.push({ pathname: '/account', params: { next: 'checkout' } });
-    } catch (error) {
-      setAdded({ ok: false, text: error instanceof Error ? error.message : 'Could not add it. Try again.' });
-    } finally {
-      buyingNow.current = false;
-      setBuying(false);
-    }
+  // Buy now orders this one part on its own (POST /me/orders with `items`): the cart is not touched
+  const buyNow = () => {
+    if (leaving.current) return;
+    leaving.current = true;
+    const line = buyParams({ slug: p.slug, colorKey: color?.key ?? '', quantity: 1 });
+    if (signedIn) router.push({ pathname: '/checkout', params: line });
+    else router.push({ pathname: '/account', params: { next: 'checkout', ...line } });
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.page}>
-      <Stack.Screen options={{ title: p.model }} />
-      <PartImage slug={p.slug} module={p.module} colorKey={color?.key} style={styles.art} />
+    <View style={styles.fill}>
+      <Stack.Screen options={{ title: category }} />
+      <ScrollView contentContainerStyle={{ paddingBottom: bottom }}>
+        <PartImage
+          slug={p.slug}
+          module={p.module}
+          colorKey={color?.key}
+          style={[styles.art, { width, height: width * 0.75 }]}
+        />
 
-      <View style={styles.section}>
-        <Text style={styles.model}>{p.model}</Text>
-        <Text style={styles.name} accessibilityRole="header">
-          {p.name}
-        </Text>
-        <View style={styles.priceRow}>
-          <Text style={styles.price}>{formatRupiah(p.price)}</Text>
-          <StockNote stock={p.stock} />
-        </View>
-        <SpecPlate specs={p.plate} />
-      </View>
-
-      <View style={styles.section}>
-        <Pressable
-          onPress={addToCart}
-          disabled={soldOut}
-          style={[styles.add, soldOut && styles.addDisabled]}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: soldOut }}
-        >
-          <Text style={[styles.addText, soldOut && styles.addTextDisabled]}>
-            {soldOut ? 'Out of stock' : adding > 0 ? 'Adding…' : 'Add to cart'}
-          </Text>
-        </Pressable>
-        {!soldOut && (
-          <Pressable
-            onPress={() => void buyNow()}
-            disabled={buying}
-            style={StyleSheet.flatten([styles.buy, buying && styles.buyBusy])}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: buying, busy: buying }}
-            accessibilityHint={signedIn ? 'Adds it and opens checkout' : 'Adds it, then asks you to sign in'}
-          >
-            <Text style={styles.buyText}>{buying ? 'One moment…' : 'Buy now'}</Text>
-          </Pressable>
-        )}
-        {added && (
-          <Text style={added.ok ? styles.added : styles.addFailed} accessibilityLiveRegion="polite">
-            {added.text}
-          </Text>
-        )}
-      </View>
-
-      {p.colors.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.label}>Finish · {color?.label}</Text>
-          <View style={styles.swatches} accessibilityRole="radiogroup">
-            {p.colors.map((c) => {
-              const selected = c.key === color?.key;
-              return (
-                <Pressable
-                  key={c.key}
-                  onPress={() => setColorKey(c.key)}
-                  accessibilityRole="radio"
-                  accessibilityState={{ checked: selected }}
-                  accessibilityLabel={c.label}
-                  style={[styles.swatchRing, selected && styles.swatchSelected]}
-                >
-                  <View style={[styles.swatch, { backgroundColor: c.hex }]} />
-                </Pressable>
-              );
-            })}
+          <Text style={styles.model}>{p.model}</Text>
+          <Text style={styles.name} accessibilityRole="header" maxFontSizeMultiplier={1.4}>
+            {p.name}
+          </Text>
+          <View style={styles.priceRow}>
+            <Text style={styles.price}>{formatRupiah(p.price)}</Text>
+            <StockNote stock={p.stock} />
           </View>
+          <SpecPlate specs={p.plate} />
         </View>
-      )}
 
-      <View style={styles.section}>
-        <Text style={styles.description}>{p.description}</Text>
-      </View>
+        {p.colors.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.label}>Finish · {color?.label}</Text>
+            <View style={styles.swatches} accessibilityRole="radiogroup">
+              {p.colors.map((c) => {
+                const selected = c.key === color?.key;
+                return (
+                  <Pressable
+                    key={c.key}
+                    onPress={() => setColorKey(c.key)}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: selected }}
+                    accessibilityLabel={c.label}
+                    style={[styles.swatchRing, selected && styles.swatchSelected]}
+                  >
+                    <View style={[styles.swatch, { backgroundColor: c.hex }]} />
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
-      {p.specs.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.label}>Specifications</Text>
-          <View style={styles.specs}>
-            {p.specs.map((s, i) => (
-              <View key={s.label} style={[styles.specRow, i > 0 && styles.specDivider]}>
-                <Text style={styles.specLabel}>{s.label}</Text>
-                <Text style={styles.specValue}>{keepUnits(s.value)}</Text>
-              </View>
-            ))}
-          </View>
+          <Text style={styles.description}>{p.description}</Text>
         </View>
-      )}
-    </ScrollView>
+
+        {p.specs.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.label}>Specifications</Text>
+            <View style={styles.specs}>
+              {p.specs.map((s, i) => (
+                <View key={s.label} style={[styles.specRow, i > 0 && styles.specDivider]}>
+                  <Text style={styles.specLabel}>{s.label}</Text>
+                  <Text style={styles.specValue}>{keepUnits(s.value)}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+      </ScrollView>
+
+      <BottomBar>
+        {said &&
+          (said.ok ? (
+            <View style={styles.added} accessibilityLiveRegion="polite">
+              <Text style={styles.addedText}>Added to cart{said.finish ? ` · ${said.finish}` : ''}</Text>
+              <Button variant="ghost" label="View cart" href="/cart" style={styles.viewCart} />
+            </View>
+          ) : (
+            <Text style={styles.addFailed} accessibilityLiveRegion="polite">
+              {said.text}
+            </Text>
+          ))}
+        {soldOut ? (
+          <Button label="Out of stock" disabled />
+        ) : (
+          <View style={styles.actions}>
+            <Button
+              label={adding > 0 ? 'Adding…' : 'Add to cart'}
+              onPress={() => void addToCart()}
+              busy={adding > 0}
+              style={styles.action}
+            />
+            <Button
+              variant="secondary"
+              label="Buy now"
+              onPress={buyNow}
+              accessibilityHint={
+                signedIn ? 'Opens checkout for this part alone' : 'Asks you to sign in, then opens checkout'
+              }
+              style={styles.action}
+            />
+          </View>
+        )}
+      </BottomBar>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
-  message: { color: colors.ink2, textAlign: 'center', fontSize: 15 },
-  retry: { backgroundColor: colors.signal, paddingHorizontal: 20, paddingVertical: 12 },
-  retryText: { color: '#15181a', fontWeight: '600' },
-  page: { paddingBottom: 32 },
-  art: { width: '100%', aspectRatio: 4 / 3, borderBottomWidth: 1, borderBottomColor: colors.bench },
+  fill: { flex: 1 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  art: { borderBottomWidth: 1, borderBottomColor: colors.bench },
   section: { paddingHorizontal: 16, paddingTop: 20, gap: 10 },
   model: { fontFamily: mono, fontSize: 12, color: colors.ink3, letterSpacing: 0.6 },
   name: { fontSize: 26, fontWeight: '800', color: colors.ink, textTransform: 'uppercase', lineHeight: 30 },
@@ -207,15 +224,6 @@ const styles = StyleSheet.create({
     columnGap: 12,
   },
   price: { fontFamily: mono, fontSize: 20, fontWeight: '600', color: colors.ink },
-  add: { backgroundColor: colors.signal, paddingVertical: 14, alignItems: 'center' },
-  addDisabled: { backgroundColor: colors.alu50, borderWidth: 1, borderColor: colors.bench },
-  addText: { color: '#15181a', fontSize: 15, fontWeight: '700' },
-  addTextDisabled: { color: colors.ink3 },
-  buy: { borderWidth: 1, borderColor: colors.ink, paddingVertical: 13, alignItems: 'center' },
-  buyBusy: { opacity: 0.5 },
-  buyText: { color: colors.ink, fontSize: 15, fontWeight: '700' },
-  added: { fontSize: 13, color: colors.ok },
-  addFailed: { fontSize: 13, color: colors.danger },
   label: {
     fontFamily: mono,
     fontSize: 12,
@@ -224,13 +232,29 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   swatches: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  // 34 + 2 × (3 padding + 2 ring) = 44: the tap target
   swatchRing: { padding: 3, borderWidth: 2, borderColor: 'transparent', borderRadius: 999 },
   swatchSelected: { borderColor: colors.signal },
-  swatch: { width: 32, height: 32, borderRadius: 999, borderWidth: 1, borderColor: colors.benchStrong },
+  swatch: { width: 34, height: 34, borderRadius: 999, borderWidth: 1, borderColor: colors.benchStrong },
   description: { fontSize: 15, lineHeight: 23, color: colors.ink2 },
   specs: { borderWidth: 1, borderColor: colors.bench },
-  specRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 16, padding: 10 },
+  specRow: { flexDirection: 'row', gap: 16, padding: 10 },
   specDivider: { borderTopWidth: 1, borderTopColor: colors.bench },
-  specLabel: { fontSize: 14, color: colors.ink3, flexShrink: 1 },
-  specValue: { fontFamily: mono, fontSize: 13, fontWeight: '600', color: colors.ink, textAlign: 'right' },
+  // the value takes the wider share and wraps, so a long one never squeezes the label into a column of letters
+  specLabel: { flex: 2, fontSize: 14, color: colors.ink3 },
+  specValue: {
+    flex: 3,
+    flexShrink: 1,
+    fontFamily: mono,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.ink,
+    textAlign: 'right',
+  },
+  added: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 12 },
+  addedText: { flexShrink: 1, fontSize: 14, color: colors.ok },
+  viewCart: { alignSelf: 'center' },
+  addFailed: { fontSize: 14, color: colors.danger },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  action: { flexGrow: 1, flexBasis: 140 },
 });

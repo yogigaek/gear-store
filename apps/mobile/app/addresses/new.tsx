@@ -2,7 +2,7 @@ import { addressInputSchema, provinceNames, shippingFor, type Province } from '@
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
-import { useState } from 'react';
+import { useRef, useState, type ComponentRef, type Ref } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   FlatList,
@@ -16,18 +16,29 @@ import {
   View,
   type TextInputProps,
 } from 'react-native';
+import { Button } from '../../src/components/Button';
 import { useAuth } from '../../src/lib/auth';
 import { formatRupiah } from '../../src/lib/format';
 import { addressesKey, orders } from '../../src/lib/orders';
+import { useBottomSpace } from '../../src/lib/use-bottom-space';
 import { colors, mono } from '../../src/theme';
 
 type Field = 'recipient' | 'phone' | 'line1' | 'line2' | 'city' | 'province' | 'postalCode' | 'label';
+type Input = ComponentRef<typeof TextInput>;
 
 export default function NewAddressScreen() {
   const state = useAuth();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const bottom = useBottomSpace();
+  // "next" on the keyboard moves down the form; the province is a picker, so city's "next" opens it
+  const phoneField = useRef<Input>(null);
+  const line1Field = useRef<Input>(null);
+  const line2Field = useRef<Input>(null);
+  const cityField = useRef<Input>(null);
+  const postalCodeField = useRef<Input>(null);
+  const labelField = useRef<Input>(null);
   const [values, setValues] = useState<Record<Field, string>>({
     recipient: '',
     phone: '',
@@ -80,15 +91,20 @@ export default function NewAddressScreen() {
     // padding on Android too: edge to edge (SDK 58), the window no longer shrinks for the keyboard. The view
     // measures itself from below the header, so the header's height is added to reach the keyboard's screen edge.
     <KeyboardAvoidingView style={styles.fill} behavior="padding" keyboardVerticalOffset={headerHeight}>
-      <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={[styles.page, { paddingBottom: bottom }]}
+        keyboardShouldPersistTaps="handled"
+      >
         <Input
           label="Recipient"
           value={values.recipient}
           onChangeText={set('recipient')}
           error={errors.recipient}
           autoComplete="name"
+          next={phoneField}
         />
         <Input
+          inputRef={phoneField}
           label="Mobile number"
           value={values.phone}
           onChangeText={set('phone')}
@@ -96,32 +112,48 @@ export default function NewAddressScreen() {
           keyboardType="phone-pad"
           autoComplete="tel"
           placeholder="0812 3456 7890"
+          next={line1Field}
         />
         <Input
+          inputRef={line1Field}
           label="Street address"
           value={values.line1}
           onChangeText={set('line1')}
           error={errors.line1}
           autoComplete="street-address"
+          next={line2Field}
         />
         <Input
+          inputRef={line2Field}
           label="Building, floor, landmark (optional)"
           value={values.line2}
           onChangeText={set('line2')}
           error={errors.line2}
+          next={cityField}
         />
-        <Input label="City or regency" value={values.city} onChangeText={set('city')} error={errors.city} />
+        <Input
+          inputRef={cityField}
+          label="City or regency"
+          value={values.city}
+          onChangeText={set('city')}
+          error={errors.city}
+          returnKeyType="next"
+          onSubmitEditing={() => setPicking(true)}
+        />
 
         <View style={styles.field}>
           <Text style={styles.label}>Province</Text>
           <Pressable
             onPress={() => setPicking(true)}
-            style={[styles.input, errors.province && styles.inputError]}
+            style={[styles.input, styles.picker, errors.province && styles.inputError]}
             accessibilityRole="button"
             accessibilityLabel={values.province ? `Province, ${values.province}` : 'Choose a province'}
           >
-            <Text style={values.province ? styles.inputText : styles.placeholder}>
+            <Text style={[values.province ? styles.inputText : styles.placeholder, styles.pickerText]}>
               {values.province || 'Choose a province'}
+            </Text>
+            <Text style={styles.pickerMark} importantForAccessibility="no" accessibilityElementsHidden>
+              ▾
             </Text>
           </Pressable>
           {shipping && (
@@ -133,6 +165,7 @@ export default function NewAddressScreen() {
         </View>
 
         <Input
+          inputRef={postalCodeField}
           label="Postal code"
           value={values.postalCode}
           onChangeText={set('postalCode')}
@@ -140,25 +173,27 @@ export default function NewAddressScreen() {
           keyboardType="number-pad"
           maxLength={5}
           autoComplete="postal-code"
+          next={labelField}
         />
         <Input
+          inputRef={labelField}
           label="Label (optional)"
           value={values.label}
           onChangeText={set('label')}
           error={errors.label}
           placeholder="Home, Office"
+          returnKeyType="done"
+          onSubmitEditing={() => void save()}
         />
 
         {formError && <Text style={styles.error}>{formError}</Text>}
-        <Pressable
+        <Button
+          label={busy ? 'Saving…' : 'Save address'}
           onPress={() => void save()}
           disabled={busy}
-          style={[styles.primary, busy && styles.disabled]}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy, busy }}
-        >
-          <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save address'}</Text>
-        </Pressable>
+          busy={busy}
+          style={styles.save}
+        />
       </ScrollView>
 
       <Modal
@@ -172,7 +207,11 @@ export default function NewAddressScreen() {
         <View style={[styles.modal, { paddingTop: insets.top + 16, paddingBottom: insets.bottom }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle}>Province</Text>
-            <Pressable onPress={() => setPicking(false)} hitSlop={8} accessibilityRole="button">
+            <Pressable
+              onPress={() => setPicking(false)}
+              style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+              accessibilityRole="button"
+            >
               <Text style={styles.close}>Close</Text>
             </Pressable>
           </View>
@@ -204,11 +243,29 @@ export default function NewAddressScreen() {
   );
 }
 
-function Input({ label, error, ...props }: TextInputProps & { label: string; error?: string }) {
+function Input({
+  label,
+  error,
+  inputRef,
+  next,
+  ...props
+}: TextInputProps & {
+  label: string;
+  error?: string;
+  inputRef?: Ref<Input>;
+  /** the field "next" on the keyboard moves to */
+  next?: { current: Input | null };
+}) {
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <TextInput
+        ref={inputRef}
+        {...(next && {
+          returnKeyType: 'next' as const,
+          submitBehavior: 'submit' as const,
+          onSubmitEditing: () => next.current?.focus(),
+        })}
         {...props}
         style={[styles.input, styles.inputText, error && styles.inputError]}
         placeholderTextColor={colors.ink3}
@@ -232,7 +289,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: colors.benchStrong,
+    borderColor: colors.field,
     backgroundColor: colors.alu50,
     paddingHorizontal: 12,
     paddingVertical: 12,
@@ -242,9 +299,11 @@ const styles = StyleSheet.create({
   inputError: { borderColor: colors.danger },
   hint: { fontSize: 13, color: colors.ink2 },
   error: { fontSize: 13, color: colors.danger },
-  primary: { backgroundColor: colors.signal, paddingVertical: 14, alignItems: 'center', marginTop: 4 },
-  primaryText: { color: '#15181a', fontSize: 15, fontWeight: '700' },
-  disabled: { opacity: 0.4 },
+  picker: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  pickerText: { flex: 1, minWidth: 0 },
+  pickerMark: { fontSize: 14, color: colors.ink3 },
+  save: { marginTop: 4 },
+  pressed: { opacity: 0.85 },
   modal: { flex: 1, backgroundColor: colors.alu },
   modalHead: {
     flexDirection: 'row',
@@ -256,10 +315,12 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.bench,
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: colors.ink },
+  closeButton: { minHeight: 44, minWidth: 44, justifyContent: 'center', alignItems: 'flex-end' },
   close: { fontFamily: mono, fontSize: 13, color: colors.signal },
   option: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
@@ -267,5 +328,5 @@ const styles = StyleSheet.create({
   },
   optionSelected: { backgroundColor: colors.alu50 },
   optionText: { fontSize: 15, color: colors.ink, flexShrink: 1 },
-  optionFee: { fontFamily: mono, fontSize: 13, color: colors.ink3 },
+  optionFee: { flexShrink: 0, fontFamily: mono, fontSize: 13, color: colors.ink3 },
 });

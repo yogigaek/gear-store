@@ -40,6 +40,15 @@ export function PartImage({
   );
 }
 
+/** The empty frame of a line without a still (a part gone from the catalogue, a bike): what it is, in words. */
+export function ArtPlaceholder({ label, style }: { label: string; style?: StyleProp<ViewStyle> }) {
+  return (
+    <View style={[styles.art, style]}>
+      <Text style={styles.placeholder}>{label}</Text>
+    </View>
+  );
+}
+
 /** Stock as a fact, not a nudge: no countdowns, no "only X left!" urgency. */
 export function StockNote({ stock }: { stock: number }) {
   return stock === 0 ? (
@@ -64,13 +73,14 @@ export function SpecPlate({ specs, style }: { specs: readonly Spec[]; style?: St
 }
 
 const styles = StyleSheet.create({
-  art: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.alu },
-  image: { width: '100%', height: '100%' },
+  art: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.still },
+  // pinned to the frame's edges: a percentage size can leave iOS drawing the photo at its own size
+  image: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   placeholder: { fontFamily: mono, fontSize: 11, color: colors.ink3, textTransform: 'uppercase' },
   stock: { fontFamily: mono, fontSize: 11 },
-  plate: { flexDirection: 'row', borderWidth: 1, borderColor: colors.ink },
+  plate: { flexDirection: 'row', borderWidth: 1, borderColor: colors.rule },
   spec: { flex: 1, paddingHorizontal: 8, paddingVertical: 6 },
-  specDivider: { borderLeftWidth: 1, borderLeftColor: colors.ink },
-  specLabel: { fontFamily: mono, fontSize: 10, color: colors.ink3, letterSpacing: 0.6 },
+  specDivider: { borderLeftWidth: 1, borderLeftColor: colors.rule },
+  specLabel: { fontFamily: mono, fontSize: 11, color: colors.ink3, letterSpacing: 0.6 },
   specValue: { fontFamily: mono, fontSize: 12, fontWeight: '600', color: colors.ink },
 });

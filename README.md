@@ -189,11 +189,12 @@ npm run dev:web                      # http://localhost:5173
 `apps/mobile` is the store on a phone: Expo SDK 58, React Native 0.88 and Expo Router, on the same API and the same
 zod contracts from `packages/shared` as the web.
 
-- 🏠 **Home** — the E-1 still and the web's story, part types to start from, "Try as shopper", and links to the
-  3D configurator and the admin dashboard, both on the web (the app is the shop; building a bike and running
-  the store stay on the website).
-- 🔎 **Catalogue** — search, part types, and each part with its finishes and specs; **Buy now** adds the part and
-  opens checkout, through sign-in for a guest.
+- 🏠 **Home** — the E-1 still cropped for a phone, the web's story, "Try as shopper" right under it (with a
+  confirmation once signed in), part types to start from, and links to the 3D configurator and the admin
+  dashboard, both on the web (the app is the shop; building a bike and running the store stay on the website).
+- 🔎 **Catalogue** — search, part types, and each part with its finishes and specs, its actions in a bar at the
+  bottom. **Buy now** orders only that part: checkout prices it alone (`POST /cart/quote`) and places the order
+  with `items`, so the cart is left as it is (through sign-in for a guest, carrying the part along).
 - 🛒 **Cart** — kept on the phone until sign-in, then merged into the account under a merge key, so a cut-off
   merge is resent and never adds twice; parts that do not fit (50 lines, 10 of each) are named in the cart.
   Prices and stock always come from the API.
@@ -201,9 +202,11 @@ zod contracts from `packages/shared` as the web.
   Reads and writes of it run one at a time and refreshes of a session share one request, so a token goes out a
   second time only after a refresh did not complete (the API's two-minute grace answers it if the server had used it). A reply that arrives
   after a sign-out or another sign-in is revoked rather than kept.
-- 💳 **Checkout and orders** — saved addresses with their shipping fee, an idempotency key kept until the order
-  comes back (leaving and re-entering checkout resends it), Midtrans sandbox payment in an in-app browser, and the
-  order history with pay and cancel.
+- 💳 **Checkout and orders** — every line the order will hold listed before the totals, saved addresses with their
+  shipping fee, and an idempotency key kept until the order comes back (leaving and re-entering checkout resends
+  it), one per kind of checkout: the cart's key is never reused for a Buy now, or one part's for another. Placing
+  the order opens Midtrans sandbox payment in an in-app browser at once; checkout and the order page carry the
+  sandbox payment guide (test card, OTP, virtual-account simulator). Then the order history with pay and cancel.
 
 ```sh
 npm run build -w @gear-store/shared      # if packages/shared/dist is missing (`npm run typecheck` builds it too)

@@ -33,10 +33,19 @@ export function ProductCard({ product }: { product: ProductSummary }) {
 
 const styles = StyleSheet.create({
   card: { borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50 },
-  pressed: { borderColor: colors.ink },
+  pressed: { borderColor: colors.rule },
   top: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.bench },
-  art: { width: 112, aspectRatio: 1, borderRightWidth: 1, borderRightColor: colors.bench },
-  heading: { flex: 1, minWidth: 0, padding: 12, justifyContent: 'center', gap: 8 },
+  // the dividing line is the heading's, so it runs the card's full height when a long name grows the heading
+  art: { width: 112, height: 112, alignSelf: 'flex-start' },
+  heading: {
+    flex: 1,
+    minWidth: 0,
+    padding: 12,
+    justifyContent: 'center',
+    gap: 8,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.bench,
+  },
   meta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
   model: { fontFamily: mono, fontSize: 11, color: colors.ink3, letterSpacing: 0.6, flexShrink: 1 },
   name: { fontSize: 16, fontWeight: '600', color: colors.ink, lineHeight: 21 },

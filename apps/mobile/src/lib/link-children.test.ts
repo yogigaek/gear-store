@@ -87,7 +87,10 @@ describe('<Link asChild>', () => {
     expect(linkChildStyles().filter(({ style }) => !plain.test(style))).toEqual([]);
   });
 
+  // buttons open routes with router.push (components/Button.tsx); the links left are the header's and the cart's
   it('finds the children it checks', () => {
-    expect(linkChildStyles().length).toBeGreaterThan(5);
+    const files = linkChildStyles().map(({ file }) => file);
+    expect(files.filter((f) => f === join('src', 'components', 'HeaderActions.tsx'))).toHaveLength(2);
+    expect(files).toContain(join('app', 'cart.tsx'));
   });
 });

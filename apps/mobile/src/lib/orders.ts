@@ -3,6 +3,7 @@ import {
   orderDetailSchema,
   orderSummarySchema,
   type AddressInput,
+  type CartLineInput,
   type OrderDetail,
   type OrderStatus,
 } from '@gear-store/shared';
@@ -97,9 +98,15 @@ export const orders = {
     return id;
   },
   get: (number: string) => authedApi(`/me/orders/${encodeURIComponent(number)}`, orderDetailSchema),
-  /** places the account's cart as an order; the same key again returns the same order instead of a second one */
-  place: (addressId: string, idempotencyKey: string) =>
-    authedApi('/me/orders', orderDetailSchema, { method: 'POST', body: { addressId, idempotencyKey } }),
+  /**
+   * Places the account's cart as an order, or with `items` exactly those parts, leaving the cart as it is (Buy
+   * now). The same key again returns the same order instead of a second one, whatever the body says.
+   */
+  place: (addressId: string, idempotencyKey: string, items?: CartLineInput[]) =>
+    authedApi('/me/orders', orderDetailSchema, {
+      method: 'POST',
+      body: items ? { addressId, idempotencyKey, items } : { addressId, idempotencyKey },
+    }),
   /** the Midtrans page for an order waiting for payment */
   paymentPage: (number: string) =>
     authedApi(`/me/orders/${encodeURIComponent(number)}/pay`, paymentPageSchema, { method: 'POST' }),
@@ -121,9 +128,9 @@ export async function showOrder(queryClient: QueryClient, userId: string, order:
   void queryClient.invalidateQueries({ queryKey: ordersKey(userId) });
 }
 
-/** "27 Oct 2026, 14:05" in Jakarta time, as the store runs on WIB */
+/** "27 Oct 2026, 14:05 WIB": Jakarta time, as the store runs on WIB, and said so for a phone in another zone */
 export function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-GB', {
+  const local = new Date(iso).toLocaleString('en-GB', {
     timeZone: 'Asia/Jakarta',
     day: 'numeric',
     month: 'short',
@@ -131,4 +138,5 @@ export function formatDateTime(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+  return `${local} WIB`;
 }

@@ -1,23 +1,26 @@
-import type { OrderDetail } from '@gear-store/shared';
+import { paymentWindowMinutes, type OrderDetail } from '@gear-store/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Link, Stack, useIsFocused, useLocalSearchParams } from 'expo-router';
+import { useIsFocused, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   AppState,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { PartImage } from '../../src/components/parts';
+import { Button } from '../../src/components/Button';
+import { EmptyState } from '../../src/components/EmptyState';
+import { LineList, lineArt, type Line } from '../../src/components/LineList';
+import { ArtPlaceholder, PartImage } from '../../src/components/parts';
+import { SandboxPaymentGuide } from '../../src/components/SandboxPaymentGuide';
 import { ApiError } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
-import { formatRupiah } from '../../src/lib/format';
+import { count, formatRupiah, lineDetail } from '../../src/lib/format';
 import {
   formatDateTime,
   orders,
@@ -27,17 +30,22 @@ import {
   statusLabels,
   useOrder,
 } from '../../src/lib/orders';
+import { useBottomSpace } from '../../src/lib/use-bottom-space';
 import { colors, mono } from '../../src/theme';
 
 export default function OrderScreen() {
-  const { number } = useLocalSearchParams<{ number: string }>();
+  const { number, pay: payParam } = useLocalSearchParams<{ number: string; pay?: string }>();
   const state = useAuth();
   // polling and pulls run only while this screen is the one in view, not from under another screen
   const focused = useIsFocused();
   const order = useOrder(number, focused);
   const queryClient = useQueryClient();
+  const bottom = useBottomSpace();
   const [busy, setBusy] = useState<'pay' | 'check' | 'cancel'>();
   const [error, setError] = useState<string>();
+  // just placed at checkout (?pay=1): the payment page opens by itself, once, as the web's "Place order and pay"
+  const autoPay = useRef(payParam === '1');
+  const [justPlaced] = useState(payParam === '1');
 
   // While a payment page is open for this order, ask Midtrans for the result when the app comes back to the
   // foreground (the browser was closed or left) and once a minute, as the web does: the API on a laptop cannot
@@ -82,22 +90,64 @@ export default function OrderScreen() {
     if (userId && changed) void queryClient.invalidateQueries({ queryKey: ordersKey(userId) });
   }, [userId, status, queryClient]);
 
+  const run = useCallback(
+    async (kind: 'pay' | 'check' | 'cancel', task: () => Promise<OrderDetail | void>) => {
+      if (!userId) return;
+      setBusy(kind);
+      setError(undefined);
+      try {
+        const next = await task();
+        if (next) await showOrder(queryClient, userId, next);
+      } catch (e) {
+        // e.g. 503 when Midtrans is not set up on this server: the API says so, and the order stays as it is
+        setError(e instanceof Error ? e.message : 'Something went wrong. Try again.');
+        // e.g. 409 "no longer waiting for payment": show the order as it now stands
+        if (e instanceof ApiError && e.status === 409) void refetchOrder();
+      } finally {
+        setBusy(undefined);
+      }
+    },
+    [userId, queryClient, refetchOrder],
+  );
+
+  // Midtrans' page opens in an in-app browser. After paying it lands on the web's /payment-done, which asks the
+  // shopper to close it; iOS reports the close here, Android only that the page opened (the effect above covers it).
+  const pay = useCallback(
+    () =>
+      run('pay', async () => {
+        const { redirectUrl } = await orders.paymentPage(number);
+        const result = await WebBrowser.openBrowserAsync(redirectUrl);
+        // Android reports only that the page opened: re-read the order, which now carries its payment, so the
+        // pulls above start and run when the shopper comes back. iOS reports the close: ask Midtrans at once.
+        if (result.type === 'opened') return orders.get(number);
+        return orders.pullPayment(number);
+      }),
+    [run, number],
+  );
+
+  const canPayNow = order.data?.canPay;
+  useEffect(() => {
+    if (!autoPay.current || !focused || canPayNow === undefined) return;
+    if (!canPayNow) {
+      autoPay.current = false;
+      return;
+    }
+    // once the screen has slid in: iOS will not present the browser over a screen still in its transition
+    const timer = setTimeout(() => {
+      autoPay.current = false;
+      void pay();
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [focused, canPayNow, pay]);
+
   if (state.status !== 'signed-in' || order.isPending) {
-    return (
+    return state.status === 'signed-out' ? (
+      <EmptyState message="Sign in to see this order.">
+        <Button label="Sign in" href="/account" />
+      </EmptyState>
+    ) : (
       <View style={styles.center}>
-        <Stack.Screen options={{ title: number }} />
-        {state.status === 'signed-out' ? (
-          <>
-            <Text style={styles.message}>Sign in to see this order.</Text>
-            <Link href="/account" asChild>
-              <Pressable style={styles.primary} accessibilityRole="link">
-                <Text style={styles.primaryText}>Sign in</Text>
-              </Pressable>
-            </Link>
-          </>
-        ) : (
-          <ActivityIndicator color={colors.signal} />
-        )}
+        <ActivityIndicator color={colors.signal} />
       </View>
     );
   }
@@ -106,49 +156,17 @@ export default function OrderScreen() {
     const missing =
       order.error instanceof ApiError && (order.error.status === 404 || order.error.status === 400);
     return (
-      <View style={styles.center}>
-        <Stack.Screen options={{ title: number }} />
-        <Text style={styles.message}>
-          {missing ? 'There is no such order on this account.' : order.error.message}
-        </Text>
-        {!missing && (
-          <Pressable onPress={() => void order.refetch()} style={styles.primary} accessibilityRole="button">
-            <Text style={styles.primaryText}>Try again</Text>
-          </Pressable>
+      <EmptyState message={missing ? 'There is no such order on this account.' : order.error.message}>
+        {missing ? (
+          <Button label="Your orders" href="/orders" />
+        ) : (
+          <Button label="Try again" onPress={() => void order.refetch()} />
         )}
-      </View>
+      </EmptyState>
     );
   }
 
   const o = order.data;
-  const signedInId = state.user.id;
-
-  const run = async (kind: 'pay' | 'check' | 'cancel', task: () => Promise<OrderDetail | void>) => {
-    setBusy(kind);
-    setError(undefined);
-    try {
-      const next = await task();
-      if (next) await showOrder(queryClient, signedInId, next);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Something went wrong. Try again.');
-      // e.g. 409 "no longer waiting for payment": show the order as it now stands
-      if (e instanceof ApiError && e.status === 409) void order.refetch();
-    } finally {
-      setBusy(undefined);
-    }
-  };
-
-  // Midtrans' page opens in an in-app browser. After paying it lands on the web's /payment-done, which asks the
-  // shopper to close it; iOS reports the close here, Android only that the page opened (the effect above covers it).
-  const pay = () =>
-    run('pay', async () => {
-      const { redirectUrl } = await orders.paymentPage(o.number);
-      const result = await WebBrowser.openBrowserAsync(redirectUrl);
-      // Android reports only that the page opened: re-read the order, which now carries its payment, so the
-      // pulls above start and run when the shopper comes back. iOS reports the close: ask Midtrans at once.
-      if (result.type === 'opened') return orders.get(o.number);
-      return orders.pullPayment(o.number);
-    });
 
   const cancel = () =>
     Alert.alert('Cancel this order?', 'The parts go back on sale. This cannot be undone.', [
@@ -161,93 +179,68 @@ export default function OrderScreen() {
     ]);
 
   const waiting = o.status === 'PENDING_PAYMENT';
-  const looseItems = o.items.filter((i) => i.buildId === null);
 
   return (
     <ScrollView
-      contentContainerStyle={styles.page}
+      contentContainerStyle={[styles.page, { paddingBottom: bottom }]}
       refreshControl={
         <RefreshControl
           refreshing={order.isRefetching}
           onRefresh={() => void order.refetch()}
           tintColor={colors.signal}
+          colors={[colors.signal]}
+          progressBackgroundColor={colors.alu50}
         />
       }
     >
-      <Stack.Screen options={{ title: o.number }} />
+      <Text style={styles.number} selectable>
+        {o.number}
+      </Text>
       <View style={styles.statusRow}>
         <Text style={[styles.status, { color: statusColors[o.status] }]}>{statusLabels[o.status]}</Text>
         <Text style={styles.date}>{formatDateTime(o.createdAt)}</Text>
       </View>
-      {waiting && (
-        <Text style={styles.note}>
-          Pay by {formatDateTime(o.paymentExpiresAt)}, or the order expires and the parts go back on sale.
-        </Text>
-      )}
+      {waiting &&
+        (justPlaced ? (
+          <Text style={styles.note} accessibilityLiveRegion="polite">
+            Order placed. Pay within {paymentWindowMinutes(state.user.isDemo)} minutes to keep the parts (by{' '}
+            {formatDateTime(o.paymentExpiresAt)}).
+          </Text>
+        ) : (
+          <Text style={styles.note}>
+            Pay by {formatDateTime(o.paymentExpiresAt)}, or the order expires and the parts go back on sale.
+          </Text>
+        ))}
       {o.refundStatus === 'NEEDED' && (
         <Text style={styles.note}>A payment arrived after this order closed. It will be refunded.</Text>
       )}
 
       {o.canPay && (
-        <Pressable
+        <Button
+          label={busy === 'pay' ? 'Opening payment…' : `Pay ${formatRupiah(o.total)}`}
           onPress={() => void pay()}
           disabled={busy !== undefined}
-          style={[styles.primary, busy !== undefined && styles.disabled]}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: busy !== undefined, busy: busy === 'pay' }}
-        >
-          <Text style={styles.primaryText}>
-            {busy === 'pay' ? 'Opening payment…' : `Pay ${formatRupiah(o.total)}`}
-          </Text>
-        </Pressable>
+          busy={busy === 'pay'}
+        />
       )}
       {waiting && (
-        <Pressable
+        <Button
+          variant="secondary"
+          label={busy === 'check' ? 'Checking…' : 'Check payment status'}
           onPress={() => void run('check', () => orders.pullPayment(o.number))}
           disabled={busy !== undefined}
-          style={[styles.secondary, busy !== undefined && styles.disabled]}
-          accessibilityRole="button"
-        >
-          <Text style={styles.secondaryText}>
-            {busy === 'check' ? 'Checking…' : 'I have paid: check the status'}
-          </Text>
-        </Pressable>
+          busy={busy === 'check'}
+        />
       )}
-      {error && <Text style={styles.problem}>{error}</Text>}
+      {error && (
+        <Text style={styles.problem} accessibilityLiveRegion="polite">
+          {error}
+        </Text>
+      )}
+      {o.canPay && <SandboxPaymentGuide initiallyOpen />}
 
       <Text style={styles.label}>Items</Text>
-      <View style={styles.items}>
-        {looseItems.map((item) => (
-          <View key={`${item.slug}:${item.colorKey}`} style={styles.item}>
-            {item.module ? (
-              <PartImage slug={item.slug} module={item.module} colorKey={item.colorKey} style={styles.art} />
-            ) : (
-              <View style={styles.art} />
-            )}
-            <View style={styles.itemBody}>
-              <Text style={styles.itemName}>{item.name}</Text>
-              {item.colorLabel && <Text style={styles.finish}>{item.colorLabel}</Text>}
-              <Text style={styles.finish}>
-                {item.quantity} × {formatRupiah(item.unitPrice)}
-              </Text>
-            </View>
-            <Text style={styles.lineTotal}>{formatRupiah(item.lineTotal)}</Text>
-          </View>
-        ))}
-        {o.builds.map((build) => (
-          <View key={build.id} style={styles.item}>
-            <View style={styles.art} />
-            <View style={styles.itemBody}>
-              <Text style={styles.itemName}>{build.label}</Text>
-              {build.colorLabel && <Text style={styles.finish}>{build.colorLabel}</Text>}
-              <Text style={styles.finish}>
-                {build.quantity} × {formatRupiah(build.unitPrice)}
-              </Text>
-            </View>
-            <Text style={styles.lineTotal}>{formatRupiah(build.lineTotal)}</Text>
-          </View>
-        ))}
-      </View>
+      <LineList lines={orderLines(o)} />
 
       <View style={styles.summary}>
         <Row label="Subtotal" value={formatRupiah(o.subtotal)} />
@@ -257,28 +250,67 @@ export default function OrderScreen() {
 
       <Text style={styles.label}>Ship to</Text>
       <View style={styles.card}>
-        <Text style={styles.itemName}>{o.shipping.recipient}</Text>
+        <Text style={styles.recipient}>{o.shipping.recipient}</Text>
         <Text style={styles.line}>{o.shipping.phone}</Text>
         <Text style={styles.line}>{[o.shipping.line1, o.shipping.line2].filter(Boolean).join(', ')}</Text>
         <Text style={styles.line}>
           {o.shipping.city}, {o.shipping.province} {o.shipping.postalCode}
         </Text>
         {o.fulfilment.trackingNumber && (
-          <Text style={styles.finish}>
+          <Text style={styles.tracking} selectable>
             {o.fulfilment.courier} · {o.fulfilment.trackingNumber}
           </Text>
         )}
       </View>
 
       {o.canCancel && (
-        <Pressable onPress={cancel} disabled={busy !== undefined} hitSlop={8} accessibilityRole="button">
-          <Text style={[styles.cancel, busy !== undefined && styles.disabled]}>
-            {busy === 'cancel' ? 'Cancelling…' : 'Cancel order'}
-          </Text>
-        </Pressable>
+        <Button
+          variant="ghost"
+          danger
+          label={busy === 'cancel' ? 'Cancelling…' : 'Cancel order'}
+          onPress={cancel}
+          disabled={busy !== undefined}
+          busy={busy === 'cancel'}
+          style={styles.cancel}
+        />
       )}
     </ScrollView>
   );
+}
+
+/** the parts bought on their own, then each bike, drawn with its frame's still */
+function orderLines(o: OrderDetail): Line[] {
+  return [
+    ...o.items
+      .filter((i) => i.buildId === null)
+      .map((i) => ({
+        key: `part:${i.slug}:${i.colorKey}`,
+        // a part gone from the catalogue has no module, and so no still
+        art: i.module ? (
+          <PartImage slug={i.slug} module={i.module} colorKey={i.colorKey} style={lineArt} />
+        ) : (
+          <ArtPlaceholder label="Part" style={lineArt} />
+        ),
+        name: i.name,
+        detail: lineDetail(i.quantity, i.model, i.colorLabel),
+        total: formatRupiah(i.lineTotal),
+      })),
+    ...o.builds.map((b) => {
+      const parts = o.items.filter((i) => i.buildId === b.id);
+      const frame = parts.find((i) => i.module === 'FRAME');
+      return {
+        key: `bike:${b.id}`,
+        art: frame ? (
+          <PartImage slug={frame.slug} module="FRAME" colorKey={b.colorKey} style={lineArt} />
+        ) : (
+          <ArtPlaceholder label="Bike" style={lineArt} />
+        ),
+        name: b.label,
+        detail: lineDetail(b.quantity, count(parts.length, 'part'), b.colorLabel),
+        total: formatRupiah(b.lineTotal),
+      };
+    }),
+  ];
 }
 
 function Row({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
@@ -291,9 +323,9 @@ function Row({ label, value, strong = false }: { label: string; value: string; s
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
-  message: { color: colors.ink2, textAlign: 'center', fontSize: 15 },
-  page: { padding: 16, gap: 12, paddingBottom: 32 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  page: { padding: 16, gap: 12 },
+  number: { fontFamily: mono, fontSize: 13, color: colors.ink3, letterSpacing: 0.6 },
   // a long status ("Waiting for payment") puts the date on the next line instead of pushing the page wider
   statusRow: {
     flexDirection: 'row',
@@ -315,36 +347,14 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginTop: 8,
   },
-  items: { borderWidth: 1, borderColor: colors.bench },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.bench,
-  },
-  art: { width: 56, height: 56, backgroundColor: colors.alu50 },
-  itemBody: { flex: 1, minWidth: 0, gap: 2 },
-  itemName: { fontSize: 15, fontWeight: '600', color: colors.ink },
-  finish: { fontFamily: mono, fontSize: 11, color: colors.ink3 },
-  lineTotal: { fontFamily: mono, fontSize: 13, fontWeight: '600', color: colors.ink },
   summary: { gap: 8, paddingTop: 4 },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 },
   rowLabel: { fontSize: 14, color: colors.ink2, flexShrink: 1 },
-  rowValue: { fontFamily: mono, fontSize: 14, color: colors.ink },
+  rowValue: { flexShrink: 0, fontFamily: mono, fontSize: 14, color: colors.ink },
   strong: { fontSize: 17, fontWeight: '700', color: colors.ink },
   card: { borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50, padding: 12, gap: 3 },
+  recipient: { fontSize: 15, fontWeight: '600', color: colors.ink },
   line: { fontSize: 14, color: colors.ink2 },
-  primary: {
-    backgroundColor: colors.signal,
-    paddingVertical: 14,
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  primaryText: { color: '#15181a', fontSize: 15, fontWeight: '700' },
-  disabled: { opacity: 0.4 },
-  secondary: { borderWidth: 1, borderColor: colors.ink, paddingVertical: 12, alignItems: 'center' },
-  secondaryText: { color: colors.ink, fontSize: 15, fontWeight: '600' },
-  cancel: { fontSize: 14, color: colors.danger, textDecorationLine: 'underline', marginTop: 12 },
+  tracking: { fontFamily: mono, fontSize: 11, color: colors.ink3 },
+  cancel: { marginTop: 4 },
 });

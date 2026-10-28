@@ -33,18 +33,22 @@ export default function RootLayout() {
           headerStyle: { backgroundColor: colors.stage },
           headerTintColor: colors.ink,
           headerShadowVisible: false,
+          // a back arrow alone: the previous screen's title beside it crowds the header's own
+          headerBackButtonDisplayMode: 'minimal',
           contentStyle: { backgroundColor: colors.alu },
           headerRight: () => <HeaderActions />,
         }}
       >
         <Stack.Screen name="index" options={{ title: 'Rakit' }} />
         <Stack.Screen name="products/index" options={{ title: 'Parts' }} />
+        <Stack.Screen name="products/[slug]" options={{ title: '' }} />
         <Stack.Screen name="cart" options={{ title: 'Cart', headerRight: undefined }} />
         <Stack.Screen name="account" options={{ title: 'Account', headerRight: undefined }} />
         <Stack.Screen name="checkout" options={{ title: 'Checkout', headerRight: undefined }} />
         <Stack.Screen name="addresses/new" options={{ title: 'New address', headerRight: undefined }} />
         <Stack.Screen name="orders/[number]" options={{ title: 'Order' }} />
         <Stack.Screen name="orders/index" options={{ title: 'Orders' }} />
+        <Stack.Screen name="+not-found" options={{ title: 'Not found', headerRight: undefined }} />
       </Stack>
     </QueryClientProvider>
   );

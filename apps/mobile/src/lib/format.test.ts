@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { count, formatRupiah, keepUnits } from './format';
+import { count, formatRupiah, keepUnits, lineDetail } from './format';
 
 // the same cases as the web's format.test.ts and keep-units.test.ts: both apps print figures alike
 describe('formatRupiah', () => {
@@ -31,5 +31,13 @@ describe('count', () => {
     [2, '2 items'],
   ])('%d', (n, expected) => {
     expect(count(n, 'item')).toBe(expected);
+  });
+});
+
+describe('lineDetail', () => {
+  it('names quantity, model and finish, leaving out a finish the part does not have', () => {
+    expect(lineDetail(2, 'E1-FR-M', 'Signal yellow')).toBe('2 × E1-FR-M · Signal yellow');
+    expect(lineDetail(1, 'E1-LK', null)).toBe('1 × E1-LK');
+    expect(lineDetail(1, 'E1-LK', '')).toBe('1 × E1-LK');
   });
 });

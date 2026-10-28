@@ -12,17 +12,24 @@ export function HeaderActions() {
   return (
     <View style={styles.row}>
       <Link href="/account" asChild>
-        <Pressable hitSlop={8} accessibilityRole="link">
+        <Pressable style={styles.control} accessibilityRole="link">
           <Text style={styles.account}>{signedIn ? 'Account' : 'Sign in'}</Text>
         </Pressable>
       </Link>
       <Link href="/cart" asChild>
         <Pressable
-          hitSlop={8}
+          style={styles.control}
           accessibilityRole="link"
           accessibilityLabel={count ? `Cart, ${counted(count, 'item')}` : 'Cart, empty'}
         >
-          <Text style={styles.cart}>Cart{count ? ` · ${count}` : ''}</Text>
+          <Text style={styles.cart}>Cart</Text>
+          {count > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText} maxFontSizeMultiplier={1.2}>
+                {count > 99 ? '99+' : count}
+              </Text>
+            </View>
+          )}
         </Pressable>
       </Link>
     </View>
@@ -30,7 +37,18 @@ export function HeaderActions() {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  row: { flexDirection: 'row', alignItems: 'center' },
+  control: { minHeight: 44, paddingHorizontal: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
   account: { fontFamily: mono, fontSize: 13, color: colors.ink2 },
-  cart: { fontFamily: mono, fontSize: 13, fontWeight: '600', color: colors.signal },
+  cart: { fontFamily: mono, fontSize: 13, fontWeight: '600', color: colors.ink },
+  // a fixed box: the header is a fixed height, so the count does not grow with the text size past 1.2×
+  badge: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.signal,
+  },
+  badgeText: { fontFamily: mono, fontSize: 11, fontWeight: '700', color: colors.onSignal },
 });

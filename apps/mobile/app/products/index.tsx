@@ -13,9 +13,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Button } from '../../src/components/Button';
+import { EmptyState } from '../../src/components/EmptyState';
 import { ProductCard } from '../../src/components/ProductCard';
 import { api } from '../../src/lib/api';
 import { useCategories } from '../../src/lib/catalog';
+import { useBottomSpace } from '../../src/lib/use-bottom-space';
 import { colors, mono } from '../../src/theme';
 
 const PAGE_SIZE = 24;
@@ -122,6 +125,7 @@ function Results({
   filterKey: string;
   onClear: () => void;
 }) {
+  const bottom = useBottomSpace();
   if (products.isPending) {
     return (
       <View style={styles.center}>
@@ -132,12 +136,9 @@ function Results({
 
   if (products.isError && !products.data) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.message}>{products.error.message}</Text>
-        <Pressable onPress={() => void products.refetch()} style={styles.retry} accessibilityRole="button">
-          <Text style={styles.retryText}>Try again</Text>
-        </Pressable>
-      </View>
+      <EmptyState message={products.error.message}>
+        <Button label="Try again" onPress={() => void products.refetch()} />
+      </EmptyState>
     );
   }
 
@@ -151,7 +152,7 @@ function Results({
       data={items}
       keyExtractor={(product) => product.slug}
       renderItem={({ item }) => <ProductCard product={item} />}
-      contentContainerStyle={styles.list}
+      contentContainerStyle={[styles.list, { paddingBottom: bottom }]}
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       ItemSeparatorComponent={() => <View style={styles.gap} />}
@@ -167,9 +168,7 @@ function Results({
       ListEmptyComponent={
         <View style={styles.empty}>
           <Text style={styles.message}>No parts match.</Text>
-          <Pressable onPress={onClear} style={styles.retry} accessibilityRole="button">
-            <Text style={styles.retryText}>Show all parts</Text>
-          </Pressable>
+          <Button label="Show all parts" onPress={onClear} />
         </View>
       }
       onEndReached={() => {
@@ -186,6 +185,8 @@ function Results({
           refreshing={products.isRefetching && !products.isFetchingNextPage && !products.isPlaceholderData}
           onRefresh={() => void products.refetch()}
           tintColor={colors.signal}
+          colors={[colors.signal]}
+          progressBackgroundColor={colors.alu50}
         />
       }
     />
@@ -212,7 +213,7 @@ const styles = StyleSheet.create({
   search: {
     marginHorizontal: 16,
     borderWidth: 1,
-    borderColor: colors.benchStrong,
+    borderColor: colors.field,
     backgroundColor: colors.alu50,
     color: colors.ink,
     fontSize: 16,
@@ -221,14 +222,13 @@ const styles = StyleSheet.create({
   },
   chips: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
   chip: { borderWidth: 1, borderColor: colors.benchStrong, paddingHorizontal: 12, paddingVertical: 7 },
-  chipSelected: { borderColor: colors.signal, backgroundColor: colors.signal },
+  // a ring, not a fill: signal yellow as a fill is kept for the main action
+  chipSelected: { borderColor: colors.signal },
   chipText: { fontFamily: mono, fontSize: 12, color: colors.ink2 },
-  chipTextSelected: { color: '#15181a', fontWeight: '600' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
+  chipTextSelected: { color: colors.ink, fontWeight: '600' },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { alignItems: 'center', gap: 16, paddingTop: 48 },
   message: { color: colors.ink2, textAlign: 'center', fontSize: 15 },
-  retry: { backgroundColor: colors.signal, paddingHorizontal: 20, paddingVertical: 12 },
-  retryText: { color: '#15181a', fontWeight: '600' },
   list: { padding: 16, flexGrow: 1 },
   gap: { height: 12 },
   count: { fontFamily: mono, fontSize: 12, color: colors.ink3, marginBottom: 12 },

@@ -11,7 +11,7 @@ import {
 import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
 import { useSyncExternalStore } from 'react';
-import { api, ApiError } from './api';
+import { api, ApiError, retryTransient } from './api';
 import { authedApi, currentUserId, useAuth } from './auth';
 import { capPending, parseStored, reconcile, subtract, type PendingMerge } from './cart-store';
 
@@ -317,6 +317,17 @@ export function dismissMergeNotice() {
 export function useMergeNotice(userId: string | null): number {
   useSyncExternalStore(subscribe, () => notice);
   return mergeNotice(userId);
+}
+
+/** Prices exactly `lines` (POST /cart/quote) without reading or changing any cart: a Buy now's checkout. */
+export function useLinesQuote(lines: CartLineInput[] | null) {
+  return useQuery({
+    queryKey: ['lines-quote', lines],
+    queryFn: () =>
+      api('/cart/quote', cartSchema, { method: 'POST', body: { items: lines ?? [], builds: [] } }),
+    enabled: lines !== null,
+    retry: retryTransient,
+  });
 }
 
 /** The cart as the server prices it: the account's when signed in, else the phone's lines quoted. */

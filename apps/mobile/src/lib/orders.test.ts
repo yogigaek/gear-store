@@ -79,3 +79,11 @@ describe('statusColors', () => {
     });
   });
 });
+
+describe('formatDateTime', () => {
+  it('gives the time in Jakarta and says so, wherever the phone is', async () => {
+    const { formatDateTime } = await import('./orders');
+    expect(formatDateTime('2026-10-27T07:05:00.000Z')).toBe('27 Oct 2026, 14:05 WIB');
+    expect(formatDateTime('2026-10-27T17:30:00.000Z')).toBe('28 Oct 2026, 00:30 WIB');
+  });
+});

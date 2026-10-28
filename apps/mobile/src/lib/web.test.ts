@@ -11,13 +11,36 @@ vi.mock('expo-web-browser', () => ({
 const { afterSignIn, openWeb, WEB_URL } = await import('./web');
 
 describe('afterSignIn', () => {
-  it('carries a sign-in started by "Buy now" on to checkout', () => {
-    expect(afterSignIn('checkout')).toBe('/checkout');
+  it('carries a sign-in started from the cart on to checkout', () => {
+    expect(afterSignIn({ next: 'checkout' })).toBe('/checkout');
+  });
+
+  it('carries a Buy now on to checkout with that one part', () => {
+    expect(afterSignIn({ next: 'checkout', buy: 'e1-frame-m', finish: 'signal', qty: '1' })).toEqual({
+      pathname: '/checkout',
+      params: { buy: 'e1-frame-m', finish: 'signal', qty: '1' },
+    });
+    expect(afterSignIn({ next: 'checkout', buy: 'folding-lock', qty: '1' })).toEqual({
+      pathname: '/checkout',
+      params: { buy: 'folding-lock', qty: '1' },
+    });
+  });
+
+  it('drops buy params that do not read as one line, keeping only checkout', () => {
+    for (const bad of [
+      { buy: 'https://example.com' },
+      { buy: 'folding-lock', qty: '50' },
+      { buy: 'folding-lock', finish: '<script>' },
+      { buy: ['folding-lock', 'rear-rack'] },
+    ]) {
+      expect(afterSignIn({ next: 'checkout', ...bad })).toBe('/checkout');
+    }
   });
 
   it('ignores anything else, so a link cannot send a new session somewhere unexpected', () => {
     for (const next of [undefined, '', '/checkout', 'orders', 'https://example.com', ['checkout']]) {
-      expect(afterSignIn(next)).toBeNull();
+      expect(afterSignIn({ next })).toBeNull();
+      expect(afterSignIn({ next, buy: 'folding-lock', qty: '1' })).toBeNull();
     }
   });
 });

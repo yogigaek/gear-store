@@ -18,3 +18,8 @@ export function keepUnits(value: string): string {
 export function count(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
 }
+
+/** a line's second row, as on the web's checkout: "2 × E1-FR-M · Signal yellow" */
+export function lineDetail(quantity: number, what: string, finish?: string | null): string {
+  return `${quantity} × ${what}${finish ? ` · ${finish}` : ''}`;
+}
