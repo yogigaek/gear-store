@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { MAX_LINE_QUANTITY } from './build.js';
+import { cartLineInputSchema, MAX_CART_LINES } from './cart.js';
 import { partModuleSchema, rupiahSchema } from './catalog.js';
 
 /** How long a placed order holds its stock while waiting for payment. */
@@ -27,6 +29,15 @@ export const checkoutInputSchema = z.object({
   addressId: z.uuid(),
   /** generated once per checkout attempt by the client; a retry with the same key returns the same order */
   idempotencyKey: z.uuid(),
+  /**
+   * "Buy now": order these parts instead of the cart, which is left as it is. Without it the whole cart is ordered
+   * and emptied.
+   */
+  items: z
+    .array(cartLineInputSchema.extend({ quantity: z.number().int().min(1).max(MAX_LINE_QUANTITY) }))
+    .min(1)
+    .max(MAX_CART_LINES)
+    .optional(),
 });
 export type CheckoutInput = z.infer<typeof checkoutInputSchema>;
 

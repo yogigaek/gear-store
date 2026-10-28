@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "Rakit",
+    "slug": "rakit",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#15181a",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.yogigaek.rakit"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#15181a",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "blockedPermissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.VIBRATE"
+      ],
+      "predictiveBackGestureEnabled": false,
+      "package": "com.yogigaek.rakit"
+    },
+    "scheme": "rakit",
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0b0d0e",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

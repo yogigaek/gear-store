@@ -75,5 +75,21 @@ export const authResponseSchema = z.object({
 });
 export type AuthResponse = z.infer<typeof authResponseSchema>;
 
+/**
+ * Native apps have no browser to keep an httpOnly cookie, so their routes (/auth/native/*) hand the refresh token
+ * over in the body; the app keeps it in the platform's secure storage.
+ */
+export const nativeAuthResponseSchema = authResponseSchema.extend({
+  refreshToken: z.string(),
+  refreshExpiresAt: z.iso.datetime(),
+});
+export type NativeAuthResponse = z.infer<typeof nativeAuthResponseSchema>;
+
+/** a refresh token is 32 random bytes, base64url, like an email link token */
+export const refreshTokenInputSchema = z.object({
+  refreshToken: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Sign in again'),
+});
+export type RefreshTokenInput = z.infer<typeof refreshTokenInputSchema>;
+
 export const messageSchema = z.object({ message: z.string() });
 export type Message = z.infer<typeof messageSchema>;

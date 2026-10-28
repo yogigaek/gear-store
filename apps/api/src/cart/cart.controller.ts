@@ -11,8 +11,10 @@ import {
   type CartLineInput,
   type GuestCart,
   type QuantityInput,
+  mergeCartResultSchema,
   mergeCartSchema,
   type MergeCartInput,
+  type MergeCartResult,
 } from '@gear-store/shared';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from '../auth/access-token.guard.js';
 import { openApiSchema } from '../common/openapi.js';
@@ -89,13 +91,16 @@ export class CartController {
   @HttpCode(200)
   @UseGuards(AccessTokenGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Add a guest cart to the signed-in cart after signing in' })
+  @ApiOperation({
+    summary:
+      'Add a guest cart to the signed-in cart after signing in; notMerged lists the parts that did not fit',
+  })
   @ApiBody({ schema: openApiSchema(mergeCartSchema, 'input') })
-  @ApiOkResponse({ schema: openApiSchema(cartSchema) })
+  @ApiOkResponse({ schema: openApiSchema(mergeCartResultSchema) })
   merge(
     @CurrentAuth() auth: AuthContext,
     @Body(new ZodValidationPipe(mergeCartSchema)) input: MergeCartInput,
-  ): Promise<Cart> {
+  ): Promise<MergeCartResult> {
     return this.cart.merge(auth.userId, input);
   }
 }

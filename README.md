@@ -28,6 +28,7 @@ Started as a rebuild of my 2022 bootcamp capstone (MERN), redone with a modern s
 - [🛠️ Tech stack](#️-tech-stack)
 - [🔐 Security](#-security)
 - [🚀 Run locally](#-run-locally)
+- [📱 Mobile app](#-mobile-app)
 - [📡 API](#-api)
 - [🧪 Tests & CI](#-tests--ci)
 - [☁️ Deploy](#️-deploy)
@@ -120,6 +121,10 @@ repeats it"_.
 ![Zod](https://img.shields.io/badge/Zod-3E67B1?style=for-the-badge&logo=zod&logoColor=white)
 ![Swagger](https://img.shields.io/badge/OpenAPI-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)
 
+**Mobile**<br/>
+![Expo](https://img.shields.io/badge/Expo_SDK_58-000020?style=for-the-badge&logo=expo&logoColor=white)
+![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+
 **Tests & delivery**<br/>
 ![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)
 ![Playwright](https://img.shields.io/badge/Playwright-2EAD33?style=for-the-badge&logo=playwright&logoColor=white)
@@ -128,22 +133,26 @@ repeats it"_.
 ![Render](https://img.shields.io/badge/Render-46E3B7?style=for-the-badge&logo=render&logoColor=black)
 ![Neon](https://img.shields.io/badge/Neon-00E599?style=for-the-badge&logo=neon&logoColor=black)
 
-| Part                          | Tools                                                                           |
-| ----------------------------- | ------------------------------------------------------------------------------- |
-| 🖥️ Web (`apps/web`)           | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind CSS          |
-| 🚲 3D                         | three.js, React Three Fiber, drei, postprocessing                               |
-| ⚙️ API (`apps/api`)           | NestJS, Prisma 7, PostgreSQL, argon2, Helmet, rate limiting, OpenAPI            |
-| 🤝 Shared (`packages/shared`) | zod schemas: one contract for validation, the API docs and the web client       |
-| 🧪 Tests                      | Vitest (unit, and API e2e against PostgreSQL), Playwright (browser)             |
-| ☁️ Delivery                   | GitHub Actions, Vercel (web), Render (API), Neon (PostgreSQL), Midtrans sandbox |
+| Part                          | Tools                                                                              |
+| ----------------------------- | ---------------------------------------------------------------------------------- |
+| 🖥️ Web (`apps/web`)           | React 19, Vite, TypeScript, React Router, TanStack Query, Tailwind CSS             |
+| 🚲 3D                         | three.js, React Three Fiber, drei, postprocessing                                  |
+| ⚙️ API (`apps/api`)           | NestJS, Prisma 7, PostgreSQL, argon2, Helmet, rate limiting, OpenAPI               |
+| 📱 Mobile (`apps/mobile`)     | Expo SDK 58, React Native 0.88, Expo Router, TanStack Query, Expo SecureStore      |
+| 🤝 Shared (`packages/shared`) | zod schemas: one contract for validation, the API docs, the web and the mobile app |
+| 🧪 Tests                      | Vitest (unit, and API e2e against PostgreSQL), Playwright (browser)                |
+| ☁️ Delivery                   | GitHub Actions, Vercel (web), Render (API), Neon (PostgreSQL), Midtrans sandbox    |
 
 ---
 
 ## 🔐 Security
 
 - 🎟️ **Sessions** — 15-minute access tokens (`Authorization: Bearer`) and a refresh token in an `HttpOnly`,
-  `SameSite=Strict` cookie scoped to `/api/auth`. The refresh token rotates on every use; replaying an old one
-  revokes the session. Signing out or resetting a password takes effect at once.
+  `SameSite=Strict` cookie scoped to `/api/auth`. The refresh token rotates on every use; presenting a used one
+  again more than two minutes after its first use revokes the session (inside those two minutes it gets a fresh
+  pair, so a reply lost on a bad connection signs no one out). Signing out or resetting a password takes effect at
+  once. The mobile app keeps its session in the phone's secure storage rather than a cookie, so `/auth/native/*`
+  returns the refresh token in the body; those routes never read the cookie, so a script in the web page cannot turn it into a readable token.
 - 🔑 **Accounts** — argon2id password hashing, email confirmation, the same reply whether or not an email has an
   account, and only SHA-256 hashes of tokens stored.
 - 🚦 **Abuse** — after 5 failed sign-ins an address pauses for a minute, and every further failure doubles the
@@ -175,6 +184,54 @@ npm run dev:web                      # http://localhost:5173
 
 ---
 
+## 📱 Mobile app
+
+`apps/mobile` is the store on a phone: Expo SDK 58, React Native 0.88 and Expo Router, on the same API and the same
+zod contracts from `packages/shared` as the web.
+
+- 🏠 **Home** — the E-1 still cropped for a phone, the web's story, "Try as shopper" right under it (with a
+  confirmation once signed in), part types to start from, and links to the 3D configurator and the admin
+  dashboard, both on the web (the app is the shop; building a bike and running the store stay on the website).
+- 🔎 **Catalogue** — search, part types, and each part with its finishes and specs, its actions in a bar at the
+  bottom. **Buy now** orders only that part: checkout prices it alone (`POST /cart/quote`) and places the order
+  with `items`, so the cart is left as it is (through sign-in for a guest, carrying the part along).
+- 🛒 **Cart** — kept on the phone until sign-in, then merged into the account under a merge key, so a cut-off
+  merge is resent and never adds twice; parts that do not fit (50 lines, 10 of each) are named in the cart.
+  Prices and stock always come from the API.
+- 🔑 **Sign-in** — `/auth/native/*`; the refresh token lives in the phone's secure storage (Keychain / Keystore).
+  Reads and writes of it run one at a time and refreshes of a session share one request, so a token goes out a
+  second time only after a refresh did not complete (the API's two-minute grace answers it if the server had used it). A reply that arrives
+  after a sign-out or another sign-in is revoked rather than kept.
+- 💳 **Checkout and orders** — every line the order will hold listed before the totals, saved addresses with their
+  shipping fee, and an idempotency key kept until the order comes back (leaving and re-entering checkout resends
+  it), one per kind of checkout: the cart's key is never reused for a Buy now, or one part's for another. Placing
+  the order opens Midtrans sandbox payment in an in-app browser at once; checkout and the order page carry the
+  sandbox payment guide (test card, OTP, virtual-account simulator). Then the order history with pay and cancel.
+
+```sh
+npm run build -w @gear-store/shared      # if packages/shared/dist is missing (`npm run typecheck` builds it too)
+npm run dev:api                          # the API, as above; the phone reaches it on this machine's LAN address
+npm run start -w @gear-store/mobile      # scan the QR code with Expo Go on a phone on the same Wi-Fi
+npm test -w @gear-store/mobile           # unit tests, against a stand-in for the API
+```
+
+In development the app finds the API on the machine that serves it. A release build reads `EXPO_PUBLIC_API_URL`,
+set in `apps/mobile/eas.json` to `https://yogi-store.vercel.app/api`: the phone goes through the web's `/api`
+rewrite, as browsers do, so the API sees Vercel's own client address for its rate limits.
+
+**Release build** (EAS, Android). EAS builds from the git tree, where `packages/shared/dist` is not committed, so
+the app's `eas-build-post-install` script builds it; `eas-build-pre-install` installs npm 11, which this workspace
+needs. Sign in to EAS with your own Expo account first:
+
+```sh
+cd apps/mobile
+npx eas-cli login
+npx eas-cli build -p android --profile preview      # an APK to install directly
+npx eas-cli build -p android --profile production   # an app bundle for Google Play
+```
+
+---
+
 ## 📡 API
 
 Interactive docs at `/api/docs`, the OpenAPI document at `/api/openapi.json`.
@@ -184,6 +241,7 @@ Interactive docs at `/api/docs`, the OpenAPI document at `/api/openapi.json`.
 | 🔩 Catalogue | `GET /categories`, `GET /products`, `GET /products/:slug`, product reviews               |
 | 🧩 Build     | `GET /build` (slots, parts, conflicts), `POST /build/quote`                              |
 | 👤 Account   | `/auth/*` (register, confirm, sign in, demo, refresh, reset), `/me`, addresses, wishlist |
+| 📱 Mobile    | `/auth/native/*` (sign in, demo, refresh, sign out) with the refresh token in the body   |
 | 🛒 Cart      | `POST /cart/quote` (guest cart), `/me/cart` parts and bikes, merge on sign-in            |
 | 📦 Orders    | `POST /me/orders`, list, detail, cancel, pay, payment status                             |
 | 💳 Payments  | `POST /payments/midtrans/notification`                                                   |
@@ -235,12 +293,13 @@ gear-store/
 │   ├── api/                 # ⚙️ NestJS API
 │   │   ├── prisma/          #    schema and migrations
 │   │   └── src/             #    auth, catalog, build, cart, orders, payments, reviews, admin, seed
-│   └── web/                 # 🖥️ React storefront and admin
-│       └── src/
-│           ├── pages/       #    home, parts, product, cart, checkout, orders, account, admin
-│           ├── three/       #    🚲 the E-1 and its parts in three.js
-│           └── lib/         #    API client, queries, auth
-├── packages/shared/         # 🤝 zod schemas shared by the API and the web
+│   ├── web/                 # 🖥️ React storefront and admin
+│   │   └── src/
+│   │       ├── pages/       #    home, parts, product, cart, checkout, orders, account, admin
+│   │       ├── three/       #    🚲 the E-1 and its parts in three.js
+│   │       └── lib/         #    API client, queries, auth
+│   └── mobile/              # 📱 Expo app: catalogue, cart, sign-in, checkout, orders
+├── packages/shared/         # 🤝 zod schemas shared by the API, the web and the mobile app
 ├── e2e/                     # 🌐 Playwright browser tests
 └── docs/screenshots/        # 📸 images in this README
 ```

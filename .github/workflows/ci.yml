@@ -57,6 +57,12 @@ jobs:
         run: npm run test:e2e -w @gear-store/api
       - name: build
         run: npm run build
+      # the Android bundle from a clean checkout: proves Metro resolves every import, @gear-store/shared included
+      - name: mobile bundle
+        working-directory: apps/mobile
+        env:
+          EXPO_PUBLIC_API_URL: https://yogi-store.vercel.app/api
+        run: npx expo export --platform android --output-dir ${{ runner.temp }}/mobile-export
 
   # The whole stack in a real browser: sign-up through Mailpit, checkout, a signed payment notification,
   # admin fulfilment. Runs against the production build served by `vite preview`.

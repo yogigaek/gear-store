@@ -129,7 +129,7 @@ describe('Payments (e2e)', () => {
       const itemsTotal = sent.item_details.reduce((sum, i) => sum + i.price * i.quantity, 0);
       expect(itemsTotal).toBe(o.order.total);
       expect(sent.expiry.duration).toBeGreaterThan(55);
-      expect(sent.callbacks.finish).toMatch(new RegExp(`/orders/${o.order.number}$`));
+      expect(sent.callbacks.finish).toMatch(/\/payment-done$/);
       await o.cancel().expect(200);
     });
 

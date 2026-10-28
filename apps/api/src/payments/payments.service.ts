@@ -90,7 +90,8 @@ export class PaymentsService {
           phone: order.shipPhone,
         },
         expiry: { start_time: jakartaTimestamp(new Date()), unit: 'minute', duration: minutesLeft },
-        callbacks: { finish: `${this.env.WEB_ORIGIN}/orders/${order.number}` },
+        // Midtrans adds ?order_id=…; the page works without a web session, as after paying in the phone app
+        callbacks: { finish: `${this.env.WEB_ORIGIN}/payment-done` },
       });
     } catch (error) {
       this.logger.error(`Creating the Midtrans transaction for ${order.number} failed: ${String(error)}`);

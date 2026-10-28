@@ -28,7 +28,8 @@ export class OrdersController {
   @Post()
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @ApiOperation({
-    summary: 'Place an order from the cart; a repeated idempotency key returns the same order',
+    summary:
+      'Place an order from the cart, or of the given items only (buy now: the cart is left as it is); a repeated idempotency key returns the same order',
   })
   @ApiBody({ schema: openApiSchema(checkoutInputSchema, 'input') })
   @ApiOkResponse({ schema: openApiSchema(orderDetailSchema) })
