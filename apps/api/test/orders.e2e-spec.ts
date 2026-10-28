@@ -204,31 +204,35 @@ describe('Addresses and orders (e2e)', () => {
       await me.cancel(numbers[0]).expect(200);
     });
 
-    it('runs a checkout and a cart merge on one account one after the other: no deadlock, nothing lost', async () => {
+    it('runs a checkout and cart changes on one account one after the other: no deadlock, nothing lost', async () => {
       const { me, address } = await customerWithAddress();
       for (let round = 0; round < 40; round += 1) {
         await me.cartSet('workshop-hex-set', 1).expect(200);
-        // the merge updates a line the cart holds and inserts a new one while the checkout holds the account
-        const [placed, merged] = await Promise.all([
+        // the merge updates a line the cart holds and inserts a new one, and a part is added, while the checkout runs
+        const [placed, merged, added] = await Promise.all([
           me.checkout(address.id),
           me.merge([
             { slug: 'workshop-hex-set', quantity: 1 },
             { slug: 'lights-front-rear', quantity: 1 },
           ]),
+          me.cartSet('fender-set', 1),
         ]);
-        expect([placed.status, merged.status], JSON.stringify(placed.body)).toEqual([201, 200]);
+        expect([placed.status, merged.status, added.status], JSON.stringify(placed.body)).toEqual([
+          201, 200, 200,
+        ]);
         // whichever ran first, every unit sent is either in the order or still in the cart
         const order = orderDetailSchema.parse(placed.body);
         const cart = cartSchema.parse((await me.cart().expect(200)).body);
         const held = (slug: string) =>
           (order.items.find((i) => i.slug === slug)?.quantity ?? 0) +
           (cart.items.find((i) => i.product.slug === slug)?.quantity ?? 0);
-        expect([held('workshop-hex-set'), held('lights-front-rear')]).toEqual([2, 1]);
+        expect([held('workshop-hex-set'), held('lights-front-rear'), held('fender-set')]).toEqual([2, 1, 1]);
         await me.cancel(order.number).expect(200);
         await me.cartSet('workshop-hex-set', 0).expect(200);
         await me.cartSet('lights-front-rear', 0).expect(200);
+        await me.cartSet('fender-set', 0).expect(200);
       }
-    });
+    }, 60_000);
 
     it('places one order when one account checks out twice at once with different keys', async () => {
       const { me, address } = await customerWithAddress();

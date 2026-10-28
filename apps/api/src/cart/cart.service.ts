@@ -50,6 +50,8 @@ interface HeldBuild {
 }
 
 const MERGE_KEYS_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
+/** a cart change may queue behind checkouts of the same account (the shared demo shopper most of all) */
+const CART_WRITE = { maxWait: 10_000, timeout: 10_000 };
 
 const toInput = (line: Line, quantity: number): CartLineInput => ({
   slug: line.product.slug,
@@ -116,7 +118,7 @@ export class CartService {
         create: { userId, productId: product.id, colorKey, quantity: input.quantity },
         update: { quantity: input.quantity },
       });
-    });
+    }, CART_WRITE);
     return this.get(userId);
   }
 
@@ -129,7 +131,7 @@ export class CartService {
     await this.prisma.$transaction(async (tx) => {
       await lockCart(tx, userId);
       await this.putBuild(tx, userId, input, book, 'refuse');
-    });
+    }, CART_WRITE);
     return this.get(userId);
   }
 
@@ -141,7 +143,7 @@ export class CartService {
       return quantity === 0
         ? tx.cartBuild.deleteMany({ where })
         : tx.cartBuild.updateMany({ where, data: { quantity } });
-    });
+    }, CART_WRITE);
     if (!count) throw new NotFoundException('That bike is not in your cart');
     return this.get(userId);
   }
@@ -205,7 +207,7 @@ export class CartService {
         byLine.set(id, { ...l, quantity: (byLine.get(id)?.quantity ?? 0) + l.quantity });
       }
       return [...byLine.values()];
-    });
+    }, CART_WRITE);
     return { ...(await this.get(userId)), notMerged };
   }
 
