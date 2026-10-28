@@ -80,6 +80,10 @@ export const routes: RouteObject[] = [
       },
       { path: 'orders', ...page(async () => (await import('./pages/orders/OrdersPage')).OrdersPage, auth) },
       {
+        path: 'payment-done',
+        ...page(async () => (await import('./pages/orders/PaymentDonePage')).PaymentDonePage),
+      },
+      {
         path: 'orders/:number',
         ...page(async () => (await import('./pages/orders/OrderPage')).OrderPage, auth),
       },
