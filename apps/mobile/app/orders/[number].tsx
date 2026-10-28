@@ -61,12 +61,13 @@ export default function OrderScreen() {
     };
   }, [userId, awaitingPayment, focused, number, queryClient]);
 
-  // Coming back to the app re-reads the order, so one that expired or was paid elsewhere shows as it is now.
+  // Coming back to the app re-reads the order even when it is not yet stale, so one that expired or was paid
+  // elsewhere shows as it is now; a read focusManager already started for it is joined, not repeated.
   const refetchOrder = order.refetch;
   useEffect(() => {
     if (!userId || !focused) return;
     const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active') void refetchOrder();
+      if (next === 'active') void refetchOrder({ cancelRefetch: false });
     });
     return () => sub.remove();
   }, [userId, focused, refetchOrder]);

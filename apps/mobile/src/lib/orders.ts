@@ -10,7 +10,7 @@ import { useQuery, type QueryClient } from '@tanstack/react-query';
 import { z } from 'zod';
 import { colors } from '../theme';
 import { retryTransient } from './api';
-import { authedApi, useAuth } from './auth';
+import { authedApi, currentUserId, useAuth } from './auth';
 
 export const statusLabels: Record<OrderStatus, string> = {
   PENDING_PAYMENT: 'Waiting for payment',
@@ -113,8 +113,10 @@ export const orders = {
 };
 
 export async function showOrder(queryClient: QueryClient, userId: string, order: OrderDetail) {
+  if (currentUserId() !== userId) return;
   // a read of the order already on its way would land after this and put the older order back
   await queryClient.cancelQueries({ queryKey: orderKey(userId, order.number) });
+  if (currentUserId() !== userId) return;
   queryClient.setQueryData(orderKey(userId, order.number), order);
   void queryClient.invalidateQueries({ queryKey: ordersKey(userId) });
 }

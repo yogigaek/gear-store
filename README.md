@@ -148,10 +148,11 @@ repeats it"_.
 ## 🔐 Security
 
 - 🎟️ **Sessions** — 15-minute access tokens (`Authorization: Bearer`) and a refresh token in an `HttpOnly`,
-  `SameSite=Strict` cookie scoped to `/api/auth`. The refresh token rotates on every use; replaying an old one
-  revokes the session. Signing out or resetting a password takes effect at once. The mobile app keeps its
-  session in the phone's secure storage rather than a cookie, so `/auth/native/*` returns the refresh token in
-  the body; those routes never read the cookie, so a script in the web page cannot turn it into a readable token.
+  `SameSite=Strict` cookie scoped to `/api/auth`. The refresh token rotates on every use; presenting a used one
+  again more than two minutes after its first use revokes the session (inside those two minutes it gets a fresh
+  pair, so a reply lost on a bad connection signs no one out). Signing out or resetting a password takes effect at
+  once. The mobile app keeps its session in the phone's secure storage rather than a cookie, so `/auth/native/*`
+  returns the refresh token in the body; those routes never read the cookie, so a script in the web page cannot turn it into a readable token.
 - 🔑 **Accounts** — argon2id password hashing, email confirmation, the same reply whether or not an email has an
   account, and only SHA-256 hashes of tokens stored.
 - 🚦 **Abuse** — after 5 failed sign-ins an address pauses for a minute, and every further failure doubles the
@@ -192,8 +193,9 @@ zod contracts from `packages/shared` as the web.
 - 🛒 **Cart** — kept on the phone until sign-in, then merged into the account under a merge key, so a cut-off
   merge is resent and never adds twice; parts that do not fit (50 lines, 10 of each) are named in the cart.
   Prices and stock always come from the API.
-- 🔑 **Sign-in** — `/auth/native/*`; the refresh token lives in the phone's secure storage (Keychain / Keystore),
-  reads and writes of it run one at a time so a rotating token is never sent twice, and a reply that arrives
+- 🔑 **Sign-in** — `/auth/native/*`; the refresh token lives in the phone's secure storage (Keychain / Keystore).
+  Reads and writes of it run one at a time and refreshes of a session share one request, so a token goes out a
+  second time only after a refresh reply was lost (the API's two-minute grace answers it). A reply that arrives
   after a sign-out or another sign-in is revoked rather than kept.
 - 💳 **Checkout and orders** — saved addresses with their shipping fee, an idempotency key kept until the order
   comes back (leaving and re-entering checkout resends it), Midtrans sandbox payment in an in-app browser, and the

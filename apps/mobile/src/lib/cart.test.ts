@@ -297,3 +297,116 @@ describe('account cart', () => {
     expect(m.queryClient.getQueryData(key)).toMatchObject({ itemCount: 2 });
   });
 });
+
+describe('edge cases', () => {
+  const KEY = '6f9619ff-8b86-4d01-b42d-00cf4fc964ff';
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  const emptyCart = { items: [], builds: [], subtotal: 0, itemCount: 0, canCheckout: false };
+
+  it('leaves storage and the catalogue alone when the quote changes nothing', async () => {
+    const lines = [line('e1-frame-m', 2, 'ember'), line('folding-lock', 1)];
+    onPhone(lines);
+    const m = await launch();
+    let writes = 0;
+    fakes.afterStorageWrite = () => void writes++;
+    await m.quoteGuestCart(lines);
+    await settle();
+    expect(writes).toBe(0);
+    expect(server.log.filter((c) => c.path.startsWith('/products/'))).toHaveLength(0);
+  });
+
+  it('writes nothing when what the quote corrects has already left the phone', async () => {
+    onPhone([line('folding-lock', 1)]);
+    const m = await launch();
+    let writes = 0;
+    fakes.afterStorageWrite = () => void writes++;
+    // a quote of an older snapshot, which still held a part no longer sold
+    await m.quoteGuestCart([line('folding-lock', 1), line('withdrawn-part', 1)]);
+    await settle();
+    expect(writes).toBe(0);
+    expect(stored()!.items).toEqual([line('folding-lock', 1)]);
+  });
+
+  it('keeps the lines as they are when the part cannot be read to find its finish', async () => {
+    const lines = [line('e1-frame-m', 2, 'sunset')];
+    onPhone(lines);
+    const m = await launch();
+    server.gate('/products/e1-frame-m', { reply: { status: 404, body: { message: 'Part not found' } } });
+    await m.quoteGuestCart(lines);
+    await vi.waitFor(() => expect(server.calls('/products/e1-frame-m')).toHaveLength(1));
+    await settle();
+    expect(stored()!.items).toEqual(lines);
+  });
+
+  it('refuses a change queued for an account that has signed out since, even with another signed in', async () => {
+    server.carts.set(USERS.a.id, [line('folding-lock', 1)]);
+    const m = await launch();
+    await signIn(m, 'a');
+    const actions = m.accountActions(m.queryClient, USERS.a.id);
+    const hold = deferred();
+    server.gate('/me/cart/items', { wait: hold.wait, after: true });
+    const first = actions.add('folding-lock', '', 1);
+    const queued = actions.adjust('folding-lock', '', 1);
+    await vi.waitFor(() => expect(server.calls('/me/cart/items')).toHaveLength(1));
+    await m.auth.signOut();
+    await signIn(m, 'b');
+    hold.resolve();
+
+    await expect(first).resolves.toBe('added');
+    await expect(queued).rejects.toMatchObject({ status: 401 });
+    expect(server.log.filter((c) => c.path.startsWith('/me/') && c.userId === USERS.b.id)).toHaveLength(0);
+    expect(m.queryClient.getQueryData(m.accountCartKey(USERS.a.id))).toBeUndefined();
+  });
+
+  it('stops after a merge when another account signed in meanwhile, leaving the rest on the phone', async () => {
+    // a merge left waiting from before, and a part added on the phone after it
+    onPhone([line('folding-lock', 2), line('e1-fork-160', 1)], {
+      key: KEY,
+      cart: { items: [line('folding-lock', 2)], builds: [] },
+    });
+    const m = await launch();
+    await signIn(m, 'a');
+    const hold = deferred();
+    server.gate('/me/cart/merge', { wait: hold.wait, after: true });
+    const merging = m.mergeInto(m.queryClient, USERS.a.id);
+    await vi.waitFor(() => expect(server.calls('/me/cart/merge')).toHaveLength(1));
+    await m.auth.signOut();
+    await signIn(m, 'b');
+    hold.resolve();
+    await merging;
+
+    expect(server.calls('/me/cart/merge')).toHaveLength(1);
+    expect(server.carts.get(USERS.a.id)).toEqual([line('folding-lock', 2)]);
+    expect(server.carts.get(USERS.b.id)).toBeUndefined();
+    expect(stored()).toEqual({ items: [line('e1-fork-160', 1)], pending: null });
+  });
+
+  it('keeps working in memory when storage cannot be read at launch, and merges nothing', async () => {
+    onPhone([line('folding-lock', 3)]);
+    fakes.storageReadFails = true;
+    const m = await launch();
+    let writes = 0;
+    fakes.afterStorageWrite = () => void writes++;
+    expect(await m.guestActions.add('e1-fork-160', '', 10)).toBe('added');
+    expect(await m.guestActions.add('e1-fork-160', '', 1)).toBe('line-full');
+    expect(writes).toBe(0);
+    expect(stored()!.items).toEqual([line('folding-lock', 3)]);
+
+    fakes.storageReadFails = false;
+    await signIn(m, 'a');
+    await expect(m.mergeInto(m.queryClient, USERS.a.id)).rejects.toThrow();
+    expect(server.calls('/me/cart/merge')).toHaveLength(0);
+  });
+
+  it('reads a part total over 10 that did not fit, and names it', async () => {
+    onPhone([line('folding-lock', 10)]);
+    const m = await launch();
+    await signIn(m, 'a');
+    server.gate('/me/cart/merge', {
+      reply: { status: 200, body: { ...emptyCart, notMerged: [line('folding-lock', 14)] } },
+    });
+    await m.mergeInto(m.queryClient, USERS.a.id);
+    expect(m.mergeNotice(USERS.a.id)).toBe(14);
+    expect(stored()).toBeNull();
+  });
+});

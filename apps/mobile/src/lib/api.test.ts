@@ -80,6 +80,17 @@ describe('api', () => {
     });
   });
 
+  it("shows the throttler's own 429 text plainly, and a coded 429's message as the API wrote it", async () => {
+    respond(() => json(429, { statusCode: 429, message: 'ThrottlerException: Too Many Requests' }));
+    await expect(api('/x', named)).rejects.toMatchObject({
+      status: 429,
+      message: 'Too many attempts. Wait a minute and try again.',
+    });
+    const paused = 'Too many failed sign-ins. Try again in 2 minutes.';
+    respond(() => json(429, { statusCode: 429, message: paused, code: 'SIGN_IN_PAUSED', retryAfter: 120 }));
+    await expect(api('/x', named)).rejects.toMatchObject({ status: 429, message: paused });
+  });
+
   it('says a build has no store address rather than that the store cannot be reached', async () => {
     delete process.env.EXPO_PUBLIC_API_URL;
     const fetch = vi.fn();

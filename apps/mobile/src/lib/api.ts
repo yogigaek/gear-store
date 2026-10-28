@@ -72,14 +72,16 @@ export async function api(
       throw new ApiError(0, UNREACHABLE);
     }
     if (!res.ok) {
-      const reply = (await res.json().catch(() => null)) as { message?: unknown } | null;
+      const reply = (await res.json().catch(() => null)) as { message?: unknown; code?: unknown } | null;
       const message = Array.isArray(reply?.message) ? reply.message[0] : reply?.message;
+      // as on the web: the throttler's 429 says "ThrottlerException: …"; a coded one (a paused sign-in) says how long
+      const throttled = res.status === 429 && typeof reply?.code !== 'string';
       throw new ApiError(
         res.status,
-        res.status === 429 && typeof message !== 'string'
-          ? 'Too many attempts. Wait a minute and try again.'
-          : typeof message === 'string'
-            ? message
+        typeof message === 'string' && !throttled
+          ? message
+          : res.status === 429
+            ? 'Too many attempts. Wait a minute and try again.'
             : 'Something went wrong. Try again.',
       );
     }

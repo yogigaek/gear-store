@@ -205,3 +205,117 @@ describe('sign-in and sign-out', () => {
     await vi.waitFor(() => expect(revokedTokens()).toEqual([rotated]));
   });
 });
+
+describe('a session that changes while work for it is out', () => {
+  /** holds the next SecureStore write; `entered` settles once it is waiting */
+  const holdNextSecureWrite = () => {
+    const entered = deferred();
+    const release = deferred();
+    fakes.beforeSecureWrite = () => {
+      fakes.beforeSecureWrite = null;
+      entered.resolve();
+      return release.wait;
+    };
+    return { entered: entered.wait, release: release.resolve };
+  };
+  const tokensOf = (user: keyof typeof USERS) =>
+    [...server.refreshTokens].filter(([, t]) => t.userId === USERS[user].id).map(([token]) => token);
+
+  it('does not keep a refreshed pair when a sign-out lands while it is being stored', async () => {
+    const m = await launch();
+    await signedInAs(m, 'a');
+    server.expireAccess(USERS.a.id);
+    const write = holdNextSecureWrite();
+    const call = m.authedApi('/me/cart', cartSchema);
+    await write.entered;
+    const signingOut = m.auth.signOut();
+    expect(m.currentUserId()).toBeNull();
+    write.release();
+    await signingOut;
+
+    await expect(call).rejects.toMatchObject({ status: 401 });
+    expect(m.currentUserId()).toBeNull();
+    expect(fakes.secure.has(REFRESH_KEY)).toBe(false);
+    await vi.waitFor(() => expect(revokedTokens()).toContain(tokensOf('a').at(-1)));
+  });
+
+  it('does not sign in when a sign-out lands while the new session is being stored', async () => {
+    const m = await launch();
+    const write = holdNextSecureWrite();
+    const signingIn = m.auth.signIn({ email: USERS.a.email, password: 'secret-password' });
+    await write.entered;
+    const signingOut = m.auth.signOut();
+    write.release();
+    await signingIn;
+    await signingOut;
+
+    expect(m.currentUserId()).toBeNull();
+    expect(fakes.secure.has(REFRESH_KEY)).toBe(false);
+    await vi.waitFor(() => expect(revokedTokens()).toEqual(tokensOf('a')));
+  });
+
+  it('fails a call that had to restore the session first when another account signs in meanwhile', async () => {
+    const first = await launch();
+    await signedInAs(first, 'a');
+    offline();
+    const m = await launch();
+    await m.auth.restore();
+    online();
+    const hold = deferred();
+    server.gate('/auth/native/refresh', { wait: hold.wait, after: true });
+    const call = m.authedApi('/me/cart', cartSchema);
+    await vi.waitFor(() => expect(server.calls('/auth/native/refresh')).toHaveLength(1));
+    await signedInAs(m, 'b');
+    hold.resolve();
+
+    await expect(call).rejects.toMatchObject({ status: 401 });
+    expect(server.calls('/me/cart')).toHaveLength(0);
+    expect(m.currentUserId()).toBe(USERS.b.id);
+  });
+
+  it('resends a call refused with a token another call has already renewed, without refreshing again', async () => {
+    const m = await launch();
+    await signedInAs(m, 'a');
+    server.expireAccess(USERS.a.id);
+    const hold = deferred();
+    server.gate('/me/cart', { wait: hold.wait });
+    const slow = m.authedApi('/me/cart', cartSchema);
+    await expect(m.authedApi('/me/cart', cartSchema)).resolves.toBeDefined();
+    expect(server.calls('/auth/native/refresh')).toHaveLength(1);
+    hold.resolve();
+
+    await expect(slow).resolves.toBeDefined();
+    expect(server.calls('/auth/native/refresh')).toHaveLength(1);
+    // refused, then resent: the quick call (refreshing on the way), then the slow one with the renewed token
+    expect(server.calls('/me/cart').map((c) => c.userId)).toEqual([null, USERS.a.id, null, USERS.a.id]);
+  });
+
+  it('leaves the next account signed in when the API ends the previous session too late', async () => {
+    const m = await launch();
+    await signedInAs(m, 'a');
+    server.expireAccess(USERS.a.id);
+    const hold = deferred();
+    server.gate('/auth/native/refresh', {
+      wait: hold.wait,
+      after: true,
+      reply: { status: 401, body: { message: 'Session expired' } },
+    });
+    const call = m.authedApi('/me/cart', cartSchema);
+    await vi.waitFor(() => expect(server.calls('/auth/native/refresh')).toHaveLength(1));
+    await m.auth.signOut();
+    await signedInAs(m, 'b');
+    const kept = fakes.secure.get(REFRESH_KEY);
+    hold.resolve();
+
+    await expect(call).rejects.toMatchObject({ status: 401 });
+    expect(m.currentUserId()).toBe(USERS.b.id);
+    expect(fakes.secure.get(REFRESH_KEY)).toBe(kept);
+  });
+
+  it('sends nothing on return to the foreground when no session is stored', async () => {
+    const m = await launch();
+    expect(await m.auth.restore()).toBe(false);
+    expect(await m.auth.resume()).toBe(false);
+    expect(server.calls('/auth/native/refresh')).toHaveLength(0);
+  });
+});

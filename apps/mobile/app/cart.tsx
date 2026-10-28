@@ -167,6 +167,7 @@ function PartRow({ line }: { line: CartLine }) {
         onPress={() => run(actions.remove(product.slug, colorKey))}
         hitSlop={8}
         accessibilityRole="button"
+        accessibilityLabel={`Remove ${product.name}`}
       >
         <Text style={styles.remove}>Remove</Text>
       </Pressable>
@@ -195,7 +196,7 @@ function BikeRow({ build }: { build: CartBuild }) {
     >
       <Text style={styles.name}>{build.quote.label}</Text>
       {build.quote.colorLabel && <Text style={styles.finish}>{build.quote.colorLabel}</Text>}
-      <Text style={styles.finish}>{build.quote.parts.length} parts · built on the web</Text>
+      <Text style={styles.finish}>{count(build.quote.parts.length, 'part')} · built on the web</Text>
       {problem && <Text style={styles.problem}>{problem}</Text>}
       <Controls
         name={build.quote.label}
@@ -203,7 +204,12 @@ function BikeRow({ build }: { build: CartBuild }) {
         total={build.lineTotal}
         onStep={(delta) => run(actions.adjustBuild(build.id, delta))}
       />
-      <Pressable onPress={() => run(actions.removeBuild(build.id))} hitSlop={8} accessibilityRole="button">
+      <Pressable
+        onPress={() => run(actions.removeBuild(build.id))}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${build.quote.label}`}
+      >
         <Text style={styles.remove}>Remove</Text>
       </Pressable>
       {error && <Text style={styles.problem}>{error}</Text>}

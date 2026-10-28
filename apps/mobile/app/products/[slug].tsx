@@ -116,7 +116,7 @@ export default function ProductScreen() {
                   key={c.key}
                   onPress={() => setColorKey(c.key)}
                   accessibilityRole="radio"
-                  accessibilityState={{ selected }}
+                  accessibilityState={{ checked: selected }}
                   accessibilityLabel={c.label}
                   style={[styles.swatchRing, selected && styles.swatchSelected]}
                 >

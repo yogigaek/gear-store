@@ -1,6 +1,7 @@
 import { addressInputSchema, provinceNames, shippingFor, type Province } from '@gear-store/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -26,6 +27,7 @@ export default function NewAddressScreen() {
   const state = useAuth();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const [values, setValues] = useState<Record<Field, string>>({
     recipient: '',
     phone: '',
@@ -75,8 +77,9 @@ export default function NewAddressScreen() {
   };
 
   return (
-    // padding on Android too: edge to edge (SDK 58), the window no longer shrinks for the keyboard
-    <KeyboardAvoidingView style={styles.fill} behavior="padding">
+    // padding on Android too: edge to edge (SDK 58), the window no longer shrinks for the keyboard. The view
+    // measures itself from below the header, so the header's height is added to reach the keyboard's screen edge.
+    <KeyboardAvoidingView style={styles.fill} behavior="padding" keyboardVerticalOffset={headerHeight}>
       <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
         <Input
           label="Recipient"

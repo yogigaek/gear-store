@@ -1,4 +1,5 @@
 import { Link } from 'expo-router';
+import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useState } from 'react';
 import {
   ActivityIndicator,
@@ -48,6 +49,7 @@ export default function AccountScreen() {
 }
 
 function SignIn() {
+  const headerHeight = useHeaderHeight();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -66,8 +68,9 @@ function SignIn() {
   };
 
   return (
-    // padding on Android too: edge to edge (SDK 58), the window no longer shrinks for the keyboard
-    <KeyboardAvoidingView style={styles.fill} behavior="padding">
+    // padding on Android too: edge to edge (SDK 58), the window no longer shrinks for the keyboard. The view
+    // measures itself from below the header, so the header's height is added to reach the keyboard's screen edge.
+    <KeyboardAvoidingView style={styles.fill} behavior="padding" keyboardVerticalOffset={headerHeight}>
       <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Sign in</Text>
         <View style={styles.field}>

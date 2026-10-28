@@ -97,7 +97,11 @@ export default function CheckoutScreen() {
       setError(e instanceof Error ? e.message : 'Could not place the order. Try again.');
       if (e instanceof ApiError && e.status === 404) void addresses.refetch();
       // a refusal (4xx) placed nothing: the next attempt is a new order
-      if (e instanceof ApiError && e.status >= 400 && e.status < 500) closeCheckout(key);
+      if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
+        closeCheckout(key);
+        // e.g. a part withdrawn or short of stock since the cart was read: the summary is redrawn as it now is
+        void queryClient.invalidateQueries({ queryKey: accountCartKey(userId) });
+      }
     } finally {
       setBusy(false);
     }
@@ -127,7 +131,12 @@ export default function CheckoutScreen() {
       )}
       {list.length < MAX_ADDRESSES ? (
         <Link href="/addresses/new" asChild>
-          <Pressable style={styles.secondary} accessibilityRole="link">
+          <Pressable
+            style={[styles.secondary, busy && styles.disabled]}
+            disabled={busy}
+            accessibilityRole="link"
+            accessibilityState={{ disabled: busy }}
+          >
             <Text style={styles.secondaryText}>Add an address</Text>
           </Pressable>
         </Link>
@@ -190,7 +199,7 @@ function AddressOption({
       onPress={onSelect}
       style={[styles.address, selected && styles.addressSelected]}
       accessibilityRole="radio"
-      accessibilityState={{ selected }}
+      accessibilityState={{ checked: selected }}
     >
       <Text style={styles.recipient}>
         {address.recipient}
