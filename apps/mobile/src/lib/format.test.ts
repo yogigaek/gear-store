@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { count, formatRupiah, keepUnits, lineDetail } from './format';
+import { count, formatRupiah, keepUnits, lineDetail, unitLine } from './format';
 
 // the same cases as the web's format.test.ts and keep-units.test.ts: both apps print figures alike
 describe('formatRupiah', () => {
@@ -35,9 +35,13 @@ describe('count', () => {
 });
 
 describe('lineDetail', () => {
-  it('names quantity, model and finish, leaving out a finish the part does not have', () => {
-    expect(lineDetail(2, 'E1-FR-M', 'Signal yellow')).toBe('2 × E1-FR-M · Signal yellow');
-    expect(lineDetail(1, 'E1-LK', null)).toBe('1 × E1-LK');
-    expect(lineDetail(1, 'E1-LK', '')).toBe('1 × E1-LK');
+  it('names the model and finish, leaving out a finish the part does not have', () => {
+    expect(lineDetail('E1-FR-M', 'Signal yellow')).toBe('E1-FR-M · Signal yellow');
+    expect(lineDetail('E1-LK', null)).toBe('E1-LK');
+    expect(lineDetail('E1-LK', '')).toBe('E1-LK');
+  });
+
+  it('gives the quantity at the price of one', () => {
+    expect(unitLine(2, 650000)).toBe('2 × Rp 650.000');
   });
 });

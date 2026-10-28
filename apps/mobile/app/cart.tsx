@@ -262,8 +262,8 @@ const styles = StyleSheet.create({
   list: { padding: 16 },
   gap: { height: 12 },
   row: { flexDirection: 'row', borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50 },
-  // the dividing line is the body's, so it runs the row's full height however tall the body grows
-  art: { width: 96, height: 96, alignSelf: 'flex-start' },
+  // the still fills the card's full height, so the card never shows half a picture over an empty block
+  art: { width: 104, minHeight: 104, alignSelf: 'stretch' },
   body: {
     flex: 1,
     minWidth: 0,

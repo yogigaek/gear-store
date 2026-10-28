@@ -38,7 +38,7 @@ import {
   usePhoneLines,
 } from '../src/lib/cart';
 import { checkoutKey, checkoutScope, closeCheckout, hasOpenCheckout } from '../src/lib/checkout-key';
-import { count, formatRupiah, lineDetail } from '../src/lib/format';
+import { count, formatRupiah, lineDetail, unitLine } from '../src/lib/format';
 import { orders, showOrder, useAddresses } from '../src/lib/orders';
 import { useBottomSpace } from '../src/lib/use-bottom-space';
 import { colors, mono } from '../src/theme';
@@ -270,7 +270,12 @@ export default function CheckoutScreen() {
           </View>
         )}
         {list.length < MAX_ADDRESSES ? (
-          <Button variant="secondary" label="Add an address" href="/addresses/new" disabled={busy} />
+          <Button
+            variant={list.length === 0 ? 'secondary' : 'ghost'}
+            label={list.length === 0 ? 'Add an address' : '+ Add another address'}
+            href="/addresses/new"
+            disabled={busy}
+          />
         ) : (
           <Text style={styles.note}>
             You have saved {MAX_ADDRESSES} addresses, the most an account keeps. Remove one on the website to
@@ -328,7 +333,8 @@ function orderLines(priced: Cart): Line[] {
         <PartImage slug={i.product.slug} module={i.product.module} colorKey={i.colorKey} style={lineArt} />
       ),
       name: i.product.name,
-      detail: lineDetail(i.quantity, i.product.model, i.colorLabel),
+      detail: lineDetail(i.product.model, i.colorLabel),
+      unit: unitLine(i.quantity, i.product.price),
       total: formatRupiah(i.lineTotal),
     })),
     ...priced.builds.map((b) => {
@@ -341,7 +347,8 @@ function orderLines(priced: Cart): Line[] {
           <ArtPlaceholder label="Bike" style={lineArt} />
         ),
         name: b.quote.label,
-        detail: lineDetail(b.quantity, count(b.quote.parts.length, 'part'), b.quote.colorLabel),
+        detail: lineDetail(count(b.quote.parts.length, 'part'), b.quote.colorLabel),
+        unit: unitLine(b.quantity, b.lineTotal / b.quantity),
         total: formatRupiah(b.lineTotal),
       };
     }),

@@ -19,7 +19,12 @@ export function count(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`;
 }
 
-/** a line's second row, as on the web's checkout: "2 × E1-FR-M · Signal yellow" */
-export function lineDetail(quantity: number, what: string, finish?: string | null): string {
-  return `${quantity} × ${what}${finish ? ` · ${finish}` : ''}`;
+/** a line's model and finish: "E1-FR-M · Signal yellow" */
+export function lineDetail(what: string, finish?: string | null): string {
+  return `${what}${finish ? ` · ${finish}` : ''}`;
+}
+
+/** how many, at what price each: "2 × Rp 650.000" */
+export function unitLine(quantity: number, unitPrice: number): string {
+  return `${quantity} × ${formatRupiah(unitPrice)}`;
 }

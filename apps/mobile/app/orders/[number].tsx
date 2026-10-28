@@ -20,7 +20,7 @@ import { ArtPlaceholder, PartImage } from '../../src/components/parts';
 import { SandboxPaymentGuide } from '../../src/components/SandboxPaymentGuide';
 import { ApiError } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
-import { count, formatRupiah, lineDetail } from '../../src/lib/format';
+import { count, formatRupiah, lineDetail, unitLine } from '../../src/lib/format';
 import {
   formatDateTime,
   orders,
@@ -299,7 +299,8 @@ function orderLines(o: OrderDetail): Line[] {
           <ArtPlaceholder label="Part" style={lineArt} />
         ),
         name: i.name,
-        detail: lineDetail(i.quantity, i.model, i.colorLabel),
+        detail: lineDetail(i.model, i.colorLabel),
+        unit: unitLine(i.quantity, i.unitPrice),
         total: formatRupiah(i.lineTotal),
       })),
     ...o.builds.map((b) => {
@@ -313,7 +314,8 @@ function orderLines(o: OrderDetail): Line[] {
           <ArtPlaceholder label="Bike" style={lineArt} />
         ),
         name: b.label,
-        detail: lineDetail(b.quantity, count(parts.length, 'part'), b.colorLabel),
+        detail: lineDetail(count(parts.length, 'part'), b.colorLabel),
+        unit: unitLine(b.quantity, b.unitPrice),
         total: formatRupiah(b.lineTotal),
       };
     }),

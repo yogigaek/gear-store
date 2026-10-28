@@ -6,8 +6,10 @@ export interface Line {
   key: string;
   art: ReactNode;
   name: string;
-  /** "qty × model · finish" */
+  /** "model · finish" */
   detail: string;
+  /** "qty × price of one" */
+  unit: string;
   total: string;
 }
 
@@ -21,6 +23,7 @@ export function LineList({ lines }: { lines: Line[] }) {
           <View style={styles.body}>
             <Text style={styles.name}>{line.name}</Text>
             <Text style={styles.detail}>{line.detail}</Text>
+            <Text style={styles.detail}>{line.unit}</Text>
           </View>
           <Text style={styles.total}>{line.total}</Text>
         </View>

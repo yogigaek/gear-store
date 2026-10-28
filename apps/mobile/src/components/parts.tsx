@@ -75,7 +75,8 @@ export function SpecPlate({ specs, style }: { specs: readonly Spec[]; style?: St
 const styles = StyleSheet.create({
   art: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.still },
   // pinned to the frame's edges: a percentage size can leave iOS drawing the photo at its own size
-  image: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
+  // the box is always sized in points by the caller, so a full-size image is safe here (it showed on the phone)
+  image: { width: '100%', height: '100%' },
   placeholder: { fontFamily: mono, fontSize: 11, color: colors.ink3, textTransform: 'uppercase' },
   stock: { fontFamily: mono, fontSize: 11 },
   plate: { flexDirection: 'row', borderWidth: 1, borderColor: colors.rule },
