@@ -1,27 +1,20 @@
 import { paymentWindowMinutes, type OrderDetail } from '@gear-store/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { useIsFocused, useLocalSearchParams } from 'expo-router';
+import { router, useIsFocused, useLocalSearchParams } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  AppState,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { Alert, AppState, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../../src/components/Button';
 import { EmptyState } from '../../src/components/EmptyState';
 import { LineList, lineArt, type Line } from '../../src/components/LineList';
+import { Loading } from '../../src/components/Loading';
 import { ArtPlaceholder, PartImage } from '../../src/components/parts';
 import { SandboxPaymentGuide } from '../../src/components/SandboxPaymentGuide';
 import { ApiError } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
 import { count, formatRupiah, lineDetail, unitLine } from '../../src/lib/format';
 import {
+  expiryDelay,
   formatDateTime,
   orders,
   ordersKey,
@@ -31,6 +24,7 @@ import {
   useOrder,
 } from '../../src/lib/orders';
 import { useBottomSpace } from '../../src/lib/use-bottom-space';
+import { usePullRefresh } from '../../src/lib/use-pull-refresh';
 import { colors, mono } from '../../src/theme';
 
 export default function OrderScreen() {
@@ -41,6 +35,7 @@ export default function OrderScreen() {
   const order = useOrder(number, focused);
   const queryClient = useQueryClient();
   const bottom = useBottomSpace();
+  const pull = usePullRefresh(order.refetch);
   const [busy, setBusy] = useState<'pay' | 'check' | 'cancel'>();
   const [error, setError] = useState<string>();
   // just placed at checkout (?pay=1): the payment page opens by itself, once, as the web's "Place order and pay"
@@ -79,6 +74,15 @@ export default function OrderScreen() {
     });
     return () => sub.remove();
   }, [userId, focused, refetchOrder]);
+
+  // re-read once the payment window ends, so Pay goes away when the order expires while it is on screen
+  const expiresAt = order.data?.canPay ? order.data.paymentExpiresAt : undefined;
+  useEffect(() => {
+    const delay = expiresAt && focused ? expiryDelay(expiresAt) : null;
+    if (delay === null) return;
+    const timer = setTimeout(() => void refetchOrder({ cancelRefetch: false }), delay);
+    return () => clearTimeout(timer);
+  }, [expiresAt, focused, refetchOrder]);
 
   // the orders list shows each order's status: keep it in step when this one changes (not on first load)
   const status = order.data?.status;
@@ -150,12 +154,14 @@ export default function OrderScreen() {
   if (state.status !== 'signed-in' || order.isPending) {
     return state.status === 'signed-out' ? (
       <EmptyState message="Sign in to see this order.">
-        <Button label="Sign in" href="/account" />
+        <Button
+          label="Sign in"
+          // replaced, not pushed: signed in, the account screen opens this order again in this one's place
+          onPress={() => router.replace({ pathname: '/account', params: { next: 'order', number } })}
+        />
       </EmptyState>
     ) : (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.signal} />
-      </View>
+      <Loading />
     );
   }
   if (order.isError && !order.data) {
@@ -192,8 +198,7 @@ export default function OrderScreen() {
       contentContainerStyle={[styles.page, { paddingBottom: bottom }]}
       refreshControl={
         <RefreshControl
-          refreshing={order.isRefetching}
-          onRefresh={() => void order.refetch()}
+          {...pull}
           tintColor={colors.signal}
           colors={[colors.signal]}
           progressBackgroundColor={colors.alu50}
@@ -332,7 +337,6 @@ function Row({ label, value, strong = false }: { label: string; value: string; s
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   page: { padding: 16, gap: 12 },
   number: { fontFamily: mono, fontSize: 13, color: colors.ink3, letterSpacing: 0.6 },
   // a long status ("Waiting for payment") puts the date on the next line instead of pushing the page wider

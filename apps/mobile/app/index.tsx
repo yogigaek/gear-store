@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { AdminOnWeb } from '../src/components/AdminOnWeb';
 import { Button } from '../src/components/Button';
+import { SlowNote } from '../src/components/Loading';
 import { auth, useAuth } from '../src/lib/auth';
 import { useCategories } from '../src/lib/catalog';
 import { posterFrame } from '../src/lib/poster';
@@ -110,7 +111,10 @@ export default function HomeScreen() {
       <View style={styles.section}>
         <Text style={styles.label}>Shop by part</Text>
         {categories.isFetching && !categories.data && (
-          <ActivityIndicator color={colors.signal} style={styles.spinner} />
+          <>
+            <ActivityIndicator color={colors.signal} style={styles.spinner} />
+            <SlowNote loading={categories.isPending} />
+          </>
         )}
         {categories.isError && !categories.data && (
           <View>

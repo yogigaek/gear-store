@@ -37,8 +37,40 @@ describe('afterSignIn', () => {
     }
   });
 
+  it('brings a sign-in started from the orders list back to it', () => {
+    expect(afterSignIn({ next: 'orders' })).toBe('/orders');
+  });
+
+  it('brings a sign-in started from an order back to that order', () => {
+    expect(afterSignIn({ next: 'order', number: 'RKT-261027-AB2C3D' })).toEqual({
+      pathname: '/orders/[number]',
+      params: { number: 'RKT-261027-AB2C3D' },
+    });
+  });
+
+  it('ignores an order number that does not read as one', () => {
+    for (const number of [
+      undefined,
+      '',
+      'rkt-261027-ab2c3d',
+      'RKT-261027-AB2C3D/../../checkout',
+      'https://example.com',
+      ['RKT-261027-AB2C3D'],
+    ]) {
+      expect(afterSignIn({ next: 'order', number })).toBeNull();
+    }
+  });
+
   it('ignores anything else, so a link cannot send a new session somewhere unexpected', () => {
-    for (const next of [undefined, '', '/checkout', 'orders', 'https://example.com', ['checkout']]) {
+    for (const next of [
+      undefined,
+      '',
+      '/checkout',
+      '/orders',
+      'Orders',
+      'https://example.com',
+      ['checkout'],
+    ]) {
       expect(afterSignIn({ next })).toBeNull();
       expect(afterSignIn({ next, buy: 'folding-lock', qty: '1' })).toBeNull();
     }

@@ -1,32 +1,33 @@
 import { router } from 'expo-router';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Button } from '../../src/components/Button';
 import { EmptyState } from '../../src/components/EmptyState';
+import { Loading } from '../../src/components/Loading';
 import { useAuth } from '../../src/lib/auth';
 import { count, formatRupiah } from '../../src/lib/format';
 import { formatDateTime, statusColors, statusLabels, useOrders } from '../../src/lib/orders';
 import { useBottomSpace } from '../../src/lib/use-bottom-space';
+import { usePullRefresh } from '../../src/lib/use-pull-refresh';
 import { colors, mono } from '../../src/theme';
 
 export default function OrdersScreen() {
   const state = useAuth();
   const list = useOrders();
   const bottom = useBottomSpace();
+  const pull = usePullRefresh(list.refetch);
 
   if (state.status === 'signed-out') {
     return (
       <EmptyState message="Sign in to see your orders.">
-        <Button label="Sign in" href="/account" />
+        <Button
+          label="Sign in"
+          // replaced, not pushed: signed in, the account screen opens the orders again in this one's place
+          onPress={() => router.replace({ pathname: '/account', params: { next: 'orders' } })}
+        />
       </EmptyState>
     );
   }
-  if (state.status === 'restoring' || list.isPending) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.signal} />
-      </View>
-    );
-  }
+  if (state.status === 'restoring' || list.isPending) return <Loading />;
   if (!list.data) {
     return (
       <EmptyState message={list.error?.message ?? 'Something went wrong.'}>
@@ -48,8 +49,7 @@ export default function OrdersScreen() {
       }
       refreshControl={
         <RefreshControl
-          refreshing={list.isRefetching}
-          onRefresh={() => void list.refetch()}
+          {...pull}
           tintColor={colors.signal}
           colors={[colors.signal]}
           progressBackgroundColor={colors.alu50}
@@ -87,7 +87,6 @@ export default function OrdersScreen() {
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   list: { padding: 16, flexGrow: 1 },
   gap: { height: 10 },
   row: {

@@ -87,10 +87,9 @@ describe('<Link asChild>', () => {
     expect(linkChildStyles().filter(({ style }) => !plain.test(style))).toEqual([]);
   });
 
-  // buttons open routes with router.push (components/Button.tsx); the links left are the header's and the cart's
+  // buttons and the header open routes with router.push (lib/use-open-once.ts); the link left is the cart's
   it('finds the children it checks', () => {
     const files = linkChildStyles().map(({ file }) => file);
-    expect(files.filter((f) => f === join('src', 'components', 'HeaderActions.tsx'))).toHaveLength(2);
     expect(files).toContain(join('app', 'cart.tsx'));
   });
 });

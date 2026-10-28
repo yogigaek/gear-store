@@ -2,18 +2,11 @@ import { MAX_CART_LINES, MAX_LINE_QUANTITY, productDetailSchema } from '@gear-st
 import { useQuery } from '@tanstack/react-query';
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  useWindowDimensions,
-  View,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { BottomBar } from '../../src/components/BottomBar';
 import { Button } from '../../src/components/Button';
 import { EmptyState } from '../../src/components/EmptyState';
+import { Loading } from '../../src/components/Loading';
 import { PartImage, SpecPlate, StockNote } from '../../src/components/parts';
 import { api, ApiError, retryTransient } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/auth';
@@ -43,6 +36,8 @@ export default function ProductScreen() {
   useFocusEffect(
     useCallback(() => {
       leaving.current = false;
+      // "Added to cart" is about this visit: back from the cart or checkout, it would read as a second add
+      return () => setSaid(undefined);
     }, []),
   );
   const { add } = useCartActions();
@@ -51,17 +46,13 @@ export default function ProductScreen() {
   // sized from the screen: a percentage width let iOS draw a photo at its own size
   const { width } = useWindowDimensions();
 
-  if (product.isPending) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.signal} />
-      </View>
-    );
-  }
+  if (product.isPending) return <Loading />;
 
   // a failed refetch keeps the part on screen; only a first load that failed has nothing to show
   if (product.isError && !product.data) {
-    const missing = product.error instanceof ApiError && product.error.status === 404;
+    // a 400 is a malformed slug (a broken link): there is no such part either
+    const missing =
+      product.error instanceof ApiError && (product.error.status === 404 || product.error.status === 400);
     return missing ? (
       <EmptyState message="This part is no longer sold.">
         <Button label="Browse parts" href="/products" />
@@ -109,7 +100,7 @@ export default function ProductScreen() {
   return (
     <View style={styles.fill}>
       <Stack.Screen options={{ title: category }} />
-      <ScrollView contentContainerStyle={{ paddingBottom: bottom }}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, { paddingBottom: bottom }]}>
         <PartImage
           slug={p.slug}
           module={p.module}
@@ -211,7 +202,9 @@ export default function ProductScreen() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  // the still's ground behind the content, so pulling past the top shows no band above the still
+  scroll: { backgroundColor: colors.still },
+  content: { flexGrow: 1, backgroundColor: colors.alu },
   art: { borderBottomWidth: 1, borderBottomColor: colors.bench },
   section: { paddingHorizontal: 16, paddingTop: 20, gap: 10 },
   model: { fontFamily: mono, fontSize: 12, color: colors.ink3, letterSpacing: 0.6 },
@@ -256,5 +249,6 @@ const styles = StyleSheet.create({
   viewCart: { alignSelf: 'center' },
   addFailed: { fontSize: 14, color: colors.danger },
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  action: { flexGrow: 1, flexBasis: 140 },
+  // 2 × 130 + the gap fits beside each other in a 320-point screen's bar (288 points)
+  action: { flexGrow: 1, flexBasis: 130 },
 });

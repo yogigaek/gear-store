@@ -87,3 +87,23 @@ describe('formatDateTime', () => {
     expect(formatDateTime('2026-10-27T17:30:00.000Z')).toBe('28 Oct 2026, 00:30 WIB');
   });
 });
+
+describe('expiryDelay', () => {
+  const now = Date.parse('2026-10-27T07:00:00.000Z');
+
+  it('waits until the payment window ends, and a moment more for the API to close the order', async () => {
+    const { expiryDelay } = await import('./orders');
+    expect(expiryDelay('2026-10-27T07:30:00.000Z', now)).toBe(30 * 60_000 + 2_000);
+  });
+
+  it('re-reads at once (after the same moment) for a window that has already ended', async () => {
+    const { expiryDelay } = await import('./orders');
+    expect(expiryDelay('2026-10-27T06:00:00.000Z', now)).toBe(2_000);
+  });
+
+  it('never asks for a timer longer than setTimeout can hold, and none for a date it cannot read', async () => {
+    const { expiryDelay } = await import('./orders');
+    expect(expiryDelay('2027-12-31T00:00:00.000Z', now)).toBe(2_147_483_647);
+    expect(expiryDelay('not a date', now)).toBeNull();
+  });
+});

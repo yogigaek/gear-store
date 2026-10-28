@@ -15,10 +15,12 @@ import {
 } from 'react-native';
 import { Button } from '../../src/components/Button';
 import { EmptyState } from '../../src/components/EmptyState';
+import { Loading } from '../../src/components/Loading';
 import { ProductCard } from '../../src/components/ProductCard';
 import { api } from '../../src/lib/api';
 import { useCategories } from '../../src/lib/catalog';
 import { useBottomSpace } from '../../src/lib/use-bottom-space';
+import { usePullRefresh } from '../../src/lib/use-pull-refresh';
 import { colors, mono } from '../../src/theme';
 
 const PAGE_SIZE = 24;
@@ -72,19 +74,31 @@ export default function ProductsScreen() {
   return (
     <View style={styles.fill}>
       <View style={styles.filters}>
-        <TextInput
-          value={typed}
-          onChangeText={setTyped}
-          placeholder="Search parts"
-          placeholderTextColor={colors.ink3}
-          style={styles.search}
-          maxLength={MAX_QUERY}
-          autoCapitalize="none"
-          autoCorrect={false}
-          returnKeyType="search"
-          clearButtonMode="while-editing"
-          accessibilityLabel="Search parts"
-        />
+        <View style={styles.search}>
+          <TextInput
+            value={typed}
+            onChangeText={setTyped}
+            placeholder="Search parts"
+            placeholderTextColor={colors.ink3}
+            style={styles.searchInput}
+            maxLength={MAX_QUERY}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+            accessibilityLabel="Search parts"
+          />
+          {/* the same control on both platforms: Android's text fields have no clear button of their own */}
+          {typed !== '' && (
+            <Pressable
+              onPress={() => setTyped('')}
+              style={({ pressed }) => [styles.clear, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+            >
+              <Text style={styles.clearText}>Clear</Text>
+            </Pressable>
+          )}
+        </View>
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -126,13 +140,8 @@ function Results({
   onClear: () => void;
 }) {
   const bottom = useBottomSpace();
-  if (products.isPending) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.signal} />
-      </View>
-    );
-  }
+  const pull = usePullRefresh(products.refetch);
+  if (products.isPending) return <Loading />;
 
   if (products.isError && !products.data) {
     return (
@@ -182,8 +191,7 @@ function Results({
       }
       refreshControl={
         <RefreshControl
-          refreshing={products.isRefetching && !products.isFetchingNextPage && !products.isPlaceholderData}
-          onRefresh={() => void products.refetch()}
+          {...pull}
           tintColor={colors.signal}
           colors={[colors.signal]}
           progressBackgroundColor={colors.alu50}
@@ -211,22 +219,31 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   filters: { paddingTop: 12, gap: 10, borderBottomWidth: 1, borderBottomColor: colors.bench },
   search: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginHorizontal: 16,
     borderWidth: 1,
     borderColor: colors.field,
     backgroundColor: colors.alu50,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
     color: colors.ink,
     fontSize: 16,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  clear: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 12 },
+  clearText: { fontFamily: mono, fontSize: 12, color: colors.ink2, textTransform: 'uppercase' },
+  pressed: { opacity: 0.6 },
   chips: { paddingHorizontal: 16, paddingBottom: 12, gap: 8 },
   chip: { borderWidth: 1, borderColor: colors.benchStrong, paddingHorizontal: 12, paddingVertical: 7 },
   // a ring, not a fill: signal yellow as a fill is kept for the main action
   chipSelected: { borderColor: colors.signal },
   chipText: { fontFamily: mono, fontSize: 12, color: colors.ink2 },
   chipTextSelected: { color: colors.ink, fontWeight: '600' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   empty: { alignItems: 'center', gap: 16, paddingTop: 48 },
   message: { color: colors.ink2, textAlign: 'center', fontSize: 15 },
   list: { padding: 16, flexGrow: 1 },

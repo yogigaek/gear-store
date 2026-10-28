@@ -1,17 +1,10 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useEffect, useRef, useState, type ComponentRef } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { KeyboardAvoidingView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { AdminOnWeb } from '../src/components/AdminOnWeb';
 import { Button } from '../src/components/Button';
+import { Loading } from '../src/components/Loading';
 import { auth, useAuth } from '../src/lib/auth';
 import { useBottomSpace } from '../src/lib/use-bottom-space';
 import { afterSignIn, openWeb } from '../src/lib/web';
@@ -27,28 +20,24 @@ export default function AccountScreen() {
     buy,
     finish,
     qty,
+    number,
   } = useLocalSearchParams<{
     next?: Param;
     buy?: Param;
     finish?: Param;
     qty?: Param;
+    number?: Param;
   }>();
-  // sent here to check out (from the cart, or a Buy now): once signed in, carry on instead of stopping here
+  // sent here from checkout (the cart, or a Buy now) or an order screen: once signed in, carry on to it
   const carriedOn = useRef(false);
   useEffect(() => {
-    const next = afterSignIn({ next: nextParam, buy, finish, qty });
+    const next = afterSignIn({ next: nextParam, buy, finish, qty, number });
     if (state.status !== 'signed-in' || !next || carriedOn.current) return;
     carriedOn.current = true;
     router.replace(next);
-  }, [state.status, nextParam, buy, finish, qty]);
+  }, [state.status, nextParam, buy, finish, qty, number]);
 
-  if (state.status === 'restoring') {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={colors.signal} />
-      </View>
-    );
-  }
+  if (state.status === 'restoring') return <Loading />;
   if (state.status === 'signed-out') return <SignIn />;
 
   const { user } = state;
@@ -195,7 +184,6 @@ function SignIn() {
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   page: { padding: 16, gap: 12 },
   title: { fontSize: 26, fontWeight: '800', color: colors.ink, textTransform: 'uppercase', marginBottom: 4 },
   field: { gap: 6 },

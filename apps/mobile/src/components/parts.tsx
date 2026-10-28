@@ -1,7 +1,18 @@
 import type { PartModule, Spec } from '@gear-store/shared';
-import { Image, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useState } from 'react';
+import {
+  Image,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import { keepUnits } from '../lib/format';
 import { partStill } from '../lib/part-stills';
+import { PLATE_TYPE, plateFitsColumns } from '../lib/spec-plate';
 import { colors, mono } from '../theme';
 
 const moduleNames: Record<PartModule, string> = {
@@ -16,25 +27,54 @@ const moduleNames: Record<PartModule, string> = {
   ACCESSORY: 'Accessory',
 };
 
-/** A part's studio still; while a part has none, its module name, as on the web. */
+type Size = { width: number; height: number };
+
+/** a box's own size in points, once laid out, so an image inside it never depends on a percentage */
+function useBoxSize(): [Size | undefined, (e: LayoutChangeEvent) => void] {
+  const [size, setSize] = useState<Size>();
+  const onLayout = (e: LayoutChangeEvent) => {
+    const { width, height } = e.nativeEvent.layout;
+    setSize((old) => (old?.width === width && old.height === height ? old : { width, height }));
+  };
+  return [size, onLayout];
+}
+
+/**
+ * A part's studio still; while a part has none, its module name, as on the web. `cover` fills a box the caller
+ * sizes in points; `contain` shows the whole still in a box of any shape (one stretched to its row, say), on the
+ * still's own ground so the bands above and below it do not show.
+ */
 export function PartImage({
   slug,
   module,
   colorKey,
+  fit = 'cover',
   style,
 }: {
   slug: string;
   module: PartModule;
   colorKey?: string;
+  fit?: 'cover' | 'contain';
   style?: StyleProp<ViewStyle>;
 }) {
   const still = partStill(slug, colorKey);
+  const [box, onLayout] = useBoxSize();
   return (
-    <View style={[styles.art, style]}>
-      {still ? (
+    <View style={[styles.art, style]} onLayout={fit === 'contain' ? onLayout : undefined}>
+      {!still ? (
+        <Text style={styles.placeholder}>{moduleNames[module]}</Text>
+      ) : fit === 'cover' ? (
         <Image source={still} style={styles.image} resizeMode="cover" accessibilityIgnoresInvertColors />
       ) : (
-        <Text style={styles.placeholder}>{moduleNames[module]}</Text>
+        // in points once laid out (a stretched box has no height before), out of the flow so the row can shrink
+        box && (
+          <Image
+            source={still}
+            style={[styles.contained, box]}
+            resizeMode="contain"
+            accessibilityIgnoresInvertColors
+          />
+        )
       )}
     </View>
   );
@@ -58,14 +98,35 @@ export function StockNote({ stock }: { stock: number }) {
   );
 }
 
-/** The three numbers that define a product, set like a label stamped on the device. */
+// the last plate width measured: the cards of a list share one, so each new card starts in the right layout
+let lastPlateWidth = 0;
+
+/**
+ * The three numbers that define a product, set like a label stamped on the device: side by side when every word
+ * fits its column, else one row each (plateFitsColumns), so no word ever breaks in the middle.
+ */
 export function SpecPlate({ specs, style }: { specs: readonly Spec[]; style?: StyleProp<ViewStyle> }) {
+  const { fontScale } = useWindowDimensions();
+  const [width, setWidth] = useState(lastPlateWidth);
+  const columns = width === 0 || plateFitsColumns(specs, width, fontScale);
   return (
-    <View style={[styles.plate, style]}>
+    <View
+      style={[styles.plate, !columns && styles.plateRows, style]}
+      onLayout={(e) => {
+        lastPlateWidth = e.nativeEvent.layout.width;
+        setWidth(lastPlateWidth);
+      }}
+    >
       {specs.map((spec, i) => (
-        <View key={spec.label} style={[styles.spec, i > 0 && styles.specDivider]}>
+        <View
+          key={spec.label}
+          style={[
+            columns ? styles.spec : styles.specRow,
+            i > 0 && (columns ? styles.specDivider : styles.rowDivider),
+          ]}
+        >
           <Text style={styles.specLabel}>{spec.label.toUpperCase()}</Text>
-          <Text style={styles.specValue}>{keepUnits(spec.value)}</Text>
+          <Text style={[styles.specValue, !columns && styles.rowValue]}>{keepUnits(spec.value)}</Text>
         </View>
       ))}
     </View>
@@ -74,14 +135,32 @@ export function SpecPlate({ specs, style }: { specs: readonly Spec[]; style?: St
 
 const styles = StyleSheet.create({
   art: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.still },
-  // pinned to the frame's edges: a percentage size can leave iOS drawing the photo at its own size
-  // the box is always sized in points by the caller, so a full-size image is safe here (it showed on the phone)
+  // cover only: its box is sized in points by the caller, which is what iOS needs to draw the still at that size
   image: { width: '100%', height: '100%' },
+  contained: { position: 'absolute', top: 0, left: 0 },
   placeholder: { fontFamily: mono, fontSize: 11, color: colors.ink3, textTransform: 'uppercase' },
   stock: { fontFamily: mono, fontSize: 11 },
   plate: { flexDirection: 'row', borderWidth: 1, borderColor: colors.rule },
-  spec: { flex: 1, paddingHorizontal: 8, paddingVertical: 6 },
+  plateRows: { flexDirection: 'column' },
+  spec: { flex: 1, paddingHorizontal: PLATE_TYPE.padding, paddingVertical: 6 },
   specDivider: { borderLeftWidth: 1, borderLeftColor: colors.rule },
-  specLabel: { fontFamily: mono, fontSize: 11, color: colors.ink3, letterSpacing: 0.6 },
-  specValue: { fontFamily: mono, fontSize: 12, fontWeight: '600', color: colors.ink },
+  // a value too long to sit beside its label goes under it, still right-aligned
+  specRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    columnGap: 12,
+    paddingHorizontal: PLATE_TYPE.padding,
+    paddingVertical: 6,
+  },
+  rowDivider: { borderTopWidth: 1, borderTopColor: colors.rule },
+  specLabel: {
+    fontFamily: mono,
+    fontSize: PLATE_TYPE.label,
+    color: colors.ink3,
+    letterSpacing: PLATE_TYPE.tracking,
+  },
+  specValue: { fontFamily: mono, fontSize: PLATE_TYPE.value, fontWeight: '600', color: colors.ink },
+  rowValue: { flexShrink: 1, marginLeft: 'auto', textAlign: 'right' },
 });

@@ -17,12 +17,13 @@ import {
   useNavigation,
   usePreventRemove,
 } from 'expo-router';
-import { useCallback, useLayoutEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BottomBar } from '../src/components/BottomBar';
 import { Button } from '../src/components/Button';
 import { EmptyCart, EmptyState } from '../src/components/EmptyState';
 import { LineList, lineArt, type Line } from '../src/components/LineList';
+import { Loading } from '../src/components/Loading';
 import { ArtPlaceholder, PartImage } from '../src/components/parts';
 import { SandboxPaymentGuide } from '../src/components/SandboxPaymentGuide';
 import { ApiError } from '../src/lib/api';
@@ -72,6 +73,8 @@ export default function CheckoutScreen() {
   const bottom = useBottomSpace(true);
   const [chosen, setChosen] = useState<string>();
   const [busy, setBusy] = useState(false);
+  // set in the same tap, unlike `busy`: a double tap within one frame would otherwise open the order twice
+  const placing = useRef(false);
   const [error, setError] = useState<string>();
   // header back, Android back and the iOS swipe all wait while an order is on its way
   const allowLeave = usePreventRemove(busy);
@@ -141,11 +144,15 @@ export default function CheckoutScreen() {
     ? { slug: quoted.product.slug, colorKey: quoted.colorKey, quantity: quoted.quantity }
     : requested;
   const scope = checkoutScope(buyLine);
-  // an attempt that ended without a clear answer (no reply, or a server error): the order may exist
-  const maybePlaced = hasOpenCheckout(userId, scope) && !busy;
+  // an attempt under way, or one that ended without a clear answer (no reply, or a server error)
+  const open = hasOpenCheckout(userId, scope);
+  // the order may exist
+  const maybePlaced = open && !busy;
   const empty = priced.items.length + priced.builds.length === 0;
+  // the attempt may have turned the cart into an order: all that is left to do is to open that order
+  const findOnly = open && empty;
 
-  if (empty && !maybePlaced) {
+  if (empty && !open) {
     if (buying) {
       return (
         <EmptyState message="This part is no longer sold.">
@@ -157,7 +164,8 @@ export default function CheckoutScreen() {
   }
 
   const place = async () => {
-    if (!address) return;
+    if (!address || placing.current) return;
+    placing.current = true;
     const key = checkoutKey(userId, scope, randomUUID);
     setBusy(true);
     setError(undefined);
@@ -173,6 +181,8 @@ export default function CheckoutScreen() {
       }
       // the order screen opens the payment page as soon as it is in view, as the web's "Place order and pay"
       const target = { pathname: '/orders/[number]', params: { number: order.number, pay: '1' } } as const;
+      // prevention off in the same handler as the state that asks for it (usePreventRemove warns otherwise)
+      setBusy(false);
       // opened from here, the order takes this screen's place; with another screen on top, it opens over that one
       if (navigation.isFocused()) {
         allowLeave();
@@ -184,14 +194,16 @@ export default function CheckoutScreen() {
       // What is shown stays, so "Place order" stays available: if the order was placed but its reply was lost,
       // the same key brings back that order rather than placing a second one.
       setError(e instanceof Error ? e.message : 'Could not place the order. Try again.');
-      if (e instanceof ApiError && e.status === 404) void addresses.refetch();
       // a refusal (4xx) placed nothing: the next attempt is a new order
       if (e instanceof ApiError && e.status >= 400 && e.status < 500) {
         closeCheckout(key);
-        // e.g. a part withdrawn or short of stock since it was priced: the lines are redrawn as they now are
+        // the address deleted on the web meanwhile ("Address not found"): the list is redrawn without it
+        if (e.status === 404 && /address/i.test(e.message)) void addresses.refetch();
+        // e.g. a part withdrawn or short of stock since it was priced: the lines (or Buy now's quote) are redrawn
         void source.refetch();
       }
     } finally {
+      placing.current = false;
       setBusy(false);
     }
   };
@@ -200,6 +212,13 @@ export default function CheckoutScreen() {
   // an order placed while the phone's parts are still on their way would leave them out
   const canPlace =
     ((!empty && priced.canCheckout) || maybePlaced) && !!address && !busy && (buying || phone !== 'joining');
+  const placeLabel = findOnly
+    ? busy
+      ? 'Finding your order…'
+      : 'Find my order'
+    : busy
+      ? 'Placing order…'
+      : 'Place order';
   const shippingFee = address?.shippingFee ?? 0;
 
   return (
@@ -248,57 +267,71 @@ export default function CheckoutScreen() {
             {MAX_CART_LINES} different parts, {MAX_LINE_QUANTITY} of each.
           </Text>
         )}
-        {maybePlaced && (
+        {findOnly ? (
           <Text style={styles.note}>
-            The order may have gone through. Placing it again opens that order instead of making a second one.
+            {buying
+              ? 'The last attempt may have placed this order.'
+              : 'Your cart is empty now: the last attempt probably placed the order.'}{' '}
+            Find my order opens it without placing a second one.
           </Text>
+        ) : (
+          maybePlaced && (
+            <Text style={styles.note}>
+              The order may have gone through. Placing it again opens that order instead of making a second
+              one.
+            </Text>
+          )
         )}
 
-        <Text style={[styles.label, styles.section]}>Ship to</Text>
-        {list.length === 0 ? (
-          <Text style={styles.note}>You have no saved address yet.</Text>
-        ) : (
-          <View style={styles.addresses} accessibilityRole="radiogroup">
-            {list.map((a) => (
-              <AddressOption
-                key={a.id}
-                address={a}
-                selected={a.id === address?.id}
-                onSelect={() => setChosen(a.id)}
+        {!findOnly && (
+          <>
+            <Text style={[styles.label, styles.section]}>Ship to</Text>
+            {list.length === 0 ? (
+              <Text style={styles.note}>You have no saved address yet.</Text>
+            ) : (
+              <View style={styles.addresses} accessibilityRole="radiogroup">
+                {list.map((a) => (
+                  <AddressOption
+                    key={a.id}
+                    address={a}
+                    selected={a.id === address?.id}
+                    onSelect={() => setChosen(a.id)}
+                  />
+                ))}
+              </View>
+            )}
+            {list.length < MAX_ADDRESSES ? (
+              <Button
+                variant={list.length === 0 ? 'secondary' : 'ghost'}
+                label={list.length === 0 ? 'Add an address' : '+ Add another address'}
+                href="/addresses/new"
+                disabled={busy}
               />
-            ))}
-          </View>
-        )}
-        {list.length < MAX_ADDRESSES ? (
-          <Button
-            variant={list.length === 0 ? 'secondary' : 'ghost'}
-            label={list.length === 0 ? 'Add an address' : '+ Add another address'}
-            href="/addresses/new"
-            disabled={busy}
-          />
-        ) : (
-          <Text style={styles.note}>
-            You have saved {MAX_ADDRESSES} addresses, the most an account keeps. Remove one on the website to
-            add another.
-          </Text>
-        )}
+            ) : (
+              <Text style={styles.note}>
+                You have saved {MAX_ADDRESSES} addresses, the most an account keeps. Remove one on the website
+                to add another.
+              </Text>
+            )}
 
-        <View style={styles.summary}>
-          <Row
-            label={`Subtotal · ${count(priced.itemCount, 'item')}`}
-            value={formatRupiah(priced.subtotal)}
-          />
-          <Row
-            label={address ? `Shipping · ${address.shippingEta}` : 'Shipping'}
-            value={address ? formatRupiah(address.shippingFee) : '—'}
-          />
-        </View>
-        <Text style={styles.note}>
-          Placing the order opens Midtrans&apos; payment page. Pay within {paymentWindowMinutes(user.isDemo)}{' '}
-          minutes: the parts are held for you until then. Midtrans runs in sandbox here, so no real money
-          moves.
-        </Text>
-        <SandboxPaymentGuide />
+            <View style={styles.summary}>
+              <Row
+                label={`Subtotal · ${count(priced.itemCount, 'item')}`}
+                value={formatRupiah(priced.subtotal)}
+              />
+              <Row
+                label={address ? `Shipping · ${address.shippingEta}` : 'Shipping'}
+                value={address ? formatRupiah(address.shippingFee) : '—'}
+              />
+            </View>
+            <Text style={styles.note}>
+              Placing the order opens Midtrans&apos; payment page. Pay within{' '}
+              {paymentWindowMinutes(user.isDemo)} minutes: the parts are held for you until then. Midtrans
+              runs in sandbox here, so no real money moves.
+            </Text>
+            <SandboxPaymentGuide />
+          </>
+        )}
       </ScrollView>
       <BottomBar>
         {error && (
@@ -307,12 +340,14 @@ export default function CheckoutScreen() {
           </Text>
         )}
         <View style={styles.bar}>
-          <View style={styles.totals}>
-            <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.total}>{formatRupiah(priced.subtotal + shippingFee)}</Text>
-          </View>
+          {!findOnly && (
+            <View style={styles.totals}>
+              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.total}>{formatRupiah(priced.subtotal + shippingFee)}</Text>
+            </View>
+          )}
           <Button
-            label={busy ? 'Placing order…' : 'Place order'}
+            label={placeLabel}
             onPress={() => void place()}
             disabled={!canPlace}
             busy={busy}
@@ -395,17 +430,8 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function Loading() {
-  return (
-    <View style={styles.center}>
-      <ActivityIndicator color={colors.signal} />
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   page: { padding: 16, gap: 12 },
   label: {
     fontFamily: mono,

@@ -1,15 +1,25 @@
 import { MAX_CART_LINES, MAX_LINE_QUANTITY, type CartBuild, type CartLine } from '@gear-store/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'expo-router';
 import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { BottomBar } from '../src/components/BottomBar';
 import { Button } from '../src/components/Button';
 import { EmptyCart, EmptyState } from '../src/components/EmptyState';
+import { Loading } from '../src/components/Loading';
 import { ArtPlaceholder, PartImage } from '../src/components/parts';
 import { useAuth } from '../src/lib/auth';
-import { dismissMergeNotice, useCart, useCartActions, useMergeNotice } from '../src/lib/cart';
+import {
+  dismissMergeNotice,
+  mergeInto,
+  useCart,
+  useCartActions,
+  useMergeNotice,
+  usePhoneLines,
+} from '../src/lib/cart';
 import { count, formatRupiah } from '../src/lib/format';
 import { useBottomSpace } from '../src/lib/use-bottom-space';
+import { usePullRefresh } from '../src/lib/use-pull-refresh';
 import { colors, mono } from '../src/theme';
 
 const lineProblem: Record<NonNullable<CartLine['problem']>, (line: CartLine) => string> = {
@@ -35,8 +45,16 @@ type Row = { kind: 'part'; line: CartLine } | { kind: 'bike'; build: CartBuild }
 export default function CartScreen() {
   const cart = useCart();
   const auth = useAuth();
-  const notMerged = useMergeNotice(auth.status === 'signed-in' ? auth.user.id : null);
+  const userId = auth.status === 'signed-in' ? auth.user.id : null;
+  const notMerged = useMergeNotice(userId);
+  // just signed in: the parts put in the cart on this phone are joining the account's, as checkout says too
+  const phone = usePhoneLines();
+  const queryClient = useQueryClient();
   const bottom = useBottomSpace(true);
+  const pull = usePullRefresh(() => (cart.mode === 'account' ? cart.query.refetch() : Promise.resolve()));
+  const retryMerge = () => {
+    if (userId) void mergeInto(queryClient, userId).catch(() => undefined);
+  };
 
   if (cart.mode === 'restoring' || (cart.mode === 'account' && cart.query.isPending)) return <Loading />;
   if (cart.mode === 'guest' && cart.lineCount === 0) return <EmptyCart />;
@@ -56,7 +74,27 @@ export default function CartScreen() {
     ...priced.items.map((line) => ({ kind: 'part' as const, line })),
     ...priced.builds.map((build) => ({ kind: 'bike' as const, build })),
   ];
-  if (rows.length === 0) return <EmptyCart />;
+  const remote = cart.mode === 'account';
+  if (rows.length === 0) {
+    // not "Your cart is empty" for the moment the phone's parts are on their way in
+    if (remote && phone === 'joining') {
+      return (
+        <EmptyState message="Bringing the parts from this phone into your cart…">
+          <ActivityIndicator color={colors.signal} />
+        </EmptyState>
+      );
+    }
+    if (remote && phone === 'failed') {
+      return (
+        <EmptyState message="The parts added on this phone have not reached your cart yet.">
+          <Button label="Try again" onPress={retryMerge} />
+        </EmptyState>
+      );
+    }
+    return <EmptyCart />;
+  }
+  // a guest's lines are priced again after each change; the last prices stay on screen until the new ones come
+  const updating = cart.mode === 'guest' && cart.query.isPlaceholderData;
 
   return (
     <View style={styles.fill}>
@@ -69,6 +107,19 @@ export default function CartScreen() {
         ListHeaderComponent={
           <>
             {cart.query.isError && <Text style={styles.banner}>{cart.query.error.message}</Text>}
+            {remote && phone === 'joining' && (
+              <Text style={styles.joining} accessibilityLiveRegion="polite">
+                Bringing the parts from this phone into your cart…
+              </Text>
+            )}
+            {remote && phone === 'failed' && (
+              <View style={styles.joinFailed} accessibilityLiveRegion="polite">
+                <Text style={styles.problem}>
+                  The parts added on this phone have not reached your cart yet.
+                </Text>
+                <Button variant="ghost" label="Try again" onPress={retryMerge} />
+              </View>
+            )}
             {notMerged > 0 && (
               <View style={styles.notice} accessibilityLiveRegion="polite">
                 <Text style={styles.noticeText}>
@@ -82,7 +133,21 @@ export default function CartScreen() {
         }
         ItemSeparatorComponent={() => <View style={styles.gap} />}
         renderItem={({ item }) =>
-          item.kind === 'part' ? <PartRow line={item.line} /> : <BikeRow build={item.build} />
+          item.kind === 'part' ? (
+            <PartRow line={item.line} remote={remote} />
+          ) : (
+            <BikeRow build={item.build} remote={remote} />
+          )
+        }
+        refreshControl={
+          remote ? (
+            <RefreshControl
+              {...pull}
+              tintColor={colors.signal}
+              colors={[colors.signal]}
+              progressBackgroundColor={colors.alu50}
+            />
+          ) : undefined
         }
         ListFooterComponent={
           <Text style={styles.note}>
@@ -95,7 +160,10 @@ export default function CartScreen() {
       <BottomBar>
         <View style={styles.bar}>
           <View style={styles.totals}>
-            <Text style={styles.totalLabel}>Subtotal · {count(priced.itemCount, 'item')}</Text>
+            <Text style={styles.totalLabel} accessibilityLiveRegion="polite">
+              Subtotal · {count(priced.itemCount, 'item')}
+              {updating ? ' · updating…' : ''}
+            </Text>
             <Text style={styles.total}>{formatRupiah(priced.subtotal)}</Text>
           </View>
           <Button
@@ -112,33 +180,41 @@ export default function CartScreen() {
   );
 }
 
-function Loading() {
-  return (
-    <View style={styles.center}>
-      <ActivityIndicator color={colors.signal} />
-    </View>
-  );
-}
-
-/** runs a cart change and keeps its failure on the row it came from */
+/**
+ * Runs a cart change and keeps its failure on the row it came from. `pending` counts the changes queued or on
+ * their way for the row (an account's changes go to the server one at a time), so taps stay live and the row says
+ * it is still updating.
+ */
 function useRowAction() {
   const [error, setError] = useState<string>();
+  const [pending, setPending] = useState(0);
   const run = (change: Promise<unknown>) => {
     setError(undefined);
-    change.catch((e: unknown) =>
-      setError(e instanceof Error ? e.message : 'Could not update the cart. Try again.'),
-    );
+    setPending((n) => n + 1);
+    change
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : 'Could not update the cart. Try again.'),
+      )
+      .finally(() => setPending((n) => n - 1));
   };
-  return { error, run };
+  return { error, pending: pending > 0, run };
 }
 
-function PartRow({ line }: { line: CartLine }) {
+function PartRow({ line, remote }: { line: CartLine; remote: boolean }) {
   const { product, colorKey, quantity } = line;
   const actions = useCartActions();
-  const { error, run } = useRowAction();
+  const { error, pending, run } = useRowAction();
   return (
     <Card
-      art={<PartImage slug={product.slug} module={product.module} colorKey={colorKey} style={styles.art} />}
+      art={
+        <PartImage
+          slug={product.slug}
+          module={product.module}
+          colorKey={colorKey}
+          fit="contain"
+          style={styles.art}
+        />
+      }
     >
       <Link href={{ pathname: '/products/[slug]', params: { slug: product.slug } }} asChild>
         <Pressable style={styles.nameLink} accessibilityRole="link">
@@ -151,6 +227,7 @@ function PartRow({ line }: { line: CartLine }) {
         name={product.name}
         quantity={quantity}
         total={line.lineTotal}
+        busy={remote && pending}
         onStep={(delta) => run(actions.adjust(product.slug, colorKey, delta))}
       />
       <Button
@@ -164,9 +241,9 @@ function PartRow({ line }: { line: CartLine }) {
   );
 }
 
-function BikeRow({ build }: { build: CartBuild }) {
+function BikeRow({ build, remote }: { build: CartBuild; remote: boolean }) {
   const actions = useCartActions();
-  const { error, run } = useRowAction();
+  const { error, pending, run } = useRowAction();
   const problem = buildProblem(build);
   const frame = build.quote.parts.find((p) => p.product.module === 'FRAME')?.product;
   return (
@@ -177,6 +254,7 @@ function BikeRow({ build }: { build: CartBuild }) {
             slug={frame.slug}
             module={frame.module}
             colorKey={build.quote.colorKey}
+            fit="contain"
             style={styles.art}
           />
         ) : (
@@ -192,6 +270,7 @@ function BikeRow({ build }: { build: CartBuild }) {
         name={build.quote.label}
         quantity={build.quantity}
         total={build.lineTotal}
+        busy={remote && pending}
         onStep={(delta) => run(actions.adjustBuild(build.id, delta))}
       />
       <Button
@@ -218,17 +297,20 @@ function Controls({
   name,
   quantity,
   total,
+  busy,
   onStep,
 }: {
   name: string;
   quantity: number;
   total: number;
+  /** a change to this row is queued or on its way */
+  busy: boolean;
   onStep: (delta: number) => void;
 }) {
   const atMax = quantity >= MAX_LINE_QUANTITY;
   return (
     <View style={styles.controls}>
-      <View style={styles.stepper}>
+      <View style={[styles.stepper, busy && styles.stepperBusy]} accessibilityState={{ busy }}>
         <Pressable
           onPress={() => onStep(-1)}
           style={({ pressed }) => [styles.step, pressed && styles.stepPressed]}
@@ -251,18 +333,20 @@ function Controls({
           <Text style={[styles.stepText, atMax && styles.stepDisabled]}>+</Text>
         </Pressable>
       </View>
-      <Text style={styles.lineTotal}>{formatRupiah(total)}</Text>
+      <View style={styles.totalBox}>
+        {busy && <ActivityIndicator size="small" color={colors.ink3} accessibilityLabel="Updating" />}
+        <Text style={styles.lineTotal}>{formatRupiah(total)}</Text>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   fill: { flex: 1 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   list: { padding: 16 },
   gap: { height: 12 },
   row: { flexDirection: 'row', borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50 },
-  // the still fills the card's full height, so the card never shows half a picture over an empty block
+  // as tall as the card: the whole still sits in it on its own ground, so nothing of the part is cut off
   art: { width: 104, minHeight: 104, alignSelf: 'stretch' },
   body: {
     flex: 1,
@@ -288,14 +372,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   stepper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: colors.benchStrong },
+  stepperBusy: { opacity: 0.5 },
   step: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
   stepPressed: { backgroundColor: colors.bench },
   stepText: { fontSize: 18, color: colors.ink },
   stepDisabled: { color: colors.benchStrong },
   quantity: { fontFamily: mono, fontSize: 14, color: colors.ink, minWidth: 28, textAlign: 'center' },
+  totalBox: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   lineTotal: { flexShrink: 0, fontFamily: mono, fontSize: 14, fontWeight: '600', color: colors.ink },
   note: { fontSize: 13, color: colors.ink3, marginTop: 16 },
   banner: { fontSize: 13, color: colors.danger, marginBottom: 12 },
+  joining: { fontSize: 13, color: colors.ink3, lineHeight: 19, marginBottom: 12 },
+  joinFailed: { marginBottom: 8 },
   notice: {
     borderWidth: 1,
     borderColor: colors.signal,

@@ -1,6 +1,6 @@
 import { addressInputSchema, provinceNames, shippingFor, type Province } from '@gear-store/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { router } from 'expo-router';
+import { router, Stack, useNavigation, usePreventRemove } from 'expo-router';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { useRef, useState, type ComponentRef, type Ref } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -52,7 +53,14 @@ export default function NewAddressScreen() {
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [formError, setFormError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  // set in the same tap, unlike `busy`: a double tap within one frame would save the address twice
+  const saving = useRef(false);
+  const navigation = useNavigation();
+  // header back, Android back and the iOS swipe wait while the address is on its way, as checkout does
+  const allowLeave = usePreventRemove(busy);
   const [picking, setPicking] = useState(false);
+  // a province just picked moves on to the postal code once the picker has gone
+  const focusPostalCode = useRef(false);
 
   const set = (field: Field) => (value: string) => setValues((v) => ({ ...v, [field]: value }));
   const shipping = values.province ? shippingFor(values.province as Province) : null;
@@ -73,17 +81,35 @@ export default function NewAddressScreen() {
       setFormError('Sign in to save an address.');
       return;
     }
+    if (saving.current) return;
+    saving.current = true;
     setErrors({});
     setFormError(undefined);
     setBusy(true);
     try {
       await orders.createAddress(parsed.data);
       await queryClient.invalidateQueries({ queryKey: addressesKey(state.user.id) });
-      router.back();
+      // prevention off in the same handler as the state that asks for it (usePreventRemove warns otherwise)
+      setBusy(false);
+      // another screen opened on top meanwhile (a link): the form stays underneath rather than closing that one
+      if (navigation.isFocused()) {
+        allowLeave();
+        router.back();
+      }
     } catch (e) {
       setFormError(e instanceof Error ? e.message : 'Could not save the address. Try again.');
     } finally {
+      saving.current = false;
       setBusy(false);
+    }
+  };
+
+  const closePicker = () => {
+    setPicking(false);
+    // iOS reports when the picker has gone (onDismiss); Android does not, so it waits out the slide
+    if (Platform.OS !== 'ios' && focusPostalCode.current) {
+      focusPostalCode.current = false;
+      setTimeout(() => postalCodeField.current?.focus(), 300);
     }
   };
 
@@ -91,6 +117,7 @@ export default function NewAddressScreen() {
     // padding on Android too: edge to edge (SDK 58), the window no longer shrinks for the keyboard. The view
     // measures itself from below the header, so the header's height is added to reach the keyboard's screen edge.
     <KeyboardAvoidingView style={styles.fill} behavior="padding" keyboardVerticalOffset={headerHeight}>
+      <Stack.Screen options={{ headerBackVisible: !busy, gestureEnabled: !busy }} />
       <ScrollView
         contentContainerStyle={[styles.page, { paddingBottom: bottom }]}
         keyboardShouldPersistTaps="handled"
@@ -201,14 +228,19 @@ export default function NewAddressScreen() {
         animationType="slide"
         statusBarTranslucent
         navigationBarTranslucent
-        onRequestClose={() => setPicking(false)}
+        onRequestClose={closePicker}
+        onDismiss={() => {
+          if (!focusPostalCode.current) return;
+          focusPostalCode.current = false;
+          postalCodeField.current?.focus();
+        }}
       >
         {/* drawn under the system bars, as the app is edge-to-edge: the insets keep the list clear of them */}
         <View style={[styles.modal, { paddingTop: insets.top + 16, paddingBottom: insets.bottom }]}>
           <View style={styles.modalHead}>
             <Text style={styles.modalTitle}>Province</Text>
             <Pressable
-              onPress={() => setPicking(false)}
+              onPress={closePicker}
               style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
               accessibilityRole="button"
             >
@@ -225,7 +257,8 @@ export default function NewAddressScreen() {
                 <Pressable
                   onPress={() => {
                     set('province')(item);
-                    setPicking(false);
+                    focusPostalCode.current = true;
+                    closePicker();
                   }}
                   style={[styles.option, selected && styles.optionSelected]}
                   accessibilityRole="button"

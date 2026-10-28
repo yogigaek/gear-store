@@ -1,6 +1,6 @@
-import { router, type Href } from 'expo-router';
-import { useRef } from 'react';
+import type { Href } from 'expo-router';
 import { Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'react-native';
+import { useOpenOnce } from '../lib/use-open-once';
 import { colors } from '../theme';
 
 type Variant = 'primary' | 'secondary' | 'ghost';
@@ -40,14 +40,7 @@ export function Button({
   accessibilityLabel,
   accessibilityHint,
 }: ButtonProps) {
-  // a quick second tap would push the same screen twice
-  const opening = useRef(false);
-  const open = (to: Href) => {
-    if (opening.current) return;
-    opening.current = true;
-    router.push(to);
-    setTimeout(() => (opening.current = false), 600);
-  };
+  const open = useOpenOnce();
   return (
     <Pressable
       onPress={href ? () => open(href) : onPress}

@@ -128,6 +128,18 @@ export async function showOrder(queryClient: QueryClient, userId: string, order:
   void queryClient.invalidateQueries({ queryKey: ordersKey(userId) });
 }
 
+// the API closes an overdue order when it is next read: asked a moment after the window ends, it says so
+const EXPIRY_GRACE_MS = 2_000;
+// setTimeout runs at once for a delay past 2^31 − 1 ms
+const MAX_TIMER_MS = 2_147_483_647;
+
+/** how long from `now` to wait before re-reading an order whose payment window ends at `expiresAt` */
+export function expiryDelay(expiresAt: string, now = Date.now()): number | null {
+  const end = Date.parse(expiresAt);
+  if (Number.isNaN(end)) return null;
+  return Math.min(Math.max(0, end - now) + EXPIRY_GRACE_MS, MAX_TIMER_MS);
+}
+
 /** "27 Oct 2026, 14:05 WIB": Jakarta time, as the store runs on WIB, and said so for a phone in another zone */
 export function formatDateTime(iso: string): string {
   const local = new Date(iso).toLocaleString('en-GB', {

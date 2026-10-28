@@ -16,7 +16,7 @@ export function ProductCard({ product }: { product: ProductSummary }) {
       accessibilityLabel={`${product.name}, ${formatRupiah(product.price)}`}
     >
       <View style={styles.top}>
-        <PartImage slug={product.slug} module={product.module} style={styles.art} />
+        <PartImage slug={product.slug} module={product.module} fit="contain" style={styles.art} />
         <View style={styles.heading}>
           <View style={styles.meta}>
             <Text style={styles.model}>{product.model}</Text>
@@ -35,8 +35,8 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderColor: colors.bench, backgroundColor: colors.alu50 },
   pressed: { borderColor: colors.rule },
   top: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: colors.bench },
-  // the dividing line is the heading's, so it runs the card's full height when a long name grows the heading
-  art: { width: 112, height: 112, alignSelf: 'flex-start' },
+  // as tall as the heading beside it (a long name, a large text size): the still sits whole in it on its own ground
+  art: { width: 112, minHeight: 112, alignSelf: 'stretch' },
   heading: {
     flex: 1,
     minWidth: 0,
