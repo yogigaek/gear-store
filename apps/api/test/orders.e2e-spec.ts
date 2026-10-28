@@ -45,6 +45,8 @@ describe('Addresses and orders (e2e)', () => {
         request(server()).post('/api/me/cart/builds').set(auth()).send({ parts, colorKey, quantity }),
       checkout: (addressId: string, idempotencyKey = randomUUID()) =>
         request(server()).post('/api/me/orders').set(auth()).send({ addressId, idempotencyKey }),
+      buyNow: (addressId: string, items: object[], idempotencyKey = randomUUID()) =>
+        request(server()).post('/api/me/orders').set(auth()).send({ addressId, idempotencyKey, items }),
       orders: () => request(server()).get('/api/me/orders').set(auth()),
       cart: () => request(server()).get('/api/me/cart').set(auth()),
       order: (n: string) => request(server()).get(`/api/me/orders/${n}`).set(auth()),
@@ -321,6 +323,160 @@ describe('Addresses and orders (e2e)', () => {
       const { me, address } = await customerWithAddress();
       const res = await me.checkout(address.id).expect(400);
       expect(res.body.message).toMatch(/empty/);
+    });
+  });
+
+  describe('buy now', () => {
+    it('orders only the given part and leaves the cart and its bikes exactly as they were', async () => {
+      const { me, address } = await customerWithAddress();
+      await me.cartSet('battery-charger-4a', 2).expect(200);
+      await me.addBike(start, 'ember').expect(200);
+      const cartBefore = cartSchema.parse((await me.cart().expect(200)).body);
+      const before = await stockOf('lights-front-rear');
+
+      const order = orderDetailSchema.parse(
+        (await me.buyNow(address.id, [{ slug: 'lights-front-rear', quantity: 2 }]).expect(201)).body,
+      );
+      expect(order.items.map((i) => [i.slug, i.quantity, i.lineTotal])).toEqual([
+        ['lights-front-rear', 2, 2 * 650_000],
+      ]);
+      expect(order.builds).toEqual([]);
+      expect(order.subtotal).toBe(2 * 650_000);
+      expect(order.shippingFee).toBe(35000);
+      expect(order.total).toBe(order.subtotal + order.shippingFee);
+      expect(await stockOf('lights-front-rear')).toBe(before - 2);
+      expect(cartSchema.parse((await me.cart().expect(200)).body)).toEqual(cartBefore);
+
+      await me.cancel(order.number).expect(200);
+      expect(await stockOf('lights-front-rear')).toBe(before);
+    });
+
+    it('refuses a part it does not know, or no longer sells, and takes nothing', async () => {
+      const { me, address } = await customerWithAddress();
+      const before = await stockOf('workshop-hex-set');
+      const unknown = await me
+        .buyNow(address.id, [
+          { slug: 'workshop-hex-set', quantity: 1 },
+          { slug: 'no-such-part', quantity: 1 },
+        ])
+        .expect(404);
+      expect(unknown.body.message).toBe('Part not found');
+
+      await prisma.product.update({ where: { slug: WITHDRAWN_SLUG }, data: { isActive: false } });
+      try {
+        const withdrawn = await me.buyNow(address.id, [{ slug: WITHDRAWN_SLUG, quantity: 1 }]).expect(409);
+        expect(withdrawn.body.message).toMatch(/Withdrawn Test Pump/);
+        expect(await stockOf(WITHDRAWN_SLUG)).toBe(5);
+      } finally {
+        await prisma.product.update({ where: { slug: WITHDRAWN_SLUG }, data: { isActive: true } });
+      }
+      expect(await stockOf('workshop-hex-set')).toBe(before);
+      expect(z.array(orderSummarySchema).parse((await me.orders().expect(200)).body)).toEqual([]);
+    });
+
+    it('joins lines of one part and finish, and refuses more than 10 of it or no items at all', async () => {
+      const { me, address } = await customerWithAddress();
+      const tooMany = await me
+        .buyNow(address.id, [
+          { slug: 'workshop-hex-set', quantity: 6 },
+          { slug: 'workshop-hex-set', quantity: 5 },
+        ])
+        .expect(400);
+      expect(tooMany.body.message).toMatch(/At most 10 of/);
+      const empty = await me.buyNow(address.id, []).expect(400);
+      expect(empty.body.issues.map((i: { path: string }) => i.path)).toEqual(['items']);
+      expect(z.array(orderSummarySchema).parse((await me.orders().expect(200)).body)).toEqual([]);
+    });
+
+    it('gives a finish the part no longer has its first finish, as the cart does', async () => {
+      const { me, address } = await customerWithAddress();
+      const order = orderDetailSchema.parse(
+        (
+          await me
+            .buyNow(address.id, [
+              { slug: 'e1-frame-m', colorKey: 'neon-pink', quantity: 1 },
+              { slug: 'e1-frame-m', colorKey: 'signal', quantity: 1 },
+              { slug: 'battery-charger-4a', colorKey: 'moss', quantity: 1 },
+            ])
+            .expect(201)
+        ).body,
+      );
+      const lines = order.items.toSorted((a, b) => a.slug.localeCompare(b.slug));
+      expect(lines.map((i) => [i.slug, i.colorKey, i.colorLabel, i.quantity])).toEqual([
+        ['battery-charger-4a', '', null, 1],
+        ['e1-frame-m', 'signal', 'Signal yellow', 2],
+      ]);
+      await me.cancel(order.number).expect(200);
+    });
+
+    it('returns one order for a repeated key, sent twice at once or again later with another body', async () => {
+      const { me, address } = await customerWithAddress();
+      const before = await stockOf('workshop-hex-set');
+      const key = randomUUID();
+      const items = [{ slug: 'workshop-hex-set', quantity: 2 }];
+      const [a, b] = await Promise.all([
+        me.buyNow(address.id, items, key),
+        me.buyNow(address.id, items, key),
+      ]);
+      expect([a.status, b.status]).toEqual([201, 201]);
+      expect(b.body.number).toBe(a.body.number);
+      const again = await me
+        .buyNow(address.id, [{ slug: 'lights-front-rear', quantity: 1 }], key)
+        .expect(201);
+      expect(again.body.number).toBe(a.body.number);
+      expect(z.array(orderSummarySchema).parse((await me.orders().expect(200)).body)).toHaveLength(1);
+      expect(await stockOf('workshop-hex-set')).toBe(before - 2);
+      await me.cancel(a.body.number as string).expect(200);
+      expect(await stockOf('workshop-hex-set')).toBe(before);
+    });
+
+    it('runs alongside a cart checkout on the same account: both orders placed, or the loser told why', async () => {
+      const { me, address } = await customerWithAddress();
+      const hex = await stockOf('workshop-hex-set');
+      const lights = await stockOf('lights-front-rear');
+      for (let round = 0; round < 10; round += 1) {
+        await me.cartSet('workshop-hex-set', 1).expect(200);
+        const [bought, placed] = await Promise.all([
+          me.buyNow(address.id, [{ slug: 'lights-front-rear', quantity: 1 }]),
+          me.checkout(address.id),
+        ]);
+        expect([bought.status, placed.status], JSON.stringify([bought.body, placed.body])).toEqual([
+          201, 201,
+        ]);
+        expect(orderDetailSchema.parse(bought.body).items.map((i) => i.slug)).toEqual(['lights-front-rear']);
+        expect(orderDetailSchema.parse(placed.body).items.map((i) => i.slug)).toEqual(['workshop-hex-set']);
+        expect(cartSchema.parse((await me.cart().expect(200)).body).items).toEqual([]);
+        expect([await stockOf('workshop-hex-set'), await stockOf('lights-front-rear')]).toEqual([
+          hex - 1,
+          lights - 1,
+        ]);
+        await me.cancel(bought.body.number as string).expect(200);
+        await me.cancel(placed.body.number as string).expect(200);
+      }
+
+      // both after the last unit: one gets it, the other a 409, and the cart keeps it only if the cart lost
+      for (let round = 0; round < 5; round += 1) {
+        await me.cartSet(TEMP_SLUG, 1).expect(200);
+        const [bought, placed] = await Promise.all([
+          me.buyNow(address.id, [{ slug: TEMP_SLUG, quantity: 1 }]),
+          me.checkout(address.id),
+        ]);
+        expect([bought.status, placed.status].sort((a, b) => a - b)).toEqual([201, 409]);
+        expect(await stockOf(TEMP_SLUG)).toBe(0);
+        const cart = cartSchema.parse((await me.cart().expect(200)).body);
+        expect(cart.items.map((i) => i.product.slug)).toEqual(bought.status === 201 ? [TEMP_SLUG] : []);
+        const winner = bought.status === 201 ? bought : placed;
+        await me.cancel(winner.body.number as string).expect(200);
+        expect(await stockOf(TEMP_SLUG)).toBe(1);
+        await me.cartSet(TEMP_SLUG, 0).expect(200);
+      }
+    }, 60_000);
+
+    it('refuses more than is in stock with the checkout’s 409', async () => {
+      const { me, address } = await customerWithAddress();
+      const res = await me.buyNow(address.id, [{ slug: TEMP_SLUG, quantity: 2 }]).expect(409);
+      expect(res.body.message).toMatch(/Only 1 of Last Unit Test Fork left/);
+      expect(await stockOf(TEMP_SLUG)).toBe(1);
     });
   });
 

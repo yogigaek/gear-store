@@ -98,16 +98,15 @@ function emptyBook(): BuildBook {
 
 /** {@link BuildService.book}, for code outside Nest such as the seed */
 export async function loadRulebook(db: Db): Promise<BuildBook> {
-  const [categories, conflicts] = await Promise.all([
-    db.category.findMany({
-      where: { slot: { not: null } },
-      orderBy: { slot: 'asc' },
-      select: { slug: true, name: true, description: true, products: { select: partSelect } },
-    }),
-    db.partConflict.findMany({
-      select: { reason: true, a: { select: { slug: true } }, b: { select: { slug: true } } },
-    }),
-  ]);
+  // one after the other: `db` may be a transaction, whose single connection takes one query at a time
+  const categories = await db.category.findMany({
+    where: { slot: { not: null } },
+    orderBy: { slot: 'asc' },
+    select: { slug: true, name: true, description: true, products: { select: partSelect } },
+  });
+  const conflicts = await db.partConflict.findMany({
+    select: { reason: true, a: { select: { slug: true } }, b: { select: { slug: true } } },
+  });
   const parts = new Map<string, RulePart>();
   const swatches = new Map<string, Color[]>();
   for (const category of categories) {

@@ -312,8 +312,8 @@ export class CartService {
     return { lines: kept, cut };
   }
 
-  /** A finish the part does not have falls back to its first finish (or none). */
-  private finish(product: ProductRow, colorKey: string): string {
+  /** A finish the part does not have falls back to its first finish (or none). Colours in position order. */
+  finish(product: Pick<ProductRow, 'colors'>, colorKey: string): string {
     if (product.colors.length === 0) return '';
     return product.colors.some((c) => c.key === colorKey) ? colorKey : product.colors[0]!.key;
   }

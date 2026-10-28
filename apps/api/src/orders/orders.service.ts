@@ -6,8 +6,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  MAX_LINE_QUANTITY,
   paymentWindowMinutes,
   shippingFor,
+  type CartLineInput,
   type CheckoutInput,
   type OrderDetail,
   type OrderSummary,
@@ -15,7 +17,7 @@ import {
 } from '@gear-store/shared';
 import { OrderStatus, Prisma } from '../generated/prisma/client.js';
 import { AddressesService } from '../addresses/addresses.service.js';
-import { carriesColour, checkBuild } from '../build/build-rules.js';
+import { carriesColour, checkBuild, type CheckedBuild } from '../build/build-rules.js';
 import { BUILD_NAME, BuildService } from '../build/build.service.js';
 import { CartService, lockCart } from '../cart/cart.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -37,6 +39,12 @@ export const countItems = (o: { items: { quantity: number }[]; builds: { quantit
 
 export type OrderRow = Prisma.OrderGetPayload<{ include: typeof detailInclude }>;
 type Tx = Prisma.TransactionClient;
+type PartLine = {
+  product: Prisma.ProductGetPayload<{ include: { colors: true } }>;
+  colorKey: string;
+  quantity: number;
+};
+type Bike = CheckedBuild & { quantity: number };
 
 @Injectable()
 export class OrdersService {
@@ -53,7 +61,8 @@ export class OrdersService {
    * Turns the signed-in cart into an order: single parts and bikes alike. Each bike is checked again against
    * today's catalogue and broken down into its parts; prices come from the database; every part's stock is
    * taken with a guarded UPDATE (stock >= quantity) inside one transaction, so two buyers can never both get the
-   * last unit, and a bike is never sold with one of its parts missing.
+   * last unit, and a bike is never sold with one of its parts missing. With `items` ("Buy now") only those parts
+   * are ordered, the same way, and the cart is left as it is.
    */
   async checkout(userId: string, input: CheckoutInput): Promise<OrderDetail> {
     const existing = await this.findByKey(userId, input.idempotencyKey);
@@ -79,30 +88,11 @@ export class OrdersService {
           });
           if (placedMeanwhile) return { orderId: placedMeanwhile.id };
 
-          const [lines, held] = await Promise.all([
-            tx.cartItem.findMany({
-              where: { userId },
-              orderBy: { createdAt: 'asc' },
-              include: { product: { include: { colors: true } } },
-            }),
-            this.cart.heldBuilds(userId, tx),
-          ]);
-          // the cart hides withdrawn parts and cannot remove them: they go here, and the shopper looks again
-          const withdrawn = lines.filter((l) => !l.product.isActive);
-          if (withdrawn.length > 0) {
-            await tx.cartItem.deleteMany({ where: { id: { in: withdrawn.map((l) => l.id) } } });
-            return { withdrawn: withdrawn.map((l) => l.product.name) };
-          }
-          const book = await this.builds.bookFor(held.length, tx);
-          if (lines.length === 0 && held.length === 0) throw new BadRequestException('Your cart is empty');
-
-          const bikes = held.map((b) => {
-            const checked = checkBuild(book, b.selection, b.quantity);
-            const blocker = checked.problems.find((p) => p.kind !== 'OUT_OF_STOCK');
-            if (blocker)
-              throw new ConflictException(`A bike in your cart can no longer be built: ${blocker.message}`);
-            return { ...checked, quantity: b.quantity };
-          });
+          const picked = input.items
+            ? { lines: await this.pickedLines(tx, input.items), bikes: [] }
+            : await this.cartContents(tx, userId);
+          if ('withdrawn' in picked) return { withdrawn: picked.withdrawn };
+          const { lines, bikes } = picked;
 
           // what the order takes from each part's stock: single parts and bike parts together
           const demand = new Map<string, { name: string; quantity: number }>();
@@ -111,7 +101,7 @@ export class OrdersService {
             entry.quantity += quantity;
             demand.set(id, entry);
           };
-          for (const l of lines) take(l.productId, l.product.name, l.quantity);
+          for (const l of lines) take(l.product.id, l.product.name, l.quantity);
           for (const bike of bikes) {
             for (const { part } of bike.parts) take(part.id, part.summary.name, bike.quantity);
           }
@@ -135,7 +125,7 @@ export class OrdersService {
           }
 
           const items = lines.map((l) => ({
-            productId: l.productId,
+            productId: l.product.id,
             slug: l.product.slug,
             name: l.product.name,
             model: l.product.model,
@@ -203,8 +193,10 @@ export class OrdersService {
               },
             });
           }
-          await tx.cartItem.deleteMany({ where: { userId } });
-          await tx.cartBuild.deleteMany({ where: { userId } });
+          if (!input.items) {
+            await tx.cartItem.deleteMany({ where: { userId } });
+            await tx.cartBuild.deleteMany({ where: { userId } });
+          }
           return { orderId: created.id };
         },
         // checkouts of one account queue on its lock (the shared demo shopper most of all): room to wait their turn
@@ -308,6 +300,60 @@ export class OrdersService {
     }
     await tx.orderEvent.create({ data: { orderId, status: to, note } });
     return true;
+  }
+
+  /** The signed-in cart, its bikes checked against today's catalogue; or the withdrawn parts it held, now removed. */
+  private async cartContents(
+    tx: Tx,
+    userId: string,
+  ): Promise<{ lines: PartLine[]; bikes: Bike[] } | { withdrawn: string[] }> {
+    // one after the other: a transaction is one connection, and pg is dropping queries sent over one at once
+    const lines = await tx.cartItem.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      include: { product: { include: { colors: true } } },
+    });
+    const held = await this.cart.heldBuilds(userId, tx);
+    // the cart hides withdrawn parts and cannot remove them: they go here, and the shopper looks again
+    const withdrawn = lines.filter((l) => !l.product.isActive);
+    if (withdrawn.length > 0) {
+      await tx.cartItem.deleteMany({ where: { id: { in: withdrawn.map((l) => l.id) } } });
+      return { withdrawn: withdrawn.map((l) => l.product.name) };
+    }
+    const book = await this.builds.bookFor(held.length, tx);
+    if (lines.length === 0 && held.length === 0) throw new BadRequestException('Your cart is empty');
+
+    const bikes = held.map((b) => {
+      const checked = checkBuild(book, b.selection, b.quantity);
+      const blocker = checked.problems.find((p) => p.kind !== 'OUT_OF_STOCK');
+      if (blocker)
+        throw new ConflictException(`A bike in your cart can no longer be built: ${blocker.message}`);
+      return { ...checked, quantity: b.quantity };
+    });
+    return { lines, bikes };
+  }
+
+  /** "Buy now": the parts asked for, one line per part and finish, finishes chosen as the cart chooses them. */
+  private async pickedLines(tx: Tx, wanted: CartLineInput[]): Promise<PartLine[]> {
+    const products = await tx.product.findMany({
+      where: { slug: { in: [...new Set(wanted.map((l) => l.slug))] } },
+      include: { colors: { orderBy: { position: 'asc' } } },
+    });
+    const bySlug = new Map(products.map((p) => [p.slug, p]));
+    const lines = new Map<string, PartLine>();
+    for (const l of wanted) {
+      const product = bySlug.get(l.slug);
+      if (!product) throw new NotFoundException('Part not found');
+      if (!product.isActive) throw new ConflictException(`${product.name} is no longer sold.`);
+      const colorKey = this.cart.finish(product, l.colorKey);
+      const id = `${product.id}:${colorKey}`;
+      const quantity = (lines.get(id)?.quantity ?? 0) + l.quantity;
+      if (quantity > MAX_LINE_QUANTITY) {
+        throw new BadRequestException(`At most ${MAX_LINE_QUANTITY} of ${product.name} in one order.`);
+      }
+      lines.set(id, { product, colorKey, quantity });
+    }
+    return [...lines.values()];
   }
 
   private findByKey(userId: string, idempotencyKey: string) {
