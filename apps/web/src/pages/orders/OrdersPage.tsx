@@ -1,5 +1,5 @@
 import { orderNumberSchema } from '@gear-store/shared';
-import { useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
 import { AccountCrumb } from '../../components/layout/AccountCrumb';
@@ -10,6 +10,7 @@ import { PageTitle } from '../../components/ui/PageTitle';
 import { Price } from '../../components/ui/Price';
 import { SlowServerNote } from '../../components/ui/SlowServerNote';
 import { formatDateTime } from '../../lib/date';
+import { ORDERS_PAGE, shownOrders } from '../../lib/order-list';
 import { useOrders } from '../../lib/orders';
 
 export function OrdersPage() {
@@ -26,13 +27,30 @@ export function OrdersPage() {
   );
 }
 
-/** how many orders the list shows at first, and adds with each "Show older" */
-const PAGE = 10;
-
 function OrderList() {
   const orders = useOrders();
-  const [shown, setShown] = useState(PAGE);
+  const [params, setParams] = useSearchParams();
+  const shown = shownOrders(params.get('show'));
   const list = orders.data ?? [];
+  const rows = useRef<HTMLUListElement>(null);
+  // the first row "Show older" added takes focus: the button may be gone, which would drop focus to the page
+  const focusRow = useRef<number | null>(null);
+  useEffect(() => {
+    const index = focusRow.current;
+    if (index === null) return;
+    focusRow.current = null;
+    rows.current?.querySelectorAll<HTMLAnchorElement>(':scope > li > a')[index]?.focus();
+  }, [shown]);
+  const showOlder = () => {
+    focusRow.current = shown;
+    setParams(
+      (p) => {
+        p.set('show', String(shown + ORDERS_PAGE));
+        return p;
+      },
+      { replace: true, preventScrollReset: true },
+    );
+  };
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
       <PageTitle>Orders</PageTitle>
@@ -68,7 +86,7 @@ function OrderList() {
       )}
       {list.length > 0 && (
         <>
-          <ul className="border-t border-ink">
+          <ul ref={rows} className="border-t border-ink">
             {list.slice(0, shown).map((o) => (
               <li key={o.number}>
                 <Link
@@ -89,10 +107,8 @@ function OrderList() {
           </ul>
           {list.length > shown && (
             <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
-              <p className="font-mono text-xs text-ink-3">
-                Showing the latest {shown} of {list.length}
-              </p>
-              <Button variant="secondary" onClick={() => setShown((n) => n + PAGE)}>
+              <p className="font-mono text-xs text-ink-3">Showing the latest {shown}</p>
+              <Button variant="secondary" onClick={showOlder}>
                 Show older
               </Button>
             </div>

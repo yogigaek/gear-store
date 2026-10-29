@@ -39,13 +39,16 @@ function ProductDetail({ slug }: { slug: string }) {
   const categories = useCategories();
   const reviews = useProductReviews(slug);
   const [colorId, setColorId] = useState<string>();
-  const [qty, setQty] = useState(1);
+  const [picked, setPicked] = useState(1);
+  // the stepper's top, which falls when the stock does: what was picked above it shrinks with it
+  const maxQty = Math.max(1, Math.min(MAX_LINE_QUANTITY, query.data?.stock ?? MAX_LINE_QUANTITY));
+  const qty = Math.min(picked, maxQty);
   const cart = useCart();
   const navigate = useNavigate();
   const addToCart = useMutation({
     mutationFn: () => cart.add(slug, colorId ?? query.data?.colors[0]?.key ?? '', qty),
     onSuccess: () => {
-      setQty(1);
+      setPicked(1);
       cartDrawer.open();
     },
   });
@@ -62,6 +65,7 @@ function ProductDetail({ slug }: { slug: string }) {
   if (query.isError) {
     return (
       <div className="mx-auto max-w-7xl space-y-4 px-4 py-16 sm:px-6">
+        <PageTitle>Part</PageTitle>
         <Notice tone="error">
           {query.error.message}{' '}
           <button
@@ -232,9 +236,9 @@ function ProductDetail({ slug }: { slug: string }) {
             <QuantityStepper
               label="Quantity"
               value={qty}
-              max={Math.max(1, Math.min(MAX_LINE_QUANTITY, product.stock))}
+              max={maxQty}
               disabled={soldOut}
-              onChange={setQty}
+              onChange={setPicked}
             />
             <Button
               disabled={soldOut}
@@ -294,6 +298,7 @@ function ProductDetail({ slug }: { slug: string }) {
 function ProductSkeleton() {
   return (
     <div aria-busy="true" className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      <PageTitle>Loading part</PageTitle>
       <div className="grid gap-10 lg:grid-cols-[1.25fr_1fr]">
         <div className="bg-grid aspect-[4/3] border border-bench" />
         <div className="space-y-4">

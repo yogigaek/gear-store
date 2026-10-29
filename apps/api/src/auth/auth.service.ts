@@ -199,7 +199,12 @@ export class AuthService {
 
   async demoLogin(input: DemoLoginInput, userAgent: string | undefined): Promise<IssuedSession> {
     const user = await this.prisma.user.findUnique({ where: { email: DEMO_EMAILS[input.role] } });
-    if (!user?.isDemo) throw new ServiceUnavailableException('Demo accounts are not set up');
+    if (!user?.isDemo)
+      throw new ServiceUnavailableException({
+        statusCode: 503,
+        message: 'Demo accounts are not set up on this server.',
+        code: 'DEMO_NOT_SET_UP',
+      });
     return this.startSession(user, userAgent);
   }
 

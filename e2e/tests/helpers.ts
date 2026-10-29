@@ -91,7 +91,11 @@ export async function paymentProviderDown(page: Page): Promise<void> {
     route.fulfill({
       status: 503,
       contentType: 'application/json',
-      body: '{"statusCode":503,"message":"The payment provider is not responding. Try again in a minute."}',
+      body: JSON.stringify({
+        statusCode: 503,
+        message: 'The payment provider is not responding. Try again in a minute.',
+        code: 'PAYMENTS_UNAVAILABLE',
+      }),
     }),
   );
 }

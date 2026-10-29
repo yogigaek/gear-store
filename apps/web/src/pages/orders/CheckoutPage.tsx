@@ -1,4 +1,5 @@
-import { paymentWindowMinutes, type Cart, type CartLineInput } from '@gear-store/shared';
+import { paymentWindowMinutes, type Cart, type CartLineInput, type ProductDetail } from '@gear-store/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useRef, useState, type RefObject } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
@@ -14,7 +15,7 @@ import { Price } from '../../components/ui/Price';
 import { SlowServerNote } from '../../components/ui/SlowServerNote';
 import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
-import { parseBuyLine } from '../../lib/buy-now';
+import { buyNowPath, finishSwapNote, parseBuyLine } from '../../lib/buy-now';
 import { useCart, useLinesQuote } from '../../lib/cart';
 import { useAddresses, useCheckout } from '../../lib/orders';
 
@@ -57,6 +58,7 @@ function Checkout({
   const checkout = useCheckout();
   const { authed, user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [chosenId, setChosenId] = useState<string>();
   const [adding, setAdding] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -102,7 +104,7 @@ function Checkout({
         <h1 className="font-expanded text-3xl font-extrabold uppercase">{title}</h1>
         {buying ? (
           <>
-            <p className="text-ink-2">This part is no longer sold.</p>
+            <p className="text-ink-2">This part is not in the catalogue.</p>
             <Link to="/products" className="font-semibold underline underline-offset-4">
               Browse parts
             </Link>
@@ -125,6 +127,19 @@ function Checkout({
     colorKey: quoted.colorKey,
     quantity: quoted.quantity,
   };
+  // the product page this came from may still name the finish the quote swapped
+  const swapNote =
+    requested &&
+    quoted &&
+    finishSwapNote(
+      requested.colorKey,
+      quoted,
+      queryClient
+        .getQueryData<ProductDetail>(['product', requested.slug])
+        ?.colors.find((c) => c.key === requested.colorKey)?.label,
+    );
+  // no reply (status 0): the order may exist, and the stock it holds would read as missing; the same key resends
+  const lost = checkout.error instanceof ApiError && checkout.error.status === 0;
 
   const placeOrder = () => {
     if (!address) return;
@@ -171,6 +186,11 @@ function Checkout({
         <Label>Step 1 of 2 · then pay with Midtrans (sandbox)</Label>
         <h1 className="font-expanded text-4xl font-extrabold uppercase">{title}</h1>
         {buying && <p className="text-sm text-ink-2">Just this part. Your cart stays as it is.</p>}
+        {swapNote && (
+          <p role="status" className="mt-3 border-l-[3px] border-signal bg-alu-50 px-4 py-3 text-sm">
+            {swapNote}
+          </p>
+        )}
       </div>
 
       <div className="grid gap-10 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
@@ -248,23 +268,59 @@ function Checkout({
             </div>
           </dl>
 
-          {quoted?.problem ? (
+          {!lost &&
+            (quoted?.problem ? (
+              <Notice tone="error">
+                {quoted.problem === 'OUT_OF_STOCK' ? (
+                  <>
+                    This part is out of stock.{' '}
+                    <Link to={`/products/${quoted.product.slug}`} className="font-semibold underline">
+                      Back to the part
+                    </Link>
+                  </>
+                ) : (
+                  <>
+                    Only {quoted.product.stock} left: fewer than you asked for.{' '}
+                    <Link
+                      to={buyNowPath({
+                        slug: quoted.product.slug,
+                        colorKey: quoted.colorKey,
+                        quantity: quoted.product.stock,
+                      })}
+                      replace
+                      className="font-semibold underline"
+                    >
+                      Buy {quoted.product.stock} instead
+                    </Link>{' '}
+                    or{' '}
+                    <Link to={`/products/${quoted.product.slug}`} className="font-semibold underline">
+                      go back to the part
+                    </Link>
+                    .
+                  </>
+                )}
+              </Notice>
+            ) : (
+              !priced.canCheckout && (
+                <Notice tone="error">
+                  Some items are out of stock or over the stock left. Fix them in the cart first.
+                </Notice>
+              )
+            ))}
+          {lost ? (
             <Notice tone="error">
-              {quoted.problem === 'OUT_OF_STOCK'
-                ? 'This part is out of stock.'
-                : `Only ${quoted.product.stock} left: fewer than you asked for.`}
+              No reply from the store: the order may have gone through. Check{' '}
+              <Link to="/orders" className="font-semibold underline">
+                your orders
+              </Link>
+              , or place it again: it will not be ordered twice.
             </Notice>
           ) : (
-            !priced.canCheckout && (
-              <Notice tone="error">
-                Some items are out of stock or over the stock left. Fix them in the cart first.
-              </Notice>
-            )
+            checkout.error && <Notice tone="error">{checkout.error.message}</Notice>
           )}
-          {checkout.error && <Notice tone="error">{checkout.error.message}</Notice>}
           <Button
             className="w-full"
-            disabled={!address || !priced.canCheckout || checkout.isPending || paying}
+            disabled={!address || (!priced.canCheckout && !lost) || checkout.isPending || paying}
             onClick={placeOrder}
           >
             {paying ? 'Opening payment…' : checkout.isPending ? 'Placing order…' : 'Place order and pay'}

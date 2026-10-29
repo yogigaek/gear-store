@@ -9,7 +9,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { z } from 'zod';
-import { api } from './api';
+import { api, ApiError } from './api';
 import { useAuth } from './auth-context';
 
 const ADDRESSES = ['me', 'addresses'];
@@ -153,7 +153,10 @@ export function useCheckout() {
       void queryClient.invalidateQueries({ queryKey: ['cart', 'lines'] });
     },
     // a refused checkout may have changed the cart (a part no longer sold is taken out), or Buy now's price and stock
-    onError: (_error, input) =>
-      void queryClient.invalidateQueries({ queryKey: input.items ? ['cart', 'lines'] : ['me', 'cart'] }),
+    onError: (error, input) => {
+      // a lost reply may hide an order that went through: re-reading now would count its held stock against the retry
+      if (error instanceof ApiError && error.status === 0) return;
+      void queryClient.invalidateQueries({ queryKey: input.items ? ['cart', 'lines'] : ['me', 'cart'] });
+    },
   });
 }

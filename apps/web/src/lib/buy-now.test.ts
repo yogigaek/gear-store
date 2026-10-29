@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buyNowPath, parseBuyLine } from './buy-now';
+import { buyNowPath, finishSwapNote, parseBuyLine } from './buy-now';
 
 const read = (query: string) => parseBuyLine(new URLSearchParams(query));
 
@@ -46,6 +46,27 @@ describe('parseBuyLine', () => {
     }
     expect(buyNowPath({ slug: 'folding-lock', colorKey: '', quantity: 1 })).toBe(
       '/checkout?buy=folding-lock&qty=1',
+    );
+  });
+});
+
+describe('finishSwapNote', () => {
+  const moss = { colorKey: 'moss', colorLabel: 'Moss green' };
+
+  it('says nothing when the quote keeps the finish, or the link named none', () => {
+    expect(finishSwapNote('moss', moss)).toBeNull();
+    expect(finishSwapNote('', moss)).toBeNull();
+  });
+
+  it('names the swap, with the asked finish when it is known', () => {
+    expect(finishSwapNote('signal', moss, 'Signal yellow')).toBe(
+      'Signal yellow is no longer offered; this is Moss green.',
+    );
+    expect(finishSwapNote('signal', moss)).toBe(
+      'The finish you picked is no longer offered; this is Moss green.',
+    );
+    expect(finishSwapNote('signal', { colorKey: '', colorLabel: null })).toBe(
+      'The finish you picked is not offered for this part.',
     );
   });
 });

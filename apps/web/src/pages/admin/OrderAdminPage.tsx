@@ -7,6 +7,7 @@ import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Field, Notice } from '../../components/ui/Field';
 import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { Price } from '../../components/ui/Price';
 import { useAdminOrder, useAdminOrderActions } from '../../lib/admin';
 import { formatDateTime } from '../../lib/date';
@@ -22,12 +23,26 @@ export function OrderAdminPage() {
     { kind: 'ship'; input: ShipInput } | { kind: 'deliver' } | { kind: 'refund' } | null
   >(null);
   const o = order.data;
-  if (order.isError) return <Notice tone="error">{order.error.message}</Notice>;
-  if (!o) return <p className="font-mono text-sm text-ink-3">Loading…</p>;
+  const title = <PageTitle>{o ? `Order ${o.number} · Admin` : 'Order · Admin'}</PageTitle>;
+  if (order.isError)
+    return (
+      <>
+        {title}
+        <Notice tone="error">{order.error.message}</Notice>
+      </>
+    );
+  if (!o)
+    return (
+      <p className="font-mono text-sm text-ink-3">
+        {title}
+        Loading…
+      </p>
+    );
   const actionError = ship.error ?? deliver.error ?? refund.error;
 
   return (
     <>
+      {title}
       <ConfirmDialog
         open={ask !== null}
         title={

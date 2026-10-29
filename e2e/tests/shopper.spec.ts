@@ -231,3 +231,43 @@ test('Buy now keeps the finish and quantity chosen, and the cart checkout keeps 
   await expect(cartSummary.getByRole('listitem')).toHaveCount(1);
   await expect(cartSummary.getByText('Fender set')).toBeVisible();
 });
+
+test('"Show older" stays shown after a visit to an older order, and focus moves to the rows it adds', async ({
+  page,
+}) => {
+  // the demo shopper's own history is short: the list is stubbed with 25 orders, newest first
+  const orders = Array.from({ length: 25 }, (_, i) => ({
+    number: `RKT-260101-${'ABCDEFGHJKLMNPQRSTUVWXYZ2'[i]}AAAAA`,
+    status: 'DELIVERED',
+    total: 100000,
+    itemCount: 1,
+    createdAt: new Date(Date.UTC(2026, 0, 26 - i)).toISOString(),
+  }));
+  await page.route('**/api/me/orders', (route) => route.fulfill({ json: orders }));
+  await page.goto('/sign-in');
+  await page.getByRole('button', { name: /^Try as shopper/ }).click();
+  await page.waitForURL('**/account');
+  await page.goto('/orders');
+
+  const rows = page.locator('main a[href^="/orders/RKT-"]');
+  await expect(rows).toHaveCount(10);
+  await expect(page.getByText('Showing the latest 10', { exact: true })).toBeVisible();
+  const older = page.getByRole('button', { name: 'Show older' });
+  await older.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/orders\?show=20$/);
+  await expect(rows).toHaveCount(20);
+  await expect(rows.nth(10)).toBeFocused();
+  await older.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/orders\?show=30$/);
+  await expect(rows).toHaveCount(25);
+  await expect(older).toHaveCount(0);
+  await expect(rows.nth(20)).toBeFocused();
+
+  await rows.nth(22).click();
+  await expect(page).toHaveURL(/\/orders\/RKT-260101-YAAAAA$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/orders\?show=30$/);
+  await expect(rows).toHaveCount(25);
+});

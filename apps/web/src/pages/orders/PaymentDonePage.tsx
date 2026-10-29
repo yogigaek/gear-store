@@ -1,6 +1,7 @@
 import { orderNumberSchema } from '@gear-store/shared';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { useAuth } from '../../lib/auth-context';
 
 /**
@@ -19,12 +20,14 @@ export function PaymentDonePage() {
   if (status === 'restoring') {
     return (
       <p role="status" className="mx-auto max-w-7xl px-4 py-16 font-mono text-sm text-ink-3 sm:px-6">
+        <PageTitle>Payment</PageTitle>
         Restoring your session…
       </p>
     );
   }
   return (
     <div className="mx-auto max-w-7xl space-y-4 px-4 py-24 sm:px-6">
+      <PageTitle>Payment</PageTitle>
       <Label>Payment</Label>
       <h1 className="font-expanded text-4xl font-extrabold uppercase">Back from the payment page</h1>
       <p className="max-w-prose text-ink-2">

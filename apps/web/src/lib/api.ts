@@ -77,12 +77,12 @@ async function toApiError(res: Response): Promise<ApiError> {
       retryAfter?: unknown;
     };
     const message = Array.isArray(body.message) ? String(body.message[0]) : body.message;
-    // a 429 from the throttler says "ThrottlerException: …"; one from a paused sign-in says how long to wait
+    // a code marks words written for the shopper: a 429 from the throttler says "ThrottlerException: …" and a
+    // server failure's own words (stack details, provider names) are not theirs to read, unless coded
     const own = typeof body.code === 'string';
     return new ApiError(
       res.status,
-      // a server failure's own words are not the shopper's to read (stack details, provider names)
-      typeof message !== 'string' || res.status >= 500 || (res.status === 429 && !own) ? fallback : message,
+      typeof message !== 'string' || ((res.status >= 500 || res.status === 429) && !own) ? fallback : message,
       Array.isArray(body.issues) ? (body.issues as ApiIssue[]) : [],
       own ? (body.code as string) : undefined,
       typeof body.retryAfter === 'number' ? body.retryAfter : undefined,

@@ -75,13 +75,17 @@ export function OrderPage() {
   if (order.isError) {
     return (
       <div className="mx-auto max-w-7xl px-4 py-16 sm:px-6">
+        <PageTitle>Order</PageTitle>
         <Notice tone="error">{order.error.message}</Notice>
       </div>
     );
   }
   if (!order.data)
     return (
-      <p className="mx-auto max-w-7xl px-4 py-16 font-mono text-sm text-ink-3 sm:px-6">Loading order…</p>
+      <p className="mx-auto max-w-7xl px-4 py-16 font-mono text-sm text-ink-3 sm:px-6">
+        <PageTitle>Order</PageTitle>
+        Loading order…
+      </p>
     );
   const o = order.data;
   const actionError = pay.error ?? checkStatus.error ?? cancel.error;

@@ -30,3 +30,19 @@ export function buyNowPath(line: CartLineInput): string {
   params.set('qty', String(line.quantity));
   return `/checkout?${params}`;
 }
+
+/**
+ * What to say when the quote orders another finish than the link asked for (the API swaps one the part does not
+ * have for its first); null when it does not. `askedLabel` names the asked finish when the page still knows it.
+ */
+export function finishSwapNote(
+  asked: string,
+  quoted: { colorKey: string; colorLabel: string | null },
+  askedLabel?: string,
+): string | null {
+  if (!asked || asked === quoted.colorKey) return null;
+  const was = askedLabel ?? 'The finish you picked';
+  return quoted.colorLabel
+    ? `${was} is no longer offered; this is ${quoted.colorLabel}.`
+    : `${was} is not offered for this part.`;
+}
