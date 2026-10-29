@@ -1,6 +1,6 @@
 import { paymentWindowMinutes, type Cart, type CartLineInput, type ProductDetail } from '@gear-store/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRef, useState, type RefObject } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { AddressForm, AddressLines } from '../../components/checkout/AddressForm';
@@ -17,6 +17,7 @@ import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
 import { buyNowPath, finishSwapNote, parseBuyLine } from '../../lib/buy-now';
 import { useCart, useLinesQuote } from '../../lib/cart';
+import { cartScope, checkoutKey, closeCheckoutKey, hasOpenCartAttempt } from '../../lib/checkout-key';
 import { useAddresses, useCheckout } from '../../lib/orders';
 
 const redirectSchema = z.object({ redirectUrl: z.url() });
@@ -25,8 +26,6 @@ const redirectSchema = z.object({ redirectUrl: z.url() });
 export function CheckoutPage() {
   const [params] = useSearchParams();
   const buying = params.has('buy');
-  // a key per scope (the cart, or one Buy-now line): the API answers a known key with its order, whatever is asked
-  const keys = useRef(new Map<string, string>());
   if (buying && !parseBuyLine(params)) {
     return (
       <div className="mx-auto max-w-7xl space-y-3 px-4 py-16 sm:px-6">
@@ -40,16 +39,14 @@ export function CheckoutPage() {
     );
   }
   // a new mode (or another part) starts with its own address choice, errors and pending state
-  return <Checkout key={buying ? params.toString() : 'cart'} line={parseBuyLine(params)} keys={keys} />;
+  return <Checkout key={buying ? params.toString() : 'cart'} line={parseBuyLine(params)} />;
 }
 
 function Checkout({
   line: requested,
-  keys,
 }: {
   /** the Buy-now line asked for; null for the cart */
   line: CartLineInput | null;
-  keys: RefObject<Map<string, string>>;
 }) {
   const buying = requested !== null;
   const { cart, isLoading } = useCart();
@@ -97,7 +94,24 @@ function Checkout({
     );
   }
   const priced: Cart | undefined = buying ? quote.data : cart;
+  // no reply (status 0): the order may exist, and the stock it holds would read as missing; the same key resends
+  const lost = checkout.error instanceof ApiError && checkout.error.status === 0;
   if (!priced || priced.items.length + priced.builds.length === 0) {
+    // an attempt left open (no reply, then a reload or a refetch) may have turned the cart into an order
+    if (!buying && (lost || hasOpenCartAttempt())) {
+      return (
+        <div className="mx-auto max-w-7xl space-y-3 px-4 py-16 sm:px-6">
+          {head}
+          <h1 className="font-expanded text-3xl font-extrabold uppercase">{title}</h1>
+          <p className="text-ink-2">
+            Your cart is empty now: the last order attempt got no reply, so it may have gone through.
+          </p>
+          <Link to="/orders" className="font-semibold underline underline-offset-4">
+            Check your orders
+          </Link>
+        </div>
+      );
+    }
     return (
       <div className="mx-auto max-w-7xl space-y-3 px-4 py-16 sm:px-6">
         {head}
@@ -138,21 +152,25 @@ function Checkout({
         .getQueryData<ProductDetail>(['product', requested.slug])
         ?.colors.find((c) => c.key === requested.colorKey)?.label,
     );
-  // no reply (status 0): the order may exist, and the stock it holds would read as missing; the same key resends
-  const lost = checkout.error instanceof ApiError && checkout.error.status === 0;
-
   const placeOrder = () => {
     if (!address) return;
-    const scope = buyLine ? `buy:${buyLine.slug}:${buyLine.colorKey}:${buyLine.quantity}` : 'cart';
-    let idempotencyKey = keys.current.get(scope);
-    if (!idempotencyKey) {
-      idempotencyKey = crypto.randomUUID();
-      keys.current.set(scope, idempotencyKey);
-    }
+    const scope = buyLine
+      ? `buy:${buyLine.slug}:${buyLine.colorKey}:${buyLine.quantity}`
+      : cartScope(
+          priced.items.map((i) => ({ slug: i.product.slug, colorKey: i.colorKey, quantity: i.quantity })),
+          priced.builds,
+        );
+    // kept for the tab, not the page: a reload after an unanswered attempt resends it, never a second order
+    const idempotencyKey = checkoutKey(scope);
     checkout.mutate(
       { addressId: address.id, idempotencyKey, ...(buyLine ? { items: [buyLine] } : {}) },
       {
+        // a refusal made nothing, so the next attempt is a new order
+        onError: (error) => {
+          if (error instanceof ApiError && error.status >= 400 && error.status < 500) closeCheckoutKey(scope);
+        },
         onSuccess: async (order) => {
+          closeCheckoutKey(scope);
           // straight on to the payment page; if that cannot be reached, the order page offers "Pay now"
           setPaying(true);
           try {
