@@ -64,16 +64,22 @@ describe('checkoutKey', () => {
   });
 });
 
-describe('closeAllCheckoutKeys', () => {
-  it('lets every open attempt go once the shopper has seen their orders, so a new Buy now is a new order', async () => {
+describe('closeCheckoutKeysBefore', () => {
+  it('settles the attempts an orders list read after them shows, so a new Buy now is a new order', async () => {
     const k = await load();
-    const buy = k.checkoutKey('buy:fender-set::1');
-    k.checkoutKey('cart:fender-set::1');
-    expect(k.hasOpenCartAttempt()).toBe(true);
+    const buy = k.checkoutKey('buy:fender-set::1', 1_000);
+    k.checkoutKey('cart:fender-set::1', 1_000);
 
-    k.closeAllCheckoutKeys();
-    expect(k.hasOpenCartAttempt()).toBe(false);
-    expect(k.checkoutKey('buy:fender-set::1')).not.toBe(buy);
+    k.closeCheckoutKeysBefore(2_000);
+    expect(k.hasOpenCartAttempt(2_000)).toBe(false);
+    expect(k.checkoutKey('buy:fender-set::1', 2_000)).not.toBe(buy);
+  });
+
+  it('leaves an attempt opened after the list was read: that list cannot show its order', async () => {
+    const k = await load();
+    const buy = k.checkoutKey('buy:fender-set::1', 5_000);
+    k.closeCheckoutKeysBefore(4_000);
+    expect(k.checkoutKey('buy:fender-set::1', 5_001)).toBe(buy);
   });
 });
 

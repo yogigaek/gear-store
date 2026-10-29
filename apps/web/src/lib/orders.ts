@@ -155,7 +155,11 @@ export function useCheckout() {
     // a refused checkout may have changed the cart (a part no longer sold is taken out), or Buy now's price and stock
     onError: (error, input) => {
       // a lost reply may hide an order that went through: re-reading now would count its held stock against the retry
-      if (error instanceof ApiError && error.status === 0) return;
+      if (error instanceof ApiError && error.status === 0) {
+        // but the order list must be read again before it can be trusted to show (or not) that order
+        void queryClient.invalidateQueries({ queryKey: ORDERS, exact: true });
+        return;
+      }
       void queryClient.invalidateQueries({ queryKey: input.items ? ['cart', 'lines'] : ['me', 'cart'] });
     },
   });

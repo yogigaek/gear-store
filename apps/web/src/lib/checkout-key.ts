@@ -86,7 +86,13 @@ export function closeCheckoutKey(scope: string): void {
   }
 }
 
-/** the shopper has seen their orders: any order an unanswered attempt made is known, so the next one is new */
-export function closeAllCheckoutKeys(): void {
-  for (const scope of openScopes()) closeCheckoutKey(scope);
+/**
+ * The shopper has seen their orders as read at `readAt`: an order any attempt opened before then made is in that
+ * list, so those attempts are settled and the next one is new. Attempts opened after the read stay open.
+ */
+export function closeCheckoutKeysBefore(readAt: number): void {
+  for (const scope of openScopes()) {
+    const record = read(scope);
+    if (!record || record.at < readAt) closeCheckoutKey(scope);
+  }
 }

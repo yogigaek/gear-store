@@ -12,7 +12,7 @@ import { SlowServerNote } from '../../components/ui/SlowServerNote';
 import { formatDateTime } from '../../lib/date';
 import { ORDERS_PAGE, shownOrders } from '../../lib/order-list';
 import { useOrders } from '../../lib/orders';
-import { closeAllCheckoutKeys } from '../../lib/checkout-key';
+import { closeCheckoutKeysBefore } from '../../lib/checkout-key';
 
 export function OrdersPage() {
   // back from Midtrans through the dashboard's redirect URL, which adds ?order_id=…: the return page opens the
@@ -30,10 +30,11 @@ export function OrdersPage() {
 
 function OrderList() {
   const orders = useOrders();
-  // the shopper now sees every order an unanswered checkout may have made: the next checkout is a new order
+  // a list read after an unanswered checkout shows any order it made: that attempt is settled. Only a read that
+  // has finished counts, and only for attempts opened before it (a cached list may predate the attempt)
   useEffect(() => {
-    if (orders.isSuccess) closeAllCheckoutKeys();
-  }, [orders.isSuccess]);
+    if (orders.isSuccess && !orders.isFetching) closeCheckoutKeysBefore(orders.dataUpdatedAt);
+  }, [orders.isSuccess, orders.isFetching, orders.dataUpdatedAt]);
   const [params, setParams] = useSearchParams();
   const shown = shownOrders(params.get('show'));
   const list = orders.data ?? [];
