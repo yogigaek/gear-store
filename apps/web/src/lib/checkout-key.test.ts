@@ -1,12 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  cartScope,
-  CHECKOUT_KEY_TTL_MS,
-  checkoutKey,
-  closeCheckoutKey,
-  hasOpenCartAttempt,
-  hasOpenCheckoutKey,
-} from './checkout-key';
 
 const store = new Map<string, string>();
 const storage = {
@@ -18,6 +10,15 @@ const storage = {
     return store.size;
   },
 };
+const refuse = () => {
+  throw new Error('blocked');
+};
+
+// a fresh module per test: its in-memory fallback starts empty, as on a page load
+async function load() {
+  vi.resetModules();
+  return import('./checkout-key');
+}
 
 beforeEach(() => {
   store.clear();
@@ -25,29 +26,28 @@ beforeEach(() => {
 });
 
 describe('checkoutKey', () => {
-  it('keeps one key per scope until the attempt is closed, across reloads of the page', () => {
-    const cart = checkoutKey('cart:a');
-    expect(checkoutKey('cart:a')).toBe(cart);
-    expect(checkoutKey('buy:fender-set::1')).not.toBe(cart);
-    expect(hasOpenCheckoutKey('cart:a')).toBe(true);
+  it('keeps one key per scope until the attempt is closed, across reloads of the page', async () => {
+    const k = await load();
+    const cart = k.checkoutKey('cart:a');
+    expect(k.checkoutKey('cart:a')).toBe(cart);
+    expect(k.checkoutKey('buy:fender-set::1')).not.toBe(cart);
+    expect((await load()).checkoutKey('cart:a')).toBe(cart);
 
-    closeCheckoutKey('cart:a');
-    expect(hasOpenCheckoutKey('cart:a')).toBe(false);
-    expect(checkoutKey('cart:a')).not.toBe(cart);
+    k.closeCheckoutKey('cart:a');
+    expect(k.hasOpenCheckoutKey('cart:a')).toBe(false);
+    expect(k.checkoutKey('cart:a')).not.toBe(cart);
   });
 
-  it('lets an attempt given up long ago go: its key is not resent', () => {
+  it('lets an attempt given up long ago go: its key is not resent', async () => {
+    const k = await load();
     const at = 1_000_000;
-    const old = checkoutKey('cart:a', at);
-    expect(checkoutKey('cart:a', at + CHECKOUT_KEY_TTL_MS - 1)).toBe(old);
-    expect(hasOpenCheckoutKey('cart:a', at + CHECKOUT_KEY_TTL_MS)).toBe(false);
-    expect(checkoutKey('cart:a', at + CHECKOUT_KEY_TTL_MS)).not.toBe(old);
+    const old = k.checkoutKey('cart:a', at);
+    expect(k.checkoutKey('cart:a', at + k.CHECKOUT_KEY_TTL_MS - 1)).toBe(old);
+    expect(k.hasOpenCheckoutKey('cart:a', at + k.CHECKOUT_KEY_TTL_MS)).toBe(false);
+    expect(k.checkoutKey('cart:a', at + k.CHECKOUT_KEY_TTL_MS)).not.toBe(old);
   });
 
-  it('still gives a key when storage is refused', () => {
-    const refuse = () => {
-      throw new Error('blocked');
-    };
+  it('keeps the key for the page when storage is refused, so a retry on the page is the same order', async () => {
     vi.stubGlobal('sessionStorage', {
       getItem: refuse,
       setItem: refuse,
@@ -55,15 +55,31 @@ describe('checkoutKey', () => {
       key: refuse,
       length: 1,
     });
-    expect(checkoutKey('cart:a')).toMatch(/^[0-9a-f-]{36}$/);
-    expect(hasOpenCheckoutKey('cart:a')).toBe(false);
-    expect(hasOpenCartAttempt()).toBe(false);
-    expect(() => closeCheckoutKey('cart:a')).not.toThrow();
+    const k = await load();
+    const first = k.checkoutKey('buy:fender-set::1');
+    expect(k.checkoutKey('buy:fender-set::1')).toBe(first);
+    expect(k.hasOpenCheckoutKey('buy:fender-set::1')).toBe(true);
+    k.closeCheckoutKey('buy:fender-set::1');
+    expect(k.checkoutKey('buy:fender-set::1')).not.toBe(first);
+  });
+});
+
+describe('closeAllCheckoutKeys', () => {
+  it('lets every open attempt go once the shopper has seen their orders, so a new Buy now is a new order', async () => {
+    const k = await load();
+    const buy = k.checkoutKey('buy:fender-set::1');
+    k.checkoutKey('cart:fender-set::1');
+    expect(k.hasOpenCartAttempt()).toBe(true);
+
+    k.closeAllCheckoutKeys();
+    expect(k.hasOpenCartAttempt()).toBe(false);
+    expect(k.checkoutKey('buy:fender-set::1')).not.toBe(buy);
   });
 });
 
 describe('cartScope', () => {
-  it('names the cart by what it holds, in any order, so a cart filled again is a new attempt', () => {
+  it('names the cart by what it holds, in any order', async () => {
+    const { cartScope } = await load();
     const a = cartScope(
       [
         { slug: 'fender-set', colorKey: '', quantity: 1 },
@@ -71,24 +87,16 @@ describe('cartScope', () => {
       ],
       [{ id: 'b1', quantity: 1 }],
     );
-    const sameReordered = cartScope(
+    const reordered = cartScope(
       [
         { slug: 'e1-frame-m', colorKey: 'moss', quantity: 2 },
         { slug: 'fender-set', colorKey: '', quantity: 1 },
       ],
       [{ id: 'b1', quantity: 1 }],
     );
-    expect(sameReordered).toBe(a);
+    expect(reordered).toBe(a);
     expect(cartScope([{ slug: 'fender-set', colorKey: '', quantity: 2 }], [])).not.toBe(
       cartScope([{ slug: 'fender-set', colorKey: '', quantity: 1 }], []),
     );
-  });
-
-  it('finds an open cart attempt whatever the cart held', () => {
-    expect(hasOpenCartAttempt()).toBe(false);
-    checkoutKey('buy:fender-set::1');
-    expect(hasOpenCartAttempt()).toBe(false);
-    checkoutKey(cartScope([{ slug: 'fender-set', colorKey: '', quantity: 1 }], []));
-    expect(hasOpenCartAttempt()).toBe(true);
   });
 });

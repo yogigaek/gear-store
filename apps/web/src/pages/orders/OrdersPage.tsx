@@ -12,6 +12,7 @@ import { SlowServerNote } from '../../components/ui/SlowServerNote';
 import { formatDateTime } from '../../lib/date';
 import { ORDERS_PAGE, shownOrders } from '../../lib/order-list';
 import { useOrders } from '../../lib/orders';
+import { closeAllCheckoutKeys } from '../../lib/checkout-key';
 
 export function OrdersPage() {
   // back from Midtrans through the dashboard's redirect URL, which adds ?order_id=…: the return page opens the
@@ -29,6 +30,10 @@ export function OrdersPage() {
 
 function OrderList() {
   const orders = useOrders();
+  // the shopper now sees every order an unanswered checkout may have made: the next checkout is a new order
+  useEffect(() => {
+    if (orders.isSuccess) closeAllCheckoutKeys();
+  }, [orders.isSuccess]);
   const [params, setParams] = useSearchParams();
   const shown = shownOrders(params.get('show'));
   const list = orders.data ?? [];

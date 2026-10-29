@@ -17,7 +17,13 @@ import { api, ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
 import { buyNowPath, finishSwapNote, parseBuyLine } from '../../lib/buy-now';
 import { useCart, useLinesQuote } from '../../lib/cart';
-import { cartScope, checkoutKey, closeCheckoutKey, hasOpenCartAttempt } from '../../lib/checkout-key';
+import {
+  cartScope,
+  checkoutKey,
+  closeCheckoutKey,
+  hasOpenCartAttempt,
+  hasOpenCheckoutKey,
+} from '../../lib/checkout-key';
 import { useAddresses, useCheckout } from '../../lib/orders';
 
 const redirectSchema = z.object({ redirectUrl: z.url() });
@@ -152,14 +158,17 @@ function Checkout({
         .getQueryData<ProductDetail>(['product', requested.slug])
         ?.colors.find((c) => c.key === requested.colorKey)?.label,
     );
+  const scope = buyLine
+    ? `buy:${buyLine.slug}:${buyLine.colorKey}:${buyLine.quantity}`
+    : cartScope(
+        priced.items.map((i) => ({ slug: i.product.slug, colorKey: i.colorKey, quantity: i.quantity })),
+        priced.builds,
+      );
+  // an earlier attempt at this same order got no reply (another visit, a reload): placing it opens that order
+  const unanswered = !lost && hasOpenCheckoutKey(scope);
+
   const placeOrder = () => {
     if (!address) return;
-    const scope = buyLine
-      ? `buy:${buyLine.slug}:${buyLine.colorKey}:${buyLine.quantity}`
-      : cartScope(
-          priced.items.map((i) => ({ slug: i.product.slug, colorKey: i.colorKey, quantity: i.quantity })),
-          priced.builds,
-        );
     // kept for the tab, not the page: a reload after an unanswered attempt resends it, never a second order
     const idempotencyKey = checkoutKey(scope);
     checkout.mutate(
@@ -333,8 +342,19 @@ function Checkout({
               </Link>
               , or place it again: it will not be ordered twice.
             </Notice>
+          ) : checkout.error ? (
+            <Notice tone="error">{checkout.error.message}</Notice>
           ) : (
-            checkout.error && <Notice tone="error">{checkout.error.message}</Notice>
+            unanswered && (
+              <p role="status" className="border-l-[3px] border-signal bg-alu-50 px-4 py-3 text-sm">
+                Your last attempt at this order got no reply and may have gone through: placing it opens that
+                order. Check{' '}
+                <Link to="/orders" className="font-semibold underline">
+                  your orders
+                </Link>{' '}
+                first to order it again.
+              </p>
+            )
           )}
           <Button
             className="w-full"
