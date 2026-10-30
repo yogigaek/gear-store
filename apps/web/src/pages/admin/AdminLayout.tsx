@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router';
 import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { useAuth } from '../../lib/auth-context';
 
 const sections = [
@@ -56,6 +57,7 @@ export function AdminLayout() {
 export function AdminHeading({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-ink pb-4">
+      <PageTitle>{`${title} · Admin`}</PageTitle>
       <h1 className="font-expanded text-3xl font-extrabold uppercase">{title}</h1>
       {children}
     </div>

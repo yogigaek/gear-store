@@ -3,7 +3,7 @@ import type { OrderStatus } from '@gear-store/shared';
 import { statusLabels } from '../../lib/order-status';
 
 const look: Record<OrderStatus, { label: string; className: string }> = {
-  PENDING_PAYMENT: { label: statusLabels.PENDING_PAYMENT, className: 'border-ink bg-signal text-ink' },
+  PENDING_PAYMENT: { label: statusLabels.PENDING_PAYMENT, className: 'border-signal bg-signal text-stage' },
   PAID: { label: statusLabels.PAID, className: 'border-ok text-ok' },
   SHIPPED: { label: statusLabels.SHIPPED, className: 'border-ok text-ok' },
   DELIVERED: { label: statusLabels.DELIVERED, className: 'border-ok bg-ok text-alu-50' },

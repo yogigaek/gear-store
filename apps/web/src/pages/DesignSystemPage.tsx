@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Button } from '../components/ui/Button';
 import { Label } from '../components/ui/Label';
+import { PageTitle } from '../components/ui/PageTitle';
 import { Price } from '../components/ui/Price';
 import { SpecPlate } from '../components/ui/SpecPlate';
 import { StockNote } from '../components/ui/StockNote';
@@ -126,6 +127,7 @@ function Demo({ label, children }: { label: string; children: ReactNode }) {
 export function DesignSystemPage() {
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:py-14">
+      <PageTitle>Design system</PageTitle>
       <header className="space-y-4 pb-10">
         <Label className="text-signal">Rakit · design system</Label>
         <h1 className="font-expanded text-4xl font-extrabold uppercase sm:text-5xl">The bench</h1>

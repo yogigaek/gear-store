@@ -125,7 +125,8 @@ function PanelSwap() {
   return (
     <div
       ref={box}
-      className="relative overflow-hidden transition-[height] duration-300 ease-out motion-reduce:transition-none"
+      // the clip reaches 8 px into the panel's padding, so focus rings on full-width fields and buttons stay whole
+      className="relative -mx-2 overflow-hidden px-2 transition-[height] duration-300 ease-out motion-reduce:transition-none"
       style={{ height }}
     >
       <div
@@ -162,7 +163,11 @@ function Scene() {
   const can3D = useCanRender3D(seen);
 
   return (
-    <section ref={scene} aria-label="Rakit E-1" className="relative h-72 overflow-hidden sm:h-80 lg:h-full">
+    <section
+      ref={scene}
+      aria-label="Rakit E-1"
+      className="relative h-72 overflow-hidden sm:h-96 md:h-[30rem] lg:h-full"
+    >
       {/* a still of the scene is there at once (and stays where WebGL is missing); the live canvas fades in
           over it once its first frame is drawn */}
       <img
@@ -170,7 +175,8 @@ function Scene() {
         alt=""
         fetchPriority="high"
         decoding="async"
-        className="absolute inset-0 size-full object-cover object-bottom"
+        // the bike whole below the wide layout: centred on phones, lower on tablets so the eyebrow clears the saddle
+        className="absolute inset-0 size-full object-cover object-[50%_50%] sm:object-[50%_70%] lg:object-bottom"
       />
       <div
         className={`absolute inset-0 transition-opacity duration-700 motion-reduce:transition-none ${drawn ? 'opacity-100' : 'opacity-0'}`}
@@ -190,7 +196,7 @@ function Scene() {
         <p className="font-mono text-[0.72rem] uppercase tracking-[0.08em] text-signal">
           Rakit E-1 · your account
         </p>
-        <p className="max-w-md font-expanded text-3xl font-extrabold uppercase leading-none max-sm:hidden lg:text-5xl">
+        <p className="max-w-md font-expanded text-5xl font-extrabold uppercase leading-none max-lg:hidden">
           Every part, on record.
         </p>
         <p className="max-w-sm text-sm text-bench max-lg:hidden">

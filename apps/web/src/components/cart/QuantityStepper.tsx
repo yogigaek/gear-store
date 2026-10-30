@@ -21,11 +21,7 @@ export function QuantityStepper({
   onChange,
 }: Props) {
   return (
-    <div
-      role="group"
-      aria-label={label}
-      className={`flex border ${dark ? 'border-bench text-alu-50' : 'border-ink'}`}
-    >
+    <div role="group" aria-label={label} className={`flex border border-field ${dark ? 'text-alu-50' : ''}`}>
       <button
         type="button"
         className="size-11 font-mono disabled:text-bench-strong"

@@ -6,6 +6,7 @@ import { useBuildQuote } from '../../lib/queries';
 import { cartDrawer } from '../cart/cart-drawer-store';
 import { QuantityStepper } from '../cart/QuantityStepper';
 import { Price } from '../ui/Price';
+import { SlowServerNote } from '../ui/SlowServerNote';
 
 /** each option's reason it cannot join the parts chosen in the other slots, if any */
 function blocked(catalog: BuildCatalog, parts: Record<string, string>): Map<string, string> {
@@ -177,6 +178,7 @@ export function Configurator({
             <span className="font-mono text-sm text-bench">Pricing…</span>
           )}
         </div>
+        {!quote.data && <SlowServerNote className="text-bench" />}
         <div className="flex gap-3">
           <QuantityStepper label="Number of bikes" value={quantity} onChange={setQuantity} dark />
           <button

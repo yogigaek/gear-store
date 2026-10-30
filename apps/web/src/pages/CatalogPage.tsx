@@ -5,18 +5,19 @@ import { ProductCard, ProductCardSkeleton } from '../components/product/ProductC
 import { Button } from '../components/ui/Button';
 import { Notice } from '../components/ui/Field';
 import { Label } from '../components/ui/Label';
+import { PageTitle } from '../components/ui/PageTitle';
+import { SlowServerNote } from '../components/ui/SlowServerNote';
 import { readCatalogQuery, writeCatalogQuery } from '../lib/catalog-query';
 import { useCategories, useProducts } from '../lib/queries';
 
 const sortLabels: Record<(typeof productSorts)[number], string> = {
-  type: 'Part type',
-  'price-asc': 'Price: low to high',
-  'price-desc': 'Price: high to low',
-  name: 'Name',
+  type: 'Sort by part type',
+  'price-asc': 'Sort by price, low to high',
+  'price-desc': 'Sort by price, high to low',
+  name: 'Sort by name',
 };
 
-const controlClass =
-  'min-h-11 w-full border border-bench-strong bg-alu-50 px-3 text-base text-ink sm:text-sm';
+const controlClass = 'min-h-11 w-full border border-field bg-alu-50 px-3 text-base text-ink sm:text-sm';
 
 export function CatalogPage() {
   const [params, setParams] = useSearchParams();
@@ -99,6 +100,7 @@ export function CatalogPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      <PageTitle>{category?.name ?? 'All parts'}</PageTitle>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-ink pb-4">
         <div className="space-y-1">
           <Label>{category?.description ?? 'Every module of the E-1, and the accessories'}</Label>
@@ -173,13 +175,14 @@ export function CatalogPage() {
               {products.error.message}{' '}
               <button
                 type="button"
-                className="font-semibold underline"
+                className="min-h-11 font-semibold underline"
                 onClick={() => void products.refetch()}
               >
                 Try again
               </button>
             </Notice>
           )}
+          {products.isPending && <SlowServerNote />}
           {page?.items.length === 0 && (
             <div className="space-y-2 border border-bench bg-alu-50 p-6">
               <p className="font-semibold">No parts match these filters.</p>

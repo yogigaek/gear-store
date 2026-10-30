@@ -731,6 +731,16 @@ describe('Auth (e2e)', () => {
       expect(authResponseSchema.parse(res.body).user).toMatchObject({ role: expected, isDemo: true });
     });
 
+    it('says so, with a code, when this server has no demo accounts', async () => {
+      const find = vi.spyOn(prisma().user, 'findUnique').mockResolvedValueOnce(null);
+      try {
+        const res = await post('/api/auth/demo', { role: 'shopper' }).expect(503);
+        expect(res.body).toMatchObject({ code: 'DEMO_NOT_SET_UP' });
+      } finally {
+        find.mockRestore();
+      }
+    });
+
     it('cannot be renamed, re-passworded or signed into with a password', async () => {
       const body = authResponseSchema.parse(
         (await post('/api/auth/demo', { role: 'shopper' }).expect(200)).body,

@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { Button } from '../../components/ui/Button';
 import { Field, Notice } from '../../components/ui/Field';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { ApiError } from '../../lib/api';
 import { useAdminCategories, useAdminProduct, useCreateProduct, useUpdateProduct } from '../../lib/admin';
 import { AdminHeading } from './AdminLayout';
@@ -38,8 +39,20 @@ export function ProductEditPage() {
   const isNew = slug === undefined;
   const existing = useAdminProduct(slug ?? '');
   if (isNew) return <ProductForm />;
-  if (existing.isError) return <Notice tone="error">{existing.error.message}</Notice>;
-  if (!existing.data) return <p className="font-mono text-sm text-ink-3">Loading…</p>;
+  if (existing.isError)
+    return (
+      <>
+        <PageTitle>Product · Admin</PageTitle>
+        <Notice tone="error">{existing.error.message}</Notice>
+      </>
+    );
+  if (!existing.data)
+    return (
+      <p className="font-mono text-sm text-ink-3">
+        <PageTitle>Product · Admin</PageTitle>
+        Loading…
+      </p>
+    );
   // keyed by updatedAt: after a reload the form starts from the fresh product
   return (
     <ProductForm

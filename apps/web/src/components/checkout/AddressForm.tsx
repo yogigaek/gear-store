@@ -133,7 +133,7 @@ export function AddressForm({
             onChange={set('province')}
             aria-invalid={errors.province ? true : undefined}
             aria-describedby={errors.province ? `${provinceId}-error` : undefined}
-            className={`min-h-11 w-full border bg-alu-50 px-3 text-base text-ink sm:text-sm ${errors.province ? 'border-danger' : 'border-bench-strong'}`}
+            className={`min-h-11 w-full border bg-alu-50 px-3 text-base text-ink sm:text-sm ${errors.province ? 'border-danger' : 'border-field'}`}
           >
             <option value="">Choose…</option>
             {provinceNames.map((p) => (

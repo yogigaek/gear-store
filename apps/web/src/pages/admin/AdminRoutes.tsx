@@ -1,4 +1,5 @@
 import { Navigate } from 'react-router';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { useAuth } from '../../lib/auth-context';
 import { AdminLayout } from './AdminLayout';
 
@@ -8,6 +9,7 @@ export default function AdminGate() {
   if (status === 'restoring')
     return (
       <p className="mx-auto max-w-7xl px-4 py-16 font-mono text-sm text-ink-3 sm:px-6">
+        <PageTitle>Admin</PageTitle>
         Restoring your session…
       </p>
     );

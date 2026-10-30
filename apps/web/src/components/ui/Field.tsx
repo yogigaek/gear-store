@@ -24,8 +24,8 @@ export function Field({ label, error, hint, type = 'text', className = '', ...pr
           type={isPassword && revealed ? 'text' : type}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
-          className={`min-h-11 w-full border bg-alu-50 px-3 text-base text-ink outline-none transition-colors focus:border-ink ${
-            error ? 'border-danger' : 'border-bench-strong'
+          className={`min-h-11 w-full border bg-alu-50 px-3 text-base text-ink transition-colors focus:border-ink ${
+            error ? 'border-danger' : 'border-field'
           } ${isPassword ? 'pr-16' : ''}`}
           {...props}
         />

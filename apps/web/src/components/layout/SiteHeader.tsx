@@ -19,7 +19,10 @@ export function SiteHeader() {
   const categories = useCategories();
   const { status, user } = useAuth();
   const wishlist = useWishlist();
-  const { cart } = useCart();
+  const { cart, isLoading: cartLoading } = useCart();
+  // a count still being read shows as "…", never as a 0 that turns into the real number a moment later
+  const wishlistCount = status === 'restoring' || wishlist.isLoading ? '…' : (wishlist.data?.length ?? 0);
+  const cartCount = cartLoading ? '…' : (cart?.itemCount ?? 0);
   const { pathname } = useLocation();
   const [params] = useSearchParams();
   const activeCategory = pathname === '/products' ? params.get('category') : null;
@@ -31,7 +34,9 @@ export function SiteHeader() {
     label: c.name,
     active: activeCategory === c.slug,
   }));
-  const accountLabel = status === 'signed-in' ? (user?.name.split(' ')[0] ?? 'Account') : 'Sign in';
+  // a shared demo account has no name of the visitor's own
+  const accountLabel =
+    status === 'signed-in' ? (user && !user.isDemo ? user.name.split(' ')[0] : 'Account') : 'Sign in';
   const accountTo = status === 'signed-in' ? '/account' : '/sign-in';
 
   return (
@@ -64,7 +69,12 @@ export function SiteHeader() {
         <div className="ml-auto flex items-center gap-4 text-sm sm:gap-5">
           {status === 'signed-in' && (
             <Link to="/wishlist" className={`hidden min-h-11 items-center gap-2 sm:flex ${muted}`}>
-              Saved <span className="tabular font-mono text-xs">{wishlist.data?.length ?? 0}</span>
+              Wishlist <span className="tabular font-mono text-xs">{wishlistCount}</span>
+            </Link>
+          )}
+          {status === 'signed-in' && (
+            <Link to="/orders" className={`hidden min-h-11 items-center sm:flex ${muted}`}>
+              Orders
             </Link>
           )}
           {user?.role === 'ADMIN' && (
@@ -94,7 +104,7 @@ export function SiteHeader() {
             <span
               className={`tabular px-1.5 font-mono text-xs ${dark ? 'bg-alu-50 text-ink' : 'bg-ink text-alu-50'}`}
             >
-              {cart?.itemCount ?? 0}
+              {cartCount}
             </span>
           </button>
           <button
@@ -129,6 +139,7 @@ export function SiteHeader() {
         <nav aria-label="Main">
           <ul>
             {[
+              { to: '/#configure', label: 'Configure an E-1', active: false },
               { to: '/products', label: 'All parts', active: pathname === '/products' && !activeCategory },
               ...categoryLinks,
             ].map((l) => (
@@ -149,7 +160,10 @@ export function SiteHeader() {
               { to: accountTo, label: status === 'signed-in' ? 'Account' : 'Sign in' },
               ...(user?.role === 'ADMIN' ? [{ to: '/admin', label: 'Admin' }] : []),
               ...(status === 'signed-in'
-                ? [{ to: '/wishlist', label: `Wishlist (${wishlist.data?.length ?? 0})` }]
+                ? [
+                    { to: '/orders', label: 'Orders' },
+                    { to: '/wishlist', label: `Wishlist (${wishlistCount})` },
+                  ]
                 : []),
             ].map((l) => (
               <li key={l.to} className="border-b border-bench">

@@ -46,6 +46,15 @@ function paymentsNotSetUp() {
   });
 }
 
+/** Midtrans out of reach or failing: a retry shortly may work */
+function paymentsUnavailable() {
+  return new ServiceUnavailableException({
+    statusCode: 503,
+    message: 'The payment provider is not responding. Try again in a minute.',
+    code: 'PAYMENTS_UNAVAILABLE',
+  });
+}
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -96,7 +105,7 @@ export class PaymentsService {
     } catch (error) {
       this.logger.error(`Creating the Midtrans transaction for ${order.number} failed: ${String(error)}`);
       if (error instanceof MidtransError && error.keyRefused) throw paymentsNotSetUp();
-      throw new ServiceUnavailableException('The payment provider is not responding. Try again in a minute.');
+      throw paymentsUnavailable();
     }
 
     try {
@@ -150,7 +159,7 @@ export class PaymentsService {
       this.logger.warn(`Status check for ${number} failed: ${error.message}`);
       // nothing can have been paid through a key Midtrans refuses: the order stands as it is
       if (error.keyRefused) return this.orders.detail(userId, number);
-      throw new ServiceUnavailableException('The payment provider is not responding. Try again in a minute.');
+      throw paymentsUnavailable();
     }
     return this.orders.detail(userId, number);
   }

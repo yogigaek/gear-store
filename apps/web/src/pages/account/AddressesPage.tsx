@@ -3,7 +3,9 @@ import { AddressForm, AddressLines } from '../../components/checkout/AddressForm
 import { Button } from '../../components/ui/Button';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { Notice } from '../../components/ui/Field';
+import { AccountCrumb } from '../../components/layout/AccountCrumb';
 import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { Price } from '../../components/ui/Price';
 import { useAddresses, useDeleteAddress } from '../../lib/orders';
 
@@ -15,6 +17,7 @@ export function AddressesPage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      <PageTitle>Addresses</PageTitle>
       <ConfirmDialog
         open={deleting !== null}
         title="Delete this address?"
@@ -28,7 +31,7 @@ export function AddressesPage() {
       </ConfirmDialog>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-ink pb-4">
         <div className="space-y-1">
-          <Label>Account</Label>
+          <AccountCrumb page="Addresses" />
           <h1 className="font-expanded text-4xl font-extrabold uppercase">Addresses</h1>
         </div>
         {editing === null && (

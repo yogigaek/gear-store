@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 
 /**
  * What an account page puts in the panel of `AuthLayout`: its heading, an optional `lead` set off by
@@ -20,6 +21,7 @@ export function AuthShell({
 }) {
   return (
     <>
+      <PageTitle>{title}</PageTitle>
       <header className="space-y-2">
         <Label>{eyebrow}</Label>
         <h1 className="font-expanded text-3xl font-extrabold uppercase leading-none">{title}</h1>

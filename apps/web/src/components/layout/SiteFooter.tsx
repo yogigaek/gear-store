@@ -3,6 +3,7 @@ import { usePageTone } from './page-tone';
 
 /** the write-up of this project: architecture, the order flow and the tests behind it */
 const CASE_STUDY = 'https://muhammadyogi.vercel.app/projects/rakit';
+const SOURCE = 'https://github.com/yogigaek/gear-store';
 
 export function SiteFooter() {
   const dark = usePageTone() === 'dark';
@@ -31,6 +32,16 @@ export function SiteFooter() {
               <span className="sr-only"> (opens the case study in a new tab)</span>
               <span aria-hidden="true">↗</span>
             </a>
+            <a
+              href={SOURCE}
+              target="_blank"
+              rel="noreferrer"
+              className={`inline-flex min-h-11 items-center gap-1.5 font-semibold ${link}`}
+            >
+              <span className="underline underline-offset-4">Source on GitHub</span>
+              <span className="sr-only"> (opens in a new tab)</span>
+              <span aria-hidden="true">↗</span>
+            </a>
             <Link to="/design" className={`inline-flex min-h-11 items-center font-semibold ${link}`}>
               <span className="underline underline-offset-4">Design system</span>
             </Link>
@@ -50,7 +61,7 @@ export function SiteFooter() {
           >
             Prices
           </p>
-          <p>Indonesian Rupiah, VAT included</p>
+          <p>Indonesian Rupiah</p>
         </div>
       </div>
     </footer>

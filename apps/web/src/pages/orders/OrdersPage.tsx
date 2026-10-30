@@ -1,12 +1,18 @@
 import { orderNumberSchema } from '@gear-store/shared';
+import { useEffect, useRef } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { OrderStatusBadge } from '../../components/checkout/OrderStatusBadge';
+import { AccountCrumb } from '../../components/layout/AccountCrumb';
 import { RequireAuth } from '../../components/layout/RequireAuth';
+import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Field';
-import { Label } from '../../components/ui/Label';
+import { PageTitle } from '../../components/ui/PageTitle';
 import { Price } from '../../components/ui/Price';
+import { SlowServerNote } from '../../components/ui/SlowServerNote';
 import { formatDateTime } from '../../lib/date';
+import { ORDERS_PAGE, shownOrders } from '../../lib/order-list';
 import { useOrders } from '../../lib/orders';
+import { closeCheckoutKeysBefore } from '../../lib/checkout-key';
 
 export function OrdersPage() {
   // back from Midtrans through the dashboard's redirect URL, which adds ?order_id=…: the return page opens the
@@ -24,14 +30,58 @@ export function OrdersPage() {
 
 function OrderList() {
   const orders = useOrders();
+  // a list read after an unanswered checkout shows any order it made: that attempt is settled. Only a read that
+  // has finished counts, and only for attempts opened before it (a cached list may predate the attempt)
+  useEffect(() => {
+    if (orders.isSuccess && !orders.isFetching) closeCheckoutKeysBefore(orders.dataUpdatedAt);
+  }, [orders.isSuccess, orders.isFetching, orders.dataUpdatedAt]);
+  const [params, setParams] = useSearchParams();
+  const shown = shownOrders(params.get('show'));
+  const list = orders.data ?? [];
+  const rows = useRef<HTMLUListElement>(null);
+  // the first row "Show older" added takes focus: the button may be gone, which would drop focus to the page
+  const focusRow = useRef<number | null>(null);
+  useEffect(() => {
+    const index = focusRow.current;
+    if (index === null) return;
+    focusRow.current = null;
+    rows.current?.querySelectorAll<HTMLAnchorElement>(':scope > li > a')[index]?.focus();
+  }, [shown]);
+  const showOlder = () => {
+    focusRow.current = shown;
+    setParams(
+      (p) => {
+        p.set('show', String(shown + ORDERS_PAGE));
+        return p;
+      },
+      { replace: true, preventScrollReset: true },
+    );
+  };
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      <PageTitle>Orders</PageTitle>
       <div className="mb-8 space-y-1 border-b border-ink pb-4">
-        <Label>Account</Label>
+        <AccountCrumb page="Orders" />
         <h1 className="font-expanded text-4xl font-extrabold uppercase">Orders</h1>
       </div>
-      {orders.isPending && <p className="font-mono text-sm text-ink-3">Loading orders…</p>}
-      {orders.isError && <Notice tone="error">{orders.error.message}</Notice>}
+      {orders.isPending && (
+        <div className="space-y-2">
+          <p className="font-mono text-sm text-ink-3">Loading orders…</p>
+          <SlowServerNote />
+        </div>
+      )}
+      {orders.isError && (
+        <Notice tone="error">
+          {orders.error.message}{' '}
+          <button
+            type="button"
+            className="min-h-11 font-semibold underline"
+            onClick={() => void orders.refetch()}
+          >
+            Try again
+          </button>
+        </Notice>
+      )}
       {orders.data?.length === 0 && (
         <div className="space-y-3">
           <p className="text-ink-2">No orders yet.</p>
@@ -40,26 +90,36 @@ function OrderList() {
           </Link>
         </div>
       )}
-      {orders.data && orders.data.length > 0 && (
-        <ul className="border-t border-ink">
-          {orders.data.map((o) => (
-            <li key={o.number}>
-              <Link
-                to={`/orders/${o.number}`}
-                className="grid gap-x-6 gap-y-1 border-b border-bench px-1 py-4 hover:bg-alu-50 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center"
-              >
-                <span className="space-y-0.5">
-                  <span className="block font-mono font-semibold">{o.number}</span>
-                  <span className="block text-sm text-ink-3">
-                    {formatDateTime(o.createdAt)} · {o.itemCount} {o.itemCount === 1 ? 'item' : 'items'}
+      {list.length > 0 && (
+        <>
+          <ul ref={rows} className="border-t border-ink">
+            {list.slice(0, shown).map((o) => (
+              <li key={o.number}>
+                <Link
+                  to={`/orders/${o.number}`}
+                  className="grid gap-x-6 gap-y-1 border-b border-bench px-1 py-4 hover:bg-alu-50 sm:grid-cols-[minmax(0,1fr)_11rem_9rem] sm:items-center"
+                >
+                  <span className="space-y-0.5">
+                    <span className="block font-mono font-semibold">{o.number}</span>
+                    <span className="block text-sm text-ink-3">
+                      {formatDateTime(o.createdAt)} · {o.itemCount} {o.itemCount === 1 ? 'item' : 'items'}
+                    </span>
                   </span>
-                </span>
-                <OrderStatusBadge status={o.status} />
-                <Price amount={o.total} className="sm:text-right" />
-              </Link>
-            </li>
-          ))}
-        </ul>
+                  <OrderStatusBadge status={o.status} />
+                  <Price amount={o.total} className="sm:justify-self-end" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+          {list.length > shown && (
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+              <p className="font-mono text-xs text-ink-3">Showing the latest {shown}</p>
+              <Button variant="secondary" onClick={showOlder}>
+                Show older
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

@@ -26,6 +26,7 @@ class FakeMidtrans {
   }
   getStatus() {
     if (this.keyRefused) return Promise.reject(new MidtransError('Midtrans replied 401', 401));
+    if (this.down) return Promise.reject(new MidtransError('Midtrans replied 503'));
     return Promise.resolve(this.status);
   }
 }
@@ -136,7 +137,9 @@ describe('Payments (e2e)', () => {
     it('answers 503 when Midtrans is down, and 409 for an order no longer waiting', async () => {
       const o = await placedOrder();
       midtrans.down = true;
-      await o.pay().expect(503);
+      // the code lets the store show these words: a server failure's own are otherwise hidden
+      expect((await o.pay().expect(503)).body).toMatchObject({ code: 'PAYMENTS_UNAVAILABLE' });
+      expect((await o.refresh().expect(503)).body).toMatchObject({ code: 'PAYMENTS_UNAVAILABLE' });
       midtrans.down = false;
       await o.cancel().expect(200);
       await o.pay().expect(409);
