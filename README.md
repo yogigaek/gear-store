@@ -4,6 +4,7 @@
 
 [![Live Demo](https://img.shields.io/badge/Live_Demo-yogi--store.vercel.app-F2C230?style=for-the-badge&logo=vercel&logoColor=black&labelColor=0b0d0e)](https://yogi-store.vercel.app)
 [![Case Study](https://img.shields.io/badge/Case_Study-Portfolio-6366f1?style=for-the-badge&logo=googlechrome&logoColor=white&labelColor=0b0d0e)](https://muhammadyogi.vercel.app/projects/rakit)
+[![Android APK](https://img.shields.io/badge/Android-APK-F2C230?style=for-the-badge&logo=android&logoColor=black&labelColor=0b0d0e)](https://yogi-store.vercel.app/app)
 [![CI](https://img.shields.io/github/actions/workflow/status/yogigaek/gear-store/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI&labelColor=0b0d0e)](https://github.com/yogigaek/gear-store/actions/workflows/ci.yml)
 
 </div>
@@ -188,6 +189,22 @@ npm run dev:web                      # http://localhost:5173
 
 `apps/mobile` is the store on a phone: Expo SDK 58, React Native 0.88 and Expo Router, on the same API and the same
 zod contracts from `packages/shared` as the web.
+
+<p align="center">
+  <a href="https://yogi-store.vercel.app/app"><img src="https://img.shields.io/badge/Download-Android_APK-F2C230?style=for-the-badge&logo=android&logoColor=black&labelColor=0b0d0e" alt="Download the Android APK" /></a>
+</p>
+
+<table>
+  <tr>
+    <td width="25%"><img src="docs/screenshots/mobile-home.jpg" alt="The app's home: the E-1, the story and the ways in" /></td>
+    <td width="25%"><img src="docs/screenshots/mobile-product.jpg" alt="A frame with its spec plate, finishes, and Add to cart and Buy now in a bar at the bottom" /></td>
+    <td width="25%"><img src="docs/screenshots/mobile-checkout.jpg" alt="Checkout listing every line, the shipping address and the total" /></td>
+    <td width="25%"><img src="docs/screenshots/mobile-order.jpg" alt="A paid order with its line, totals and address" /></td>
+  </tr>
+</table>
+
+The APK is attached to the [latest release](https://github.com/yogigaek/gear-store/releases/latest); it uses the
+live demo API, so sign in with **"Try as shopper"** and pay in Midtrans sandbox (the app shows the test card).
 
 - 🏠 **Home** — the E-1 still cropped for a phone, the web's story, "Try as shopper" right under it (with a
   confirmation once signed in), part types to start from, and links to the 3D configurator and the admin
