@@ -4,6 +4,13 @@
   "installCommand": "cd ../.. && npx -y npm@11.21.0 ci",
   "buildCommand": "cd ../.. && npm run build -w @gear-store/shared && npm run build -w @gear-store/web",
   "outputDirectory": "dist",
+  "redirects": [
+    {
+      "source": "/app",
+      "destination": "https://github.com/yogigaek/gear-store/releases/latest/download/rakit.apk",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/api/:path*", "destination": "https://rakit-api.onrender.com/api/:path*" },
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
