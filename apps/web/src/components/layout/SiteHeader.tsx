@@ -19,7 +19,10 @@ export function SiteHeader() {
   const categories = useCategories();
   const { status, user } = useAuth();
   const wishlist = useWishlist();
-  const { cart } = useCart();
+  const { cart, isLoading: cartLoading } = useCart();
+  // a count still being read shows as "…", never as a 0 that turns into the real number a moment later
+  const wishlistCount = status === 'restoring' || wishlist.isLoading ? '…' : (wishlist.data?.length ?? 0);
+  const cartCount = cartLoading ? '…' : (cart?.itemCount ?? 0);
   const { pathname } = useLocation();
   const [params] = useSearchParams();
   const activeCategory = pathname === '/products' ? params.get('category') : null;
@@ -66,7 +69,7 @@ export function SiteHeader() {
         <div className="ml-auto flex items-center gap-4 text-sm sm:gap-5">
           {status === 'signed-in' && (
             <Link to="/wishlist" className={`hidden min-h-11 items-center gap-2 sm:flex ${muted}`}>
-              Wishlist <span className="tabular font-mono text-xs">{wishlist.data?.length ?? 0}</span>
+              Wishlist <span className="tabular font-mono text-xs">{wishlistCount}</span>
             </Link>
           )}
           {status === 'signed-in' && (
@@ -101,7 +104,7 @@ export function SiteHeader() {
             <span
               className={`tabular px-1.5 font-mono text-xs ${dark ? 'bg-alu-50 text-ink' : 'bg-ink text-alu-50'}`}
             >
-              {cart?.itemCount ?? 0}
+              {cartCount}
             </span>
           </button>
           <button
@@ -159,7 +162,7 @@ export function SiteHeader() {
               ...(status === 'signed-in'
                 ? [
                     { to: '/orders', label: 'Orders' },
-                    { to: '/wishlist', label: `Wishlist (${wishlist.data?.length ?? 0})` },
+                    { to: '/wishlist', label: `Wishlist (${wishlistCount})` },
                   ]
                 : []),
             ].map((l) => (
