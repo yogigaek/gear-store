@@ -70,9 +70,17 @@ describe('closeCheckoutKeysBefore', () => {
     const buy = k.checkoutKey('buy:fender-set::1', 1_000);
     k.checkoutKey('cart:fender-set::1', 1_000);
 
-    k.closeCheckoutKeysBefore(2_000);
-    expect(k.hasOpenCartAttempt(2_000)).toBe(false);
-    expect(k.checkoutKey('buy:fender-set::1', 2_000)).not.toBe(buy);
+    const readAt = 1_000 + k.SETTLE_MARGIN_MS + 1;
+    k.closeCheckoutKeysBefore(readAt);
+    expect(k.hasOpenCartAttempt(readAt)).toBe(false);
+    expect(k.checkoutKey('buy:fender-set::1', readAt)).not.toBe(buy);
+  });
+
+  it('leaves a recent attempt open: the API may still be making its order while the list is read', async () => {
+    const k = await load();
+    const buy = k.checkoutKey('buy:fender-set::1', 10_000);
+    k.closeCheckoutKeysBefore(10_000 + k.SETTLE_MARGIN_MS - 1);
+    expect(k.checkoutKey('buy:fender-set::1', 10_000 + k.SETTLE_MARGIN_MS)).toBe(buy);
   });
 
   it('leaves an attempt opened after the list was read: that list cannot show its order', async () => {

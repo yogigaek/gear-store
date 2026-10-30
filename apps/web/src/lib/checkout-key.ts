@@ -86,13 +86,17 @@ export function closeCheckoutKey(scope: string): void {
   }
 }
 
+/** how long the API may still be making an order after the browser gave up on the reply (lock wait, slow wake) */
+export const SETTLE_MARGIN_MS = 60_000;
+
 /**
- * The shopper has seen their orders as read at `readAt`: an order any attempt opened before then made is in that
- * list, so those attempts are settled and the next one is new. Attempts opened after the read stay open.
+ * The shopper has seen their orders as read at `readAt`: an order an attempt opened well before then made is in
+ * that list, so those attempts are settled and the next one is new. Newer attempts stay open: the API may still
+ * be making their order.
  */
 export function closeCheckoutKeysBefore(readAt: number): void {
   for (const scope of openScopes()) {
     const record = read(scope);
-    if (!record || record.at < readAt) closeCheckoutKey(scope);
+    if (!record || record.at < readAt - SETTLE_MARGIN_MS) closeCheckoutKey(scope);
   }
 }
