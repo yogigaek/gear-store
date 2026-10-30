@@ -196,10 +196,10 @@ zod contracts from `packages/shared` as the web.
 
 <table>
   <tr>
-    <td width="25%"><img src="docs/screenshots/mobile-home.jpg" alt="The app's home: the E-1, the story and the ways in" /></td>
-    <td width="25%"><img src="docs/screenshots/mobile-product.jpg" alt="A frame with its spec plate, finishes, and Add to cart and Buy now in a bar at the bottom" /></td>
-    <td width="25%"><img src="docs/screenshots/mobile-checkout.jpg" alt="Checkout listing every line, the shipping address and the total" /></td>
-    <td width="25%"><img src="docs/screenshots/mobile-order.jpg" alt="A paid order with its line, totals and address" /></td>
+    <td width="25%" valign="top"><img src="docs/screenshots/mobile-home.jpg" alt="The app's home: the E-1, the story and the ways in" /></td>
+    <td width="25%" valign="top"><img src="docs/screenshots/mobile-product.jpg" alt="A frame with its spec plate, finishes, and Add to cart and Buy now in a bar at the bottom" /></td>
+    <td width="25%" valign="top"><img src="docs/screenshots/mobile-checkout.jpg" alt="Checkout listing every line, the shipping address and the total" /></td>
+    <td width="25%" valign="top"><img src="docs/screenshots/mobile-order.jpg" alt="A paid order with its line, totals and address" /></td>
   </tr>
 </table>
 
