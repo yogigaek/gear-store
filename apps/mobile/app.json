@@ -43,6 +43,12 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4fa5664d-e96c-4f4d-bff9-10f1207bff69"
+      }
+    },
+    "owner": "yogikgaek"
   }
 }
