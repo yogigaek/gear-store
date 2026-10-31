@@ -4,6 +4,10 @@ import { OrderStatus, RefundStatus, type Prisma } from '../generated/prisma/clie
 import { countItems, detailInclude, OrdersService } from '../orders/orders.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
+/** The demo administrator, whom anyone can sign in as, sees demo accounts' orders only. */
+export const demoOrdersOnly = (demoOnly: boolean): Prisma.OrderWhereInput =>
+  demoOnly ? { user: { isDemo: true } } : {};
+
 @Injectable()
 export class AdminOrdersService {
   constructor(
@@ -11,9 +15,9 @@ export class AdminOrdersService {
     private readonly orders: OrdersService,
   ) {}
 
-  async list(query: AdminOrderQuery) {
+  async list(query: AdminOrderQuery, demoOnly = false) {
     await this.orders.expireOverdue();
-    const where: Prisma.OrderWhereInput = {
+    const filters: Prisma.OrderWhereInput = {
       ...(query.status && { status: query.status }),
       ...(query.refund === 'needed' && { refundStatus: RefundStatus.NEEDED }),
       ...(query.q && {
@@ -24,6 +28,8 @@ export class AdminOrdersService {
         ],
       }),
     };
+    // AND: no filter added here later can replace the demo scope
+    const where: Prisma.OrderWhereInput = { AND: [demoOrdersOnly(demoOnly), filters] };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.order.findMany({
         where,
@@ -55,10 +61,10 @@ export class AdminOrdersService {
     return { items, page: query.page, pageSize: query.pageSize, total };
   }
 
-  async detail(number: string): Promise<AdminOrder> {
+  async detail(number: string, demoOnly = false): Promise<AdminOrder> {
     await this.orders.expireOverdue();
-    const order = await this.prisma.order.findUnique({
-      where: { number },
+    const order = await this.prisma.order.findFirst({
+      where: { AND: [{ number }, demoOrdersOnly(demoOnly)] },
       include: { ...detailInclude, user: { select: { name: true, email: true } } },
     });
     if (!order) throw new NotFoundException('Order not found');

@@ -5,7 +5,8 @@ import type { Env } from '../config/env.js';
 
 /** The fields of a Midtrans transaction status we act on; the same shape arrives by webhook and from the status API. */
 export const midtransStatusSchema = z.object({
-  order_id: z.string(),
+  // Midtrans' own limit (String(50)); ours are 17 characters
+  order_id: z.string().max(50),
   status_code: z.string(),
   gross_amount: z.string(),
   signature_key: z.string(),

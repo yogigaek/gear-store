@@ -38,6 +38,11 @@ export const detailInclude = {
 export const countItems = (o: { items: { quantity: number }[]; builds: { quantity: number }[] }) =>
   [...o.items, ...o.builds].reduce((sum, i) => sum + i.quantity, 0);
 
+/** each waiting order holds stock: without a cap, one account could hold the catalogue by never paying */
+const MAX_UNPAID_ORDERS = 3;
+/** demo accounts are shared: a demo order stays small, and replaces the account's waiting one (see checkout) */
+const DEMO_ORDER_MAX_ITEMS = 5;
+
 export type OrderRow = Prisma.OrderGetPayload<{ include: typeof detailInclude }>;
 type Tx = Prisma.TransactionClient;
 type PartLine = {
@@ -89,11 +94,32 @@ export class OrdersService {
           });
           if (placedMeanwhile) return { orderId: placedMeanwhile.id };
 
+          // read under the account's lock above, so two checkouts at once cannot both slip under the cap
+          const unpaid = await tx.order.findMany({
+            where: { userId, status: OrderStatus.PENDING_PAYMENT, paymentExpiresAt: { gt: new Date() } },
+            select: { id: true },
+          });
+          if (!isDemo && unpaid.length >= MAX_UNPAID_ORDERS) {
+            throw new ConflictException({
+              statusCode: 409,
+              message: `You have ${MAX_UNPAID_ORDERS} orders waiting for payment. Pay or cancel one of them before placing another.`,
+              code: 'TOO_MANY_UNPAID_ORDERS',
+            });
+          }
+
           const picked = input.items
             ? { lines: await this.pickedLines(tx, input.items), bikes: [] }
             : await this.cartContents(tx, userId);
           if ('withdrawn' in picked) return { withdrawn: picked.withdrawn };
           const { lines, bikes } = picked;
+          // items as the order lists count them: a bike is one
+          if (isDemo && countItems({ items: lines, builds: bikes }) > DEMO_ORDER_MAX_ITEMS) {
+            throw new ConflictException({
+              statusCode: 409,
+              message: `A demo order holds at most ${DEMO_ORDER_MAX_ITEMS} items. Remove some and try again.`,
+              code: 'DEMO_ORDER_TOO_LARGE',
+            });
+          }
 
           // what the order takes from each part's stock: single parts and bike parts together
           const demand = new Map<string, { name: string; quantity: number }>();
@@ -105,6 +131,26 @@ export class OrdersService {
           for (const l of lines) take(l.product.id, l.product.name, l.quantity);
           for (const bike of bikes) {
             for (const { part } of bike.parts) take(part.id, part.summary.name, bike.quantity);
+          }
+
+          // a demo account's waiting order makes way, its stock released first; a refusal below undoes this too
+          if (isDemo && unpaid.length > 0) {
+            const replaced = unpaid.map((o) => o.id);
+            const released = await tx.orderItem.findMany({
+              where: { orderId: { in: replaced }, productId: { not: null } },
+              select: { productId: true },
+            });
+            // close()'s lock order: the orders, then every product either step touches, each in id order
+            await tx.$queryRaw`SELECT 1 FROM "Order" WHERE "id" = ANY(${replaced}::uuid[]) ORDER BY "id" FOR NO KEY UPDATE`;
+            const products = [...new Set([...released.map((i) => i.productId!), ...demand.keys()])];
+            await tx.$queryRaw`SELECT 1 FROM "Product" WHERE "id" = ANY(${products}::uuid[]) ORDER BY "id" FOR NO KEY UPDATE`;
+            for (const id of replaced)
+              await this.close(
+                tx,
+                id,
+                OrderStatus.CANCELLED,
+                'Replaced by a newer demo order. The items went back on sale.',
+              );
           }
 
           // one guarded decrement per part, in id order so two checkouts never lock rows in opposite orders

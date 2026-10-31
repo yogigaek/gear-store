@@ -13,15 +13,17 @@ const userRowSelect = {
 export class AdminUsersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: AdminListQuery) {
-    const where: Prisma.UserWhereInput = query.q
-      ? {
-          OR: [
-            { email: { contains: query.q.toLowerCase() } },
-            { name: { contains: query.q, mode: 'insensitive' } },
-          ],
-        }
-      : {};
+  /** `demoOnly`: the shared demo administrator, whom anyone can sign in as, lists demo accounts only */
+  async list(query: AdminListQuery, demoOnly = false) {
+    const where: Prisma.UserWhereInput = {
+      ...(demoOnly && { isDemo: true }),
+      ...(query.q && {
+        OR: [
+          { email: { contains: query.q.toLowerCase() } },
+          { name: { contains: query.q, mode: 'insensitive' } },
+        ],
+      }),
+    };
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where,

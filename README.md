@@ -51,8 +51,8 @@ Started as a rebuild of my 2022 bootcamp capstone (MERN), redone with a modern s
   and merged into the account cart on sign-in, saved addresses with shipping by province, checkout, and
   payment on the Midtrans Snap page.
 - 📊 **Admin** — revenue overview with a daily chart, orders (ship with courier and tracking, mark delivered,
-  record refunds), products, categories and customer roles. The shared demo admin can open everything but
-  save nothing.
+  record refunds), products, categories and customer roles. The shared demo admin sees only the demo accounts'
+  customers and orders, and can save nothing.
 - 💻 **Light where it has to be** — without a GPU (WebGL drawn in software) the page shows a still instead of
   the 3D, so it stays responsive; the configurator works the same.
 
@@ -156,9 +156,15 @@ repeats it"_.
   returns the refresh token in the body; those routes never read the cookie, so a script in the web page cannot turn it into a readable token.
 - 🔑 **Accounts** — argon2id password hashing, email confirmation, the same reply whether or not an email has an
   account, and only SHA-256 hashes of tokens stored.
-- 🚦 **Abuse** — after 5 failed sign-ins an address pauses for a minute, and every further failure doubles the
-  pause up to an hour (unknown addresses alike, so the pause reveals nothing); a wider limit per visitor network;
-  per-address rate limits on email routes. Passwords are at least 8 characters.
+- 🚦 **Abuse** — after 5 failed sign-ins an address pauses for a minute on that visitor network, and every
+  further failure doubles the pause up to an hour, so a guesser pauses only their own network. Guesses spread over
+  many networks pause, after 10, every network that failed itself, and after 30 every network; until then the
+  owner still signs in from a network with no failures. Unknown addresses are treated alike, so a pause reveals
+  nothing. A wider limit per visitor network (an IPv6 /64 counts as one); wrong current passwords pause password
+  changes too; per-address rate limits on email routes. An account holds at most 3 unpaid orders; a demo order
+  holds at most 5 items and replaces the demo account's waiting order, so a demo checkout is never refused
+  because of an unpaid order. One password check per account runs at a time, so a burst of guesses cannot
+  outrun the pauses, and a password reset lifts them. Passwords are at least 8 characters.
 - 🗄️ **Data** — CHECK constraints on prices and stock. Products are taken off sale, never deleted, so orders keep
   their history. An admin product edit is refused if an order changed the stock since the form was opened.
 - 🌐 **Web** — a Content Security Policy without `unsafe-eval` or inline scripts, HSTS, and `frame-ancestors none`.
@@ -234,7 +240,7 @@ npm test -w @gear-store/mobile           # unit tests, against a stand-in for th
 
 In development the app finds the API on the machine that serves it. A release build reads `EXPO_PUBLIC_API_URL`,
 set in `apps/mobile/eas.json` to `https://yogi-store.vercel.app/api`: the phone goes through the web's `/api`
-rewrite, as browsers do, so the API sees Vercel's own client address for its rate limits.
+route, as browsers do, so the API sees Vercel's own client address for its rate limits.
 
 **Release build** (EAS, Android). EAS builds from the git tree, where `packages/shared/dist` is not committed, so
 the app's `eas-build-post-install` script builds it; `eas-build-pre-install` installs npm 11, which this workspace
@@ -291,14 +297,20 @@ GitHub Actions runs on every push to `main` and every pull request, in two jobs:
 
 ## ☁️ Deploy
 
-| Part        | Host                      | Config                                                                                           |
-| ----------- | ------------------------- | ------------------------------------------------------------------------------------------------ |
-| 🗄️ Database | Neon (PostgreSQL 17)      | pooled URL for the app, direct URL for migrations                                                |
-| ⚙️ API      | Render (free web service) | `render.yaml`; starts with migrations, then seeds an **empty** database and grants `ADMIN_EMAIL` |
-| 🖥️ Web      | Vercel                    | `apps/web/vercel.json`; forwards `/api/*` to Render so the refresh cookie stays first-party      |
+| Part        | Host                      | Config                                                                                                        |
+| ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 🗄️ Database | Neon (PostgreSQL 17)      | pooled URL for the app, direct URL for migrations                                                             |
+| ⚙️ API      | Render (free web service) | `render.yaml`; starts with migrations, then seeds an **empty** database and grants `ADMIN_EMAIL`              |
+| 🖥️ Web      | Vercel                    | `apps/web/vercel.json`; a route sends `/api/*` to Render with a secret header, keeping the cookie first-party |
 
 A push to `main` deploys both. ⏳ The API sleeps when idle on Render's free tier, so the first request after a
 quiet spell is slower.
+
+🔐 **`PROXY_SECRET`** (`openssl rand -hex 32`) lets the API tell the web's `/api` route from a direct caller
+forging Vercel's client-address header. Set it on Vercel first, for Production and Preview, and redeploy the web;
+only then set the same value on Render. In the other order the route sends the literal text `$PROXY_SECRET`
+(Vercel's value for an unset variable), the API stops believing the route, and every web visitor counts as one of
+Vercel's own addresses in rate limits. To roll back, remove it from Render.
 
 ---
 

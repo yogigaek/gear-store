@@ -4,7 +4,7 @@ import type { AuthContext } from '../auth/access-token.guard.js';
 
 /**
  * Runs after AccessTokenGuard on every /admin route. Administrators only; the shared demo administrator may
- * read everything but change nothing, because every visitor signs in to the same account.
+ * read (demo accounts only) but change nothing, because every visitor signs in to the same account.
  */
 @Injectable()
 export class AdminGuard implements CanActivate {

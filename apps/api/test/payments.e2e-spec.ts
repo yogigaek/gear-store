@@ -1,4 +1,4 @@
-import type { INestApplication } from '@nestjs/common';
+import { Logger, type INestApplication } from '@nestjs/common';
 import { addressSchema, orderDetailSchema, type OrderDetail } from '@gear-store/shared';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
@@ -61,7 +61,8 @@ describe('Payments (e2e)', () => {
 
   async function placedOrder(slug = 'battery-charger-4a', quantity = 1) {
     const token = await signedInCustomer(app, mail, nextIp());
-    const auth = { Authorization: `Bearer ${token}` };
+    // one IP address per customer, so the suite's many checkouts stay under the 10-a-minute order throttle
+    const auth = { Authorization: `Bearer ${token}`, 'X-Forwarded-For': nextIp() };
     const server = app.getHttpServer();
     const address = addressSchema.parse(
       (
@@ -164,11 +165,62 @@ describe('Payments (e2e)', () => {
       await notify(forged).expect(401);
       await notify({ order_id: o.order.number }).expect(401);
       expect((await o.get()).status).toBe('PENDING_PAYMENT');
-      const logged = await prisma.paymentNotification.findMany({ where: { orderNumber: o.order.number } });
-      expect(logged.every((n) => !n.signatureValid)).toBe(true);
-      // forged calls keep a short excerpt only, not the whole body
-      expect(logged.every((n) => JSON.stringify(n.payload).length < 700)).toBe(true);
+      // anyone can send these: nothing is written, so they cannot fill the database
+      expect(await prisma.paymentNotification.count({ where: { orderNumber: o.order.number } })).toBe(0);
       await o.cancel().expect(200);
+    });
+
+    it('stores no forged or malformed call, and logs only a short, cleaned order id', async () => {
+      const before = await prisma.paymentNotification.count();
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      try {
+        const junk = `RKT-${'X'.repeat(30)}\n[forged] ${'Y'.repeat(5000)}`;
+        await notify({
+          ...signed({ number: 'RKT-000000-ZZZZZZ', total: 1 }, 'settlement'),
+          order_id: junk,
+        }).expect(401);
+        await notify({ order_id: junk, padding: 'Z'.repeat(20_000) }).expect(401);
+        await notify({ order_id: 42 }).expect(401);
+        const forged = {
+          ...signed({ number: 'RKT-000000-ZZZZZZ', total: 1 }, 'settlement'),
+          signature_key: 'f',
+        };
+        await notify(forged).expect(401);
+        expect(await prisma.paymentNotification.count()).toBe(before);
+        const lines = warn.mock.calls.map((c) => String(c[0]));
+        expect(lines).toHaveLength(4);
+        expect(lines.at(-1)).toBe('Rejected a notification with a bad signature for RKT-000000-ZZZZZZ');
+        for (const line of lines) {
+          expect(line.length).toBeLessThan(120);
+          expect(line).not.toMatch(/[\n[\]]|Y{51}|Z{51}/);
+        }
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it('refuses an order_id longer than Midtrans allows, even correctly signed', async () => {
+      const tooLong = signed({ number: `RKT-${'1'.repeat(47)}`, total: 1 }, 'settlement');
+      await notify(tooLong).expect(401);
+      const longest = signed({ number: `RKT-${'1'.repeat(46)}`, total: 1 }, 'settlement');
+      expect((await notify(longest).expect(200)).body.outcome).toBe('unknown-order');
+    });
+
+    it('records every correctly signed notification in full, as before', async () => {
+      const o = await placedOrder();
+      const pending = signed(o.order, 'pending');
+      const settlement = signed(o.order, 'settlement');
+      await notify(pending).expect(200);
+      await notify(settlement).expect(200);
+      const logged = await prisma.paymentNotification.findMany({
+        where: { orderNumber: o.order.number },
+        orderBy: { receivedAt: 'asc' },
+      });
+      expect(logged.map((n) => [n.signatureValid, n.outcome, n.transactionStatus])).toEqual([
+        [true, 'pending', 'pending'],
+        [true, 'paid', 'settlement'],
+      ]);
+      expect(logged[1]!.payload).toEqual(settlement);
     });
 
     it('marks the order paid once, however many times Midtrans repeats it', async () => {
@@ -224,9 +276,83 @@ describe('Payments (e2e)', () => {
       expect(order.events.filter((e) => /refunded/.test(e.note))).toHaveLength(1);
     });
 
+    it('flags a late payment for a demo order that a newer demo order replaced', async () => {
+      const auth = {
+        Authorization: `Bearer ${await signedInCustomer(app, mail, nextIp())}`,
+        'X-Forwarded-For': nextIp(),
+      };
+      const server = app.getHttpServer();
+      const address = addressSchema.parse(
+        (
+          await request(server)
+            .post('/api/me/addresses')
+            .set(auth)
+            .send({
+              recipient: 'Ana',
+              phone: '081234567890',
+              line1: 'Jl. Merdeka 10',
+              city: 'Bandung',
+              province: 'Jawa Barat',
+              postalCode: '40111',
+            })
+            .expect(201)
+        ).body,
+      );
+      const { userId } = await prisma.address.findUniqueOrThrow({
+        where: { id: address.id },
+        select: { userId: true },
+      });
+      await prisma.user.update({ where: { id: userId }, data: { isDemo: true } });
+      const buy = async () =>
+        orderDetailSchema.parse(
+          (
+            await request(server)
+              .post('/api/me/orders')
+              .set(auth)
+              .send({
+                addressId: address.id,
+                idempotencyKey: randomUUID(),
+                items: [{ slug: 'battery-charger-4a', quantity: 1 }],
+              })
+              .expect(201)
+          ).body,
+        );
+      const replaced = await buy();
+      const newer = await buy();
+      const late = signed(replaced, 'settlement');
+      expect((await notify(late).expect(200)).body.outcome).toBe('paid-after-close');
+      const row = await prisma.order.findUniqueOrThrow({ where: { number: replaced.number } });
+      expect(row).toMatchObject({ status: 'CANCELLED', refundStatus: 'NEEDED' });
+      await request(server).post(`/api/me/orders/${newer.number}/cancel`).set(auth).expect(200);
+    });
+
     it('acknowledges notifications for orders it does not know', async () => {
       const res = await notify(signed({ number: 'RKT-000000-ZZZZZZ', total: 1 }, 'settlement')).expect(200);
       expect(res.body.outcome).toBe('unknown-order');
+    });
+  });
+
+  describe('another account’s order', () => {
+    it('cannot be paid for or have its status checked: 404, and Midtrans is never asked', async () => {
+      const o = await placedOrder();
+      const stranger = { Authorization: `Bearer ${await signedInCustomer(app, mail, nextIp())}` };
+      const server = app.getHttpServer();
+      const snaps = midtrans.snapCalls.length;
+      midtrans.status = signed(o.order, 'settlement');
+      const getStatus = vi.spyOn(midtrans, 'getStatus');
+      try {
+        for (const action of ['pay', 'payment-status']) {
+          const res = await request(server).post(`/api/me/orders/${o.order.number}/${action}`).set(stranger);
+          expect(res.status).toBe(404);
+          expect(res.body.message).toBe('Order not found');
+        }
+        expect(getStatus).not.toHaveBeenCalled();
+      } finally {
+        getStatus.mockRestore();
+      }
+      expect(midtrans.snapCalls.length).toBe(snaps);
+      expect((await o.get()).status).toBe('PENDING_PAYMENT');
+      await o.cancel().expect(200);
     });
   });
 

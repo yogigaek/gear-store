@@ -396,7 +396,8 @@ model Payment {
   updatedAt         DateTime @updatedAt
 }
 
-/// Every payment notification as received, valid or not: the audit trail for payment disputes.
+/// Every correctly signed payment notification as received: the audit trail for payment disputes. Forged and
+/// malformed calls are only logged (rows with `signatureValid` false date from before that).
 model PaymentNotification {
   id                String   @id @default(uuid(7)) @db.Uuid
   orderNumber       String

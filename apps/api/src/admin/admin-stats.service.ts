@@ -4,6 +4,7 @@ import { jakartaIso } from '../common/time.js';
 import { OrderStatus, RefundStatus } from '../generated/prisma/client.js';
 import { PAID_STATUSES } from '../orders/order-status.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { demoOrdersOnly } from './admin-orders.service.js';
 
 /** "2026-10-09" for the Jakarta calendar day of an instant */
 function jakartaDay(date: Date): string {
@@ -14,11 +15,13 @@ function jakartaDay(date: Date): string {
 export class AdminStatsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async stats(days: number): Promise<AdminStats> {
+  /** `demoOnly`: counts demo accounts' orders only, so the demo administrator's figures match the lists it sees */
+  async stats(days: number, demoOnly = false): Promise<AdminStats> {
     // from Jakarta midnight (days - 1) days ago, so "7 days" is today plus the six before it
     const todayStart = new Date(`${jakartaDay(new Date())}T00:00:00+07:00`);
     const from = new Date(todayStart.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
-    const inRange = { status: { in: PAID_STATUSES }, paidAt: { gte: from } };
+    const scope = demoOrdersOnly(demoOnly);
+    const inRange = { ...scope, status: { in: PAID_STATUSES }, paidAt: { gte: from } };
 
     const [paid, top, awaitingShipment, awaitingPayment, refundsNeeded, lowStock] = await Promise.all([
       this.prisma.order.findMany({ where: inRange, select: { total: true, paidAt: true } }),
@@ -29,11 +32,11 @@ export class AdminStatsService {
         orderBy: { _sum: { lineTotal: 'desc' } },
         take: 5,
       }),
-      this.prisma.order.count({ where: { status: OrderStatus.PAID } }),
+      this.prisma.order.count({ where: { ...scope, status: OrderStatus.PAID } }),
       this.prisma.order.count({
-        where: { status: OrderStatus.PENDING_PAYMENT, paymentExpiresAt: { gt: new Date() } },
+        where: { ...scope, status: OrderStatus.PENDING_PAYMENT, paymentExpiresAt: { gt: new Date() } },
       }),
-      this.prisma.order.count({ where: { refundStatus: RefundStatus.NEEDED } }),
+      this.prisma.order.count({ where: { ...scope, refundStatus: RefundStatus.NEEDED } }),
       this.prisma.product.findMany({
         where: { isActive: true, stock: { lte: LOW_STOCK_THRESHOLD } },
         orderBy: [{ stock: 'asc' }, { name: 'asc' }],

@@ -41,6 +41,11 @@ services:
       # X-Forwarded-For is not used: it also carries whatever the visitor sent.
       - key: CLIENT_IP_HEADERS
         value: x-vercel-forwarded-for,true-client-ip
+      # the same random value as the web app's PROXY_SECRET on Vercel (apps/web/vercel.json sends it): while
+      # set, x-vercel-forwarded-for is believed only on requests carrying it, since direct callers can write it
+      # set it on Vercel (Production and Preview) and redeploy the web first, then here: see README, Deploy
+      - key: PROXY_SECRET
+        sync: false
       # only a fallback now; Render's chain is visitor → Cloudflare → load balancer
       - key: TRUST_PROXY
         value: '3'

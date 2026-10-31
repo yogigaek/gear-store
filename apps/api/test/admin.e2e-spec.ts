@@ -151,6 +151,134 @@ describe('Admin (e2e)', () => {
     });
   });
 
+  describe('the demo administrator', () => {
+    const demoAdmin = async () => {
+      const res = await request(app.getHttpServer())
+        .post('/api/auth/demo')
+        .set('X-Forwarded-For', nextIp())
+        .send({ role: 'admin' });
+      return client(authResponseSchema.parse(res.body).accessToken);
+    };
+    /** every page of a list, so nothing past the first page goes unchecked */
+    async function everyPage(api: ReturnType<typeof client>, path: string) {
+      const bodies = [];
+      for (let page = 1; ; page += 1) {
+        const body = (await api.get(`${path}${path.includes('?') ? '&' : '?'}page=${page}&pageSize=100`))
+          .body as { items: unknown[]; total: number; pageSize: number };
+        bodies.push(body);
+        if (page * body.pageSize >= body.total) return bodies;
+      }
+    }
+
+    it('never sees a real customer’s email, phone or address, while a real administrator does', async () => {
+      const { order, markPaid } = await paidOrder();
+      await markPaid();
+      const real = await prisma.order.findUniqueOrThrow({
+        where: { number: order.number },
+        select: { shipPhone: true, shipLine1: true, user: { select: { email: true } } },
+      });
+      const secrets = [real.user.email, real.shipPhone, real.shipLine1, order.number];
+
+      const demo = await demoAdmin();
+      const seen = [
+        ...(await everyPage(demo, '/admin/users')),
+        ...(await everyPage(demo, '/admin/orders')),
+        ...(await everyPage(demo, '/admin/orders?status=PAID')),
+        (await demo.get(`/admin/users?q=${encodeURIComponent(real.user.email)}`).expect(200)).body,
+        (await demo.get(`/admin/orders?q=${encodeURIComponent(real.user.email)}`).expect(200)).body,
+        (await demo.get(`/admin/orders?q=${order.number}`).expect(200)).body,
+        (await demo.get('/admin/stats?days=90').expect(200)).body,
+      ];
+      const text = JSON.stringify(seen);
+      for (const secret of secrets) expect(text).not.toContain(secret);
+      const missing = await demo.get(`/admin/orders/${order.number}`).expect(404);
+      expect(missing.body.message).toBe('Order not found');
+
+      // what it does see belongs to demo accounts, the seeded history among them
+      const demoIds = new Set(
+        (await prisma.user.findMany({ where: { isDemo: true }, select: { id: true } })).map((u) => u.id),
+      );
+      const users = (await everyPage(demo, '/admin/users')).flatMap((b) => b.items) as { id: string }[];
+      expect(users.length).toBeGreaterThan(0);
+      expect(users.every((u) => demoIds.has(u.id))).toBe(true);
+      const rows = (await everyPage(demo, '/admin/orders')).flatMap((b) => b.items) as { number: string }[];
+      expect(rows.length).toBeGreaterThan(0);
+      const owners = await prisma.order.findMany({
+        where: { number: { in: rows.map((r) => r.number) } },
+        select: { userId: true },
+      });
+      expect(owners.every((o) => demoIds.has(o.userId))).toBe(true);
+      adminOrderSchema.parse((await demo.get(`/admin/orders/${rows[0]!.number}`).expect(200)).body);
+
+      // a real administrator still sees everything
+      const { api } = await admin();
+      const detail = adminOrderSchema.parse(
+        (await api.get(`/admin/orders/${order.number}`).expect(200)).body,
+      );
+      expect(detail.customer.email).toBe(real.user.email);
+      expect(detail.shipping.phone).toBe(real.shipPhone);
+      const found = await api.get(`/admin/users?q=${encodeURIComponent(real.user.email)}`).expect(200);
+      expect(found.body.items).toHaveLength(1);
+    });
+
+    it('counts only demo orders on its overview, so the numbers match the lists it can open', async () => {
+      const demo = await demoAdmin();
+      const stats = adminStatsSchema.parse((await demo.get('/admin/stats?days=90').expect(200)).body);
+      const paid = await demo.get('/admin/orders?status=PAID&pageSize=1').expect(200);
+      expect(stats.awaitingShipment).toBe(paid.body.total);
+      const { markPaid } = await paidOrder();
+      await markPaid();
+      const after = adminStatsSchema.parse((await demo.get('/admin/stats?days=90').expect(200)).body);
+      expect(after.revenue).toBe(stats.revenue);
+      expect(after.awaitingShipment).toBe(stats.awaitingShipment);
+    });
+
+    it('is refused every change: PUT, PATCH, DELETE and the order actions', async () => {
+      const demo = await demoAdmin();
+      const { order, markPaid } = await paidOrder();
+      await markPaid();
+      const product = adminProductSchema.parse(
+        (await demo.get('/admin/products/battery-charger-4a').expect(200)).body,
+      );
+      const customer = await prisma.order.findUniqueOrThrow({
+        where: { number: order.number },
+        select: { userId: true },
+      });
+      // built one at a time: supertest starts a request's server when the request is created
+      const refusals = [
+        () =>
+          demo.put('/admin/products/battery-charger-4a', {
+            ...product,
+            expectedUpdatedAt: product.updatedAt,
+          }),
+        () =>
+          demo.put('/admin/categories/accessories', {
+            slug: 'accessories',
+            name: 'Nope',
+            description: 'Nope',
+            sortOrder: 0,
+            slot: null,
+          }),
+        () => demo.del('/admin/categories/accessories'),
+        () => demo.patch(`/admin/users/${customer.userId}/role`, { role: 'ADMIN' }),
+        () =>
+          demo.post(`/admin/orders/${order.number}/ship`, { courier: 'JNE', trackingNumber: 'JP1234567890' }),
+        () => demo.post(`/admin/orders/${order.number}/deliver`),
+        () => demo.post(`/admin/orders/${order.number}/refund`),
+      ];
+      for (const send of refusals) {
+        const refused = await send().expect(403);
+        expect(refused.body.message).toMatch(/demo administrator/);
+      }
+      expect(
+        await prisma.order.findUniqueOrThrow({ where: { number: order.number }, select: { status: true } }),
+      ).toEqual({ status: 'PAID' });
+      expect(
+        await prisma.user.findUniqueOrThrow({ where: { id: customer.userId }, select: { role: true } }),
+      ).toEqual({ role: 'CUSTOMER' });
+    });
+  });
+
   describe('diagnostics', () => {
     it('shows an administrator how a request arrived, and nobody else', async () => {
       const { api } = await admin();

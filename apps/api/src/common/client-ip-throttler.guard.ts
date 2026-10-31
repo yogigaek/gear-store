@@ -25,6 +25,8 @@ export class ClientIpThrottlerGuard extends ThrottlerGuard {
   }
 
   protected override getTracker(req: Record<string, unknown>): Promise<string> {
-    return Promise.resolve(clientIp(req as unknown as Request, this.env.CLIENT_IP_HEADERS));
+    return Promise.resolve(
+      clientIp(req as unknown as Request, this.env.CLIENT_IP_HEADERS, this.env.PROXY_SECRET),
+    );
   }
 }

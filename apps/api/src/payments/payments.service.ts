@@ -57,6 +57,12 @@ function paymentsUnavailable() {
   });
 }
 
+/** The order_id of a refused call, safe for one log line: Midtrans' characters only, at most its 50. */
+function loggableOrderId(payload: unknown): string {
+  const id = (payload as { order_id?: unknown } | null)?.order_id;
+  return typeof id === 'string' ? id.slice(0, 50).replace(/[^\w.~-]/g, '?') : 'none';
+}
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -123,20 +129,19 @@ export class PaymentsService {
     return { redirectUrl: snap.redirect_url };
   }
 
-  /** Webhook from Midtrans. A bad signature is refused; everything else is recorded and acknowledged. */
+  /** Webhook from Midtrans. Anyone can call it: only correctly signed calls are recorded, the rest only logged. */
   async notification(payload: unknown): Promise<Outcome> {
     const parsed = midtransStatusSchema.safeParse(payload);
     if (!parsed.success) {
-      await this.record(payload, null, false, 'ignored');
+      this.logger.warn(`Rejected a malformed notification for ${loggableOrderId(payload)}`);
       throw new UnauthorizedException('Invalid notification');
     }
     if (!signatureValid(parsed.data, this.env.MIDTRANS_SERVER_KEY)) {
-      await this.record(payload, parsed.data, false, 'ignored');
-      this.logger.warn(`Rejected a notification with a bad signature for ${parsed.data.order_id}`);
+      this.logger.warn(`Rejected a notification with a bad signature for ${loggableOrderId(payload)}`);
       throw new UnauthorizedException('Invalid signature');
     }
     const outcome = await this.apply(parsed.data);
-    await this.record(payload, parsed.data, true, outcome);
+    await this.record(payload, parsed.data, outcome);
     return outcome;
   }
 
@@ -152,9 +157,8 @@ export class PaymentsService {
       if (status && signatureValid(status, this.env.MIDTRANS_SERVER_KEY)) {
         const outcome = await this.apply(status);
         // the order page asks every minute while a payment is open: only a pull that moved something is
-        // worth a row in the audit table (every webhook call is still recorded)
-        if (outcome !== 'pending' && outcome !== 'duplicate')
-          await this.record(status, status, true, outcome);
+        // worth a row in the audit table (every correctly signed webhook call is still recorded)
+        if (outcome !== 'pending' && outcome !== 'duplicate') await this.record(status, status, outcome);
       }
     } catch (error) {
       if (!(error instanceof MidtransError)) throw error;
@@ -258,23 +262,15 @@ export class PaymentsService {
     });
   }
 
-  private async record(
-    payload: unknown,
-    status: MidtransStatus | null,
-    valid: boolean,
-    outcome: Outcome,
-  ): Promise<void> {
+  private async record(payload: unknown, status: MidtransStatus, outcome: Outcome): Promise<void> {
     await this.prisma.paymentNotification.create({
       data: {
-        orderNumber: status?.order_id ?? 'unknown',
-        transactionId: status?.transaction_id,
-        transactionStatus: status?.transaction_status,
-        signatureValid: valid,
+        orderNumber: status.order_id,
+        transactionId: status.transaction_id,
+        transactionStatus: status.transaction_status,
+        signatureValid: true,
         outcome,
-        // a forged or malformed call keeps only a short excerpt, so junk cannot fill the database
-        payload: (valid
-          ? (payload ?? {})
-          : { excerpt: JSON.stringify(payload ?? null).slice(0, 500) }) as Prisma.InputJsonValue,
+        payload: payload as Prisma.InputJsonValue,
       },
     });
   }
