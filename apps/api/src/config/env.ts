@@ -29,6 +29,28 @@ const envSchema = z.object({
     ),
 });
 
+// the values in .env.example: a production copied from it would sign tokens and check webhooks with public keys
+const EXAMPLE_JWT_ACCESS_SECRET = 'change-me-to-at-least-32-random-characters';
+const EXAMPLE_MIDTRANS_SERVER_KEY = 'SB-Mid-server-REPLACE_ME';
+const isExample = (value: string, example: string) =>
+  value.trim().toLowerCase().startsWith(example.toLowerCase());
+
+const checkedEnvSchema = envSchema.superRefine((env, ctx) => {
+  if (env.NODE_ENV !== 'production') return;
+  const refuse = (path: keyof typeof env, message: string) =>
+    ctx.addIssue({ code: 'custom', path: [path], message });
+  if (isExample(env.JWT_ACCESS_SECRET, EXAMPLE_JWT_ACCESS_SECRET))
+    refuse('JWT_ACCESS_SECRET', 'still the example value from .env.example');
+  if (isExample(env.MIDTRANS_SERVER_KEY, EXAMPLE_MIDTRANS_SERVER_KEY))
+    refuse('MIDTRANS_SERVER_KEY', 'still the example value from .env.example');
+  const prefix = env.MIDTRANS_PRODUCTION ? 'Mid-server-' : 'SB-Mid-server-';
+  if (!env.MIDTRANS_SERVER_KEY.startsWith(prefix))
+    refuse(
+      'MIDTRANS_SERVER_KEY',
+      `must start with ${prefix} when MIDTRANS_PRODUCTION is ${env.MIDTRANS_PRODUCTION}`,
+    );
+});
+
 export type Env = z.infer<typeof envSchema>;
 
 // Read once at startup: a missing or malformed setting stops the API before it serves a request.
@@ -37,7 +59,7 @@ export function loadEnv(source?: NodeJS.ProcessEnv): Env {
     loadDotEnv();
     source = process.env;
   }
-  const parsed = envSchema.safeParse(source);
+  const parsed = checkedEnvSchema.safeParse(source);
   if (!parsed.success) {
     // names and reasons only; values may be secrets
     const problems = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');

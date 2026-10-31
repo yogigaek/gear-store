@@ -14,6 +14,7 @@ import {
 } from '@gear-store/shared';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from '../auth/access-token.guard.js';
 import { openApiSchema } from '../common/openapi.js';
+import { TEN_PER_MINUTE } from '../common/throttle.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ReviewsService } from './reviews.service.js';
 
@@ -45,7 +46,7 @@ export class ReviewsController {
   @Put('me/reviews/:slug')
   @UseGuards(AccessTokenGuard)
   @ApiBearerAuth()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle(TEN_PER_MINUTE)
   @ApiOperation({ summary: 'Write or edit a review (paid orders only)' })
   @ApiBody({ schema: openApiSchema(reviewInputSchema, 'input') })
   @ApiOkResponse({ schema: openApiSchema(reviewSchema) })

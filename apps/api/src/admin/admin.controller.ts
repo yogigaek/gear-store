@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   HttpCode,
+  Inject,
   Param,
   Patch,
   Post,
@@ -45,7 +46,8 @@ import { AccessTokenGuard, type AuthContext, CurrentAuth } from '../auth/access-
 import { ApiQueryFrom, openApiSchema } from '../common/openapi.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { clientIp } from '../common/client-ip.js';
-import { loadEnv } from '../config/env.js';
+import { ENV } from '../config/config.module.js';
+import type { Env } from '../config/env.js';
 import { AdminCatalogService } from './admin-catalog.service.js';
 import { AdminGuard } from './admin.guard.js';
 import { AdminOrdersService } from './admin-orders.service.js';
@@ -66,6 +68,7 @@ export class AdminController {
     private readonly catalog: AdminCatalogService,
     private readonly orders: AdminOrdersService,
     private readonly users: AdminUsersService,
+    @Inject(ENV) private readonly env: Env,
   ) {}
 
   /**
@@ -77,7 +80,7 @@ export class AdminController {
   requestInfo(@Req() req: Request) {
     const h = (name: string) => req.headers[name] ?? null;
     return {
-      clientIp: clientIp(req, loadEnv().CLIENT_IP_HEADERS),
+      clientIp: clientIp(req, this.env.CLIENT_IP_HEADERS),
       ip: req.ip,
       ips: req.ips,
       trustProxy: req.app.get('trust proxy') as unknown,

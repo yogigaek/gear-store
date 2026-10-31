@@ -14,18 +14,6 @@ interface Window {
 export class AccountLimiter {
   private readonly windows = new Map<string, Window>();
 
-  /** Attempts already counted for this key in the current window. */
-  used(key: string, now = Date.now()): number {
-    const w = this.windows.get(key);
-    return w && w.resetAt > now ? w.count : 0;
-  }
-
-  /** Seconds until the key's window ends (0 when it has none). */
-  retryAfter(key: string, now = Date.now()): number {
-    const w = this.windows.get(key);
-    return w && w.resetAt > now ? Math.ceil((w.resetAt - now) / 1000) : 0;
-  }
-
   /** Counts one attempt and returns the new total. */
   hit(key: string, windowMs: number, now = Date.now()): number {
     if (this.windows.size > 10_000) this.prune(now);
@@ -36,10 +24,6 @@ export class AccountLimiter {
     }
     w.count += 1;
     return w.count;
-  }
-
-  reset(key: string): void {
-    this.windows.delete(key);
   }
 
   private prune(now: number): void {

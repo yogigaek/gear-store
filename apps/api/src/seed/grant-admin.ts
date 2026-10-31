@@ -1,6 +1,4 @@
-import { PrismaPg } from '@prisma/adapter-pg';
-import { loadEnv } from '../config/env.js';
-import { PrismaClient } from '../generated/prisma/client.js';
+import { createPrismaClient } from '../prisma/prisma-client.js';
 
 // Usage: npm run admin:grant -w @gear-store/api -- you@example.com
 // Makes an existing, confirmed account an administrator. There is no web route for the first admin on purpose.
@@ -12,7 +10,7 @@ if (!email) {
   process.exit(1);
 }
 
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: loadEnv().DATABASE_URL }) });
+const prisma = createPrismaClient();
 try {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) throw new Error(`No account for ${email}. Sign up first.`);

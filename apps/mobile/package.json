@@ -25,9 +25,10 @@
   "devDependencies": {
     "@types/node": "^24.13.3",
     "@types/react": "~19.3.0",
+    "@vitest/coverage-v8": "4.1.12",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.3",
-    "vitest": "4.1.11"
+    "vitest": "4.1.12"
   },
   "scripts": {
     "start": "expo start",

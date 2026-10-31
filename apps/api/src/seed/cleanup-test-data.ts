@@ -1,11 +1,9 @@
-import { PrismaPg } from '@prisma/adapter-pg';
-import { loadEnv } from '../config/env.js';
-import { PrismaClient } from '../generated/prisma/client.js';
+import { createPrismaClient } from '../prisma/prisma-client.js';
 
 // Removes every account on the reserved test domain (@test.example) with its orders, and gives back the
 // stock those orders held, so local data looks as it did before a browser test run.
 // Usage: npm run test-data:clean -w @gear-store/api
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: loadEnv().DATABASE_URL }) });
+const prisma = createPrismaClient();
 const where = { user: { email: { endsWith: '@test.example' } } };
 try {
   const held = await prisma.orderItem.groupBy({

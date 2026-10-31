@@ -13,6 +13,7 @@ import {
 import { z } from 'zod';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from '../auth/access-token.guard.js';
 import { openApiSchema } from '../common/openapi.js';
+import { TEN_PER_MINUTE } from '../common/throttle.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { OrdersService } from './orders.service.js';
 
@@ -26,7 +27,7 @@ export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
   @Post()
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle(TEN_PER_MINUTE)
   @ApiOperation({
     summary:
       'Place an order from the cart, or of the given items only (buy now: the cart is left as it is); a repeated idempotency key returns the same order',

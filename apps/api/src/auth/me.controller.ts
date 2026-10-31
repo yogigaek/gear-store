@@ -15,6 +15,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from './access-token.guard.js';
 import { AuthService, toUser } from './auth.service.js';
+import { publicUserSelect } from './public-user.js';
 
 @ApiTags('Account')
 @ApiBearerAuth()
@@ -30,7 +31,9 @@ export class MeController {
   @ApiOperation({ summary: 'The signed-in account' })
   @ApiOkResponse({ schema: openApiSchema(userSchema) })
   async me(@CurrentAuth() auth: AuthContext): Promise<User> {
-    return toUser(await this.prisma.user.findUniqueOrThrow({ where: { id: auth.userId } }));
+    return toUser(
+      await this.prisma.user.findUniqueOrThrow({ where: { id: auth.userId }, select: publicUserSelect }),
+    );
   }
 
   @Patch()
@@ -41,10 +44,19 @@ export class MeController {
     @CurrentAuth() auth: AuthContext,
     @Body(new ZodValidationPipe(updateProfileSchema)) input: UpdateProfileInput,
   ): Promise<User> {
-    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: auth.userId } });
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: auth.userId },
+      select: { isDemo: true },
+    });
     // demo accounts are shared by every visitor; one visitor must not rename them for the next
     if (user.isDemo) throw new ForbiddenException('Demo accounts cannot change their profile');
-    return toUser(await this.prisma.user.update({ where: { id: auth.userId }, data: { name: input.name } }));
+    return toUser(
+      await this.prisma.user.update({
+        where: { id: auth.userId },
+        data: { name: input.name },
+        select: publicUserSelect,
+      }),
+    );
   }
 
   @Post('password')
