@@ -22,7 +22,7 @@ import type {
 import { randomToken, sha256 } from '../common/tokens.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
-import { EmailTokenPurpose, Prisma, type User as UserRow } from '../generated/prisma/client.js';
+import { EmailTokenPurpose, type Prisma, type User as UserRow } from '../generated/prisma/client.js';
 import { AccountLimiter } from '../common/account-limiter.js';
 import { SignInLockout } from '../common/sign-in-lockout.js';
 import { type Mail, MailService } from '../mail/mail.service.js';
@@ -32,7 +32,9 @@ import {
   resetPasswordMail,
   verifyEmailMail,
 } from '../mail/templates.js';
+import { isUniqueViolation } from '../prisma/errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { publicUserSelect, type PublicUser } from './public-user.js';
 
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -92,7 +94,7 @@ export interface IssuedSession {
   refreshExpiresAt: Date;
 }
 
-export function toUser(row: UserRow): User {
+export function toUser(row: PublicUser): User {
   return {
     id: row.id,
     email: row.email,
@@ -139,7 +141,7 @@ export class AuthService {
       await this.sendVerification(user);
     } catch (error) {
       // two sign-ups for one address at the same moment: the loser is treated like an existing account
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
+      if (!isUniqueViolation(error)) throw error;
     }
     return reply;
   }
@@ -221,7 +223,7 @@ export class AuthService {
     if (!rawToken) throw invalidSession();
     const token = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: sha256(rawToken) },
-      include: { session: { include: { user: true } } },
+      include: { session: { include: { user: { select: publicUserSelect } } } },
     });
     if (!token) throw invalidSession();
     const { session } = token;
@@ -338,7 +340,7 @@ export class AuthService {
       await this.prisma.session.deleteMany({ where: { id: { in: older.map((s) => s.id) } } });
   }
 
-  private async issue(user: UserRow, sessionId: string, refreshToken: string, expiresAt: Date) {
+  private async issue(user: PublicUser, sessionId: string, refreshToken: string, expiresAt: Date) {
     const claims: AccessClaims = { sub: user.id, sid: sessionId };
     return {
       accessToken: await this.jwt.signAsync(claims),

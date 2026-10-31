@@ -36,6 +36,7 @@ import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import { clientIp } from '../common/client-ip.js';
 import { openApiSchema } from '../common/openapi.js';
+import { TEN_PER_MINUTE } from '../common/throttle.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -102,7 +103,7 @@ export class AuthController {
   @HttpCode(200)
   // looser than the other auth routes: the escalating pauses in AuthService.login are the real limit, and
   // they answer with how long to wait, which a plain throttler 429 cannot
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle(TEN_PER_MINUTE)
   @ApiOperation({ summary: 'Sign in; sets the refresh cookie and returns an access token' })
   @ApiContract(loginSchema, authResponseSchema)
   async login(
@@ -117,7 +118,7 @@ export class AuthController {
 
   @Post('demo')
   @HttpCode(200)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle(TEN_PER_MINUTE)
   @ApiOperation({ summary: 'Sign in to the shared demo shopper or demo admin account' })
   @ApiContract(demoLoginSchema, authResponseSchema)
   async demo(
@@ -159,7 +160,7 @@ export class AuthController {
 
   @Post('native/login')
   @HttpCode(200)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle(TEN_PER_MINUTE)
   @ApiOperation({ summary: 'Sign in from a native app; the refresh token is returned in the body' })
   @ApiContract(loginSchema, nativeAuthResponseSchema)
   async nativeLogin(
@@ -173,7 +174,7 @@ export class AuthController {
 
   @Post('native/demo')
   @HttpCode(200)
-  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Throttle(TEN_PER_MINUTE)
   @ApiOperation({ summary: 'Sign in to a demo account from a native app' })
   @ApiContract(demoLoginSchema, nativeAuthResponseSchema)
   async nativeDemo(

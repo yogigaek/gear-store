@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -10,4 +11,11 @@ export default defineConfig({
   },
   // `vite preview` serves the production build the same way, for Lighthouse and the browser e2e tests
   preview: { proxy: { '/api': 'http://localhost:3000' } },
+  test: {
+    // every source file counts, tested or not; the 3D scene in three/ is left to the browser tests
+    coverage: {
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.d.ts', 'src/three/**'],
+    },
+  },
 });

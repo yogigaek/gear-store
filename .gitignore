@@ -10,6 +10,7 @@ coverage/
 # Claude Code: local notes and settings, not part of the project
 CLAUDE.md
 /.claude
+/AUDIT.md
 
 # browser test output
 e2e/playwright-report/

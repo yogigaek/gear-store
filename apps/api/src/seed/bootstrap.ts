@@ -1,6 +1,4 @@
-import { PrismaPg } from '@prisma/adapter-pg';
-import { loadEnv } from '../config/env.js';
-import { PrismaClient } from '../generated/prisma/client.js';
+import { createPrismaClient } from '../prisma/prisma-client.js';
 import { seedDatabase } from './seed-database.js';
 
 /**
@@ -9,7 +7,7 @@ import { seedDatabase } from './seed-database.js';
  *  - makes ADMIN_EMAIL an administrator once that account exists and is confirmed (sign up first, then restart).
  * Nothing here fails the start: a problem is logged and the API boots anyway.
  */
-const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: loadEnv().DATABASE_URL }) });
+const prisma = createPrismaClient();
 try {
   if ((await prisma.category.count()) === 0) {
     console.log(`bootstrap: empty database, seeded ${await seedDatabase(prisma)}.`);

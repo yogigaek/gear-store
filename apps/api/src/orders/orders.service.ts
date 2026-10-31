@@ -15,11 +15,12 @@ import {
   type OrderSummary,
   type Province,
 } from '@gear-store/shared';
-import { OrderStatus, Prisma } from '../generated/prisma/client.js';
+import { OrderStatus, type Prisma } from '../generated/prisma/client.js';
 import { AddressesService } from '../addresses/addresses.service.js';
 import { carriesColour, checkBuild, type CheckedBuild } from '../build/build-rules.js';
 import { BUILD_NAME, BuildService } from '../build/build.service.js';
 import { CartService, lockCart } from '../cart/cart.service.js';
+import { isUniqueViolation } from '../prisma/errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { newOrderNumber } from './order-number.js';
 
@@ -214,7 +215,7 @@ export class OrdersService {
       );
     } catch (error) {
       // the same checkout sent twice at once: the second insert loses on the unique key and returns the first
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (isUniqueViolation(error)) {
         const winner = await this.findByKey(userId, input.idempotencyKey);
         if (winner) return this.toDetail(winner);
       }
@@ -252,7 +253,8 @@ export class OrdersService {
   }
 
   async cancel(userId: string, number: string): Promise<OrderDetail> {
-    const order = await this.owned(userId, number);
+    const order = await this.prisma.order.findFirst({ where: { number, userId }, select: { id: true } });
+    if (!order) throw new NotFoundException('Order not found');
     const closed = await this.prisma.$transaction((tx) =>
       this.close(tx, order.id, OrderStatus.CANCELLED, 'Cancelled by you. The items went back on sale.'),
     );

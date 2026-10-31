@@ -12,7 +12,7 @@ const envSchema = z.object({
   // smtp://localhost:1025 is Mailpit in development; production uses the provider's SMTP URL
   SMTP_URL: z.url({ protocol: /^smtps?$/ }),
   MAIL_FROM: z.string().min(3).default('Rakit <no-reply@rakit.example>'),
-  // Midtrans server key (sandbox keys start with "SB-Mid-server-"); signs webhook checks and API calls
+  // Midtrans server key (newer sandbox keys start with "SB-", older accounts' do not); signs webhook checks and API calls
   MIDTRANS_SERVER_KEY: z.string().min(10),
   MIDTRANS_PRODUCTION: z.stringbool().default(false),
   // how many proxies sit in front of the API; req.ip (rate limits) must be the visitor, not the last proxy
@@ -29,6 +29,22 @@ const envSchema = z.object({
     ),
 });
 
+// the values in .env.example: a production copied from it would sign tokens and check webhooks with public keys
+const EXAMPLE_JWT_ACCESS_SECRET = 'change-me-to-at-least-32-random-characters';
+const EXAMPLE_MIDTRANS_SERVER_KEY = 'SB-Mid-server-REPLACE_ME';
+const isExample = (value: string, example: string) =>
+  value.trim().toLowerCase().startsWith(example.toLowerCase());
+
+const checkedEnvSchema = envSchema.superRefine((env, ctx) => {
+  if (env.NODE_ENV !== 'production') return;
+  const refuse = (path: keyof typeof env, message: string) =>
+    ctx.addIssue({ code: 'custom', path: [path], message });
+  if (isExample(env.JWT_ACCESS_SECRET, EXAMPLE_JWT_ACCESS_SECRET))
+    refuse('JWT_ACCESS_SECRET', 'still the example value from .env.example');
+  if (isExample(env.MIDTRANS_SERVER_KEY, EXAMPLE_MIDTRANS_SERVER_KEY))
+    refuse('MIDTRANS_SERVER_KEY', 'still the example value from .env.example');
+});
+
 export type Env = z.infer<typeof envSchema>;
 
 // Read once at startup: a missing or malformed setting stops the API before it serves a request.
@@ -37,7 +53,7 @@ export function loadEnv(source?: NodeJS.ProcessEnv): Env {
     loadDotEnv();
     source = process.env;
   }
-  const parsed = envSchema.safeParse(source);
+  const parsed = checkedEnvSchema.safeParse(source);
   if (!parsed.success) {
     // names and reasons only; values may be secrets
     const problems = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');

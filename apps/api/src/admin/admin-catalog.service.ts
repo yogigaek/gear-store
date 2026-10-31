@@ -9,7 +9,8 @@ import type {
   AdminProductUpdate,
   PartModule,
 } from '@gear-store/shared';
-import { Prisma } from '../generated/prisma/client.js';
+import type { Prisma } from '../generated/prisma/client.js';
+import { isUniqueViolation } from '../prisma/errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const productInclude = {
@@ -37,14 +38,11 @@ function toAdminProduct(p: ProductRow): AdminProduct {
   };
 }
 
-const isUniqueViolation = (e: unknown) =>
-  e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
-
 @Injectable()
 export class AdminCatalogService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async products(query: AdminListQuery & { category?: string }) {
+  async products(query: AdminListQuery) {
     const where: Prisma.ProductWhereInput = {
       ...(query.q && {
         OR: (['name', 'model', 'slug'] as const).map((f) => ({
@@ -132,16 +130,8 @@ export class AdminCatalogService {
     });
   }
 
-  async categories(): Promise<AdminCategory[]> {
-    const rows = await this.prisma.category.findMany({
-      orderBy: { sortOrder: 'asc' },
-      include: { products: { select: { isActive: true } } },
-    });
-    return rows.map(({ products, id: _id, ...c }) => ({
-      ...c,
-      productCount: products.length,
-      activeCount: products.filter((p) => p.isActive).length,
-    }));
+  categories(): Promise<AdminCategory[]> {
+    return this.categoriesWhere({});
   }
 
   async createCategory(input: AdminCategoryInput): Promise<AdminCategory> {
@@ -182,9 +172,31 @@ export class AdminCatalogService {
   }
 
   private async category(slug: string): Promise<AdminCategory> {
-    const found = (await this.categories()).find((c) => c.slug === slug);
+    const [found] = await this.categoriesWhere({ slug });
     if (!found) throw new NotFoundException('Category not found');
     return found;
+  }
+
+  /** Counted in the database: a relation _count holds one number per relation, so the active ones are grouped. */
+  private async categoriesWhere(where: Prisma.CategoryWhereInput): Promise<AdminCategory[]> {
+    const [rows, active] = await Promise.all([
+      this.prisma.category.findMany({
+        where,
+        orderBy: { sortOrder: 'asc' },
+        include: { _count: { select: { products: true } } },
+      }),
+      this.prisma.product.groupBy({
+        by: ['categoryId'],
+        where: { isActive: true, category: where },
+        _count: { _all: true },
+      }),
+    ]);
+    const activeBy = new Map(active.map((a) => [a.categoryId, a._count._all]));
+    return rows.map(({ _count, id, ...c }) => ({
+      ...c,
+      productCount: _count.products,
+      activeCount: activeBy.get(id) ?? 0,
+    }));
   }
 
   /**

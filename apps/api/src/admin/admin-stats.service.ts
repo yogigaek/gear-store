@@ -1,14 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { LOW_STOCK_THRESHOLD, type AdminStats } from '@gear-store/shared';
+import { jakartaIso } from '../common/time.js';
 import { OrderStatus, RefundStatus } from '../generated/prisma/client.js';
+import { PAID_STATUSES } from '../orders/order-status.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-
-const PAID = [OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DELIVERED];
-const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 /** "2026-10-09" for the Jakarta calendar day of an instant */
 function jakartaDay(date: Date): string {
-  return new Date(date.getTime() + JAKARTA_OFFSET_MS).toISOString().slice(0, 10);
+  return jakartaIso(date).slice(0, 10);
 }
 
 @Injectable()
@@ -19,7 +18,7 @@ export class AdminStatsService {
     // from Jakarta midnight (days - 1) days ago, so "7 days" is today plus the six before it
     const todayStart = new Date(`${jakartaDay(new Date())}T00:00:00+07:00`);
     const from = new Date(todayStart.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
-    const inRange = { status: { in: PAID }, paidAt: { gte: from } };
+    const inRange = { status: { in: PAID_STATUSES }, paidAt: { gte: from } };
 
     const [paid, top, awaitingShipment, awaitingPayment, refundsNeeded, lowStock] = await Promise.all([
       this.prisma.order.findMany({ where: inRange, select: { total: true, paidAt: true } }),

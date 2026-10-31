@@ -10,8 +10,10 @@ import {
 import { paymentMethodLabel, type OrderDetail } from '@gear-store/shared';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
-import { OrderStatus, Prisma, RefundStatus } from '../generated/prisma/client.js';
+import { OrderStatus, type Prisma, RefundStatus } from '../generated/prisma/client.js';
+import { jakartaIso } from '../common/time.js';
 import { OrdersService } from '../orders/orders.service.js';
+import { isUniqueViolation } from '../prisma/errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   MidtransClient,
@@ -33,7 +35,7 @@ export type Outcome =
 
 /** "yyyy-MM-dd HH:mm:ss +0700", the format Midtrans expects for expiry.start_time */
 function jakartaTimestamp(date: Date): string {
-  const j = new Date(date.getTime() + 7 * 60 * 60 * 1000).toISOString();
+  const j = jakartaIso(date);
   return `${j.slice(0, 10)} ${j.slice(11, 19)} +0700`;
 }
 
@@ -114,7 +116,7 @@ export class PaymentsService {
       });
     } catch (error) {
       // two "Pay now" clicks at once: keep whichever link was saved first
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
+      if (!isUniqueViolation(error)) throw error;
       const saved = await this.prisma.payment.findUniqueOrThrow({ where: { orderId: order.id } });
       return { redirectUrl: saved.redirectUrl ?? snap.redirect_url };
     }
@@ -166,7 +168,10 @@ export class PaymentsService {
 
   /** Every transition is guarded by the current status, so replays and late or out-of-order messages are harmless. */
   private async apply(status: MidtransStatus): Promise<Outcome> {
-    const order = await this.prisma.order.findUnique({ where: { number: status.order_id } });
+    const order = await this.prisma.order.findUnique({
+      where: { number: status.order_id },
+      select: { id: true, number: true, total: true },
+    });
     if (!order) return 'unknown-order';
 
     const amount = Number(status.gross_amount);

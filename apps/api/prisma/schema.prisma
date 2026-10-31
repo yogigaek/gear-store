@@ -311,6 +311,7 @@ model Order {
   deliveredAt      DateTime?
   courier          String?
   trackingNumber   String?
+  /// NEEDED rows have a partial index in the migration (the admin's refund queue)
   refundStatus     RefundStatus @default(NONE)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
@@ -323,6 +324,8 @@ model Order {
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
   @@index([status, paymentExpiresAt])
+  @@index([createdAt])
+  @@index([status, paidAt])
 }
 
 model OrderItem {
