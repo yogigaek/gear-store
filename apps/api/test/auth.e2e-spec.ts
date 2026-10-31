@@ -1,10 +1,10 @@
-import type { INestApplication } from '@nestjs/common';
+import type { HttpException, INestApplication } from '@nestjs/common';
 import { authResponseSchema, nativeAuthResponseSchema, userSchema } from '@gear-store/shared';
 import { Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
-import { DEMO_SESSIONS_KEPT, REFRESH_REUSE_GRACE_MS } from '../src/auth/auth.service.js';
+import { AuthService, DEMO_SESSIONS_KEPT, REFRESH_REUSE_GRACE_MS } from '../src/auth/auth.service.js';
 import { sha256 } from '../src/common/tokens.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { loadEnv } from '../src/config/env.js';
@@ -175,12 +175,65 @@ describe('Auth (e2e)', () => {
     });
   });
 
-  describe('per-address limits (independent of the client IP)', () => {
-    it('pauses an address for a minute after 5 failed sign-ins, however many IPs they come from', async () => {
+  describe('sign-in from another site (login CSRF)', () => {
+    const from = (origin: string | undefined, url: string) => {
+      const req = request(app.getHttpServer()).post(url).set('X-Forwarded-For', ip);
+      return origin ? req.set('Origin', origin) : req;
+    };
+
+    it('refuses a web sign-in or demo sign-in sent by another site, and sets no cookie', async () => {
+      const email = await verifiedUser();
+      const refused = await from('https://evil.example', '/api/auth/login')
+        .send({ email, password: PASSWORD })
+        .expect(403);
+      expect(refused.body.message).toBe('Cross-site request refused');
+      expect(refused.headers['set-cookie']).toBeUndefined();
+      const demo = await from('https://evil.example', '/api/auth/demo').send({ role: 'shopper' }).expect(403);
+      expect(demo.headers['set-cookie']).toBeUndefined();
+      await login(email);
+    });
+
+    it('accepts a sign-in from the store itself, and from clients that send no Origin', async () => {
+      const email = await verifiedUser();
+      refreshCookie(
+        await from(WEB_ORIGIN, '/api/auth/login').send({ email, password: PASSWORD }).expect(200),
+      );
+      refreshCookie(await from(WEB_ORIGIN, '/api/auth/demo').send({ role: 'admin' }).expect(200));
+      refreshCookie(await from(undefined, '/api/auth/login').send({ email, password: PASSWORD }).expect(200));
+    });
+
+    it('refuses a form post, which a page on another site can send without asking', async () => {
+      const email = await verifiedUser();
+      const form = (url: string, body: string) =>
+        from(undefined, url).set('Content-Type', 'application/x-www-form-urlencoded').send(body);
+      const res = await form(
+        '/api/auth/login',
+        `email=${encodeURIComponent(email)}&password=${encodeURIComponent(PASSWORD)}`,
+      ).expect(400);
+      expect(res.headers['set-cookie']).toBeUndefined();
+      await form('/api/auth/demo', 'role=shopper').expect(400);
+    });
+
+    it('leaves the native routes open to any origin, the app sending none', async () => {
+      const email = await verifiedUser();
+      const native = (origin: string | undefined, url: string, body: object) =>
+        from(origin, url).send(body).expect(200);
+      for (const origin of ['https://evil.example', undefined]) {
+        nativeAuthResponseSchema.parse(
+          (await native(origin, '/api/auth/native/login', { email, password: PASSWORD })).body,
+        );
+        nativeAuthResponseSchema.parse(
+          (await native(origin, '/api/auth/native/demo', { role: 'shopper' })).body,
+        );
+      }
+    });
+  });
+
+  describe('per-address limits', () => {
+    it('pauses an address on one network for a minute after 5 failed sign-ins from it', async () => {
       const email = await verifiedUser();
       const messages = [];
       for (let i = 0; i < 4; i += 1) {
-        ip = nextIp();
         messages.push(
           (await post('/api/auth/login', { email, password: 'not the password' }).expect(401)).body.message,
         );
@@ -192,24 +245,162 @@ describe('Auth (e2e)', () => {
       ]);
       expect(messages[2]).toMatch(/2 attempts left before sign-in pauses for a minute/);
       expect(messages[3]).toMatch(/1 attempt left/);
-      ip = nextIp();
       const fifth = await post('/api/auth/login', { email, password: 'not the password' }).expect(429);
       expect(fifth.body).toMatchObject({ code: 'SIGN_IN_PAUSED', retryAfter: 60 });
-      // the right password does not get through during the pause either
-      ip = nextIp();
+      // the right password does not get through from that network during the pause either
       const locked = await post('/api/auth/login', { email, password: PASSWORD }).expect(429);
       expect(locked.body.message).toMatch(/Too many failed sign-ins. Try again in \d+ seconds/);
       // another account is not affected
       await login(await verifiedUser());
     });
 
+    it('lets the owner sign in from a network with no failures while a guesser’s network is paused', async () => {
+      const email = await verifiedUser();
+      const attacker = ip;
+      for (let i = 0; i < 4; i += 1) await post('/api/auth/login', { email, password: 'guess' }).expect(401);
+      await post('/api/auth/login', { email, password: 'guess' }).expect(429);
+      ip = nextIp();
+      await login(email);
+      // the guesser stays paused, the right password included
+      ip = attacker;
+      await post('/api/auth/login', { email, password: PASSWORD }).expect(429);
+    });
+
+    it('pauses an address after 10 failures from any number of networks, but only for networks that failed', async () => {
+      const email = await verifiedUser();
+      const guessers = [];
+      const statuses = [];
+      for (let i = 0; i < 10; i += 1) {
+        ip = nextIp();
+        guessers.push(ip);
+        statuses.push((await post('/api/auth/login', { email, password: 'guess' })).status);
+      }
+      expect(statuses).toEqual([...Array<number>(9).fill(401), 429]);
+      // every network that guessed is paused for this address, even with the right password
+      for (const guesser of guessers) {
+        ip = guesser;
+        const res = await post('/api/auth/login', { email, password: PASSWORD }).expect(429);
+        expect(res.body).toMatchObject({ code: 'SIGN_IN_PAUSED' });
+      }
+      // a network with no failures still gets the owner in
+      ip = nextIp();
+      await login(email);
+    });
+
+    it('stops guesses spread over many networks at 30 failures for an address, on every network', async () => {
+      const email = await verifiedUser();
+      for (let i = 0; i < 50; i += 1) {
+        ip = nextIp();
+        expect([401, 429]).toContain((await post('/api/auth/login', { email, password: 'guess' })).status);
+      }
+      // the right password from a network that never failed: paused too, so the guessing has an end
+      ip = `2001:db8:${(Date.now() % 60000).toString(16)}:7::1`;
+      const res = await post('/api/auth/login', { email, password: PASSWORD }).expect(429);
+      expect(res.body).toMatchObject({ code: 'SIGN_IN_PAUSED' });
+    });
+
+    it('still lets the owner in from a clean network after 29 failures spread over other networks', async () => {
+      const email = await verifiedUser();
+      for (let i = 0; i < 29; i += 1) {
+        ip = nextIp();
+        await post('/api/auth/login', { email, password: 'guess' });
+      }
+      ip = `2001:db8:${(Date.now() % 60000).toString(16)}:8::1`;
+      await login(email);
+    });
+
+    it('counts the addresses of one IPv6 /64 as one network', async () => {
+      const email = await verifiedUser();
+      const prefix = `2001:db8:${(Date.now() % 60000).toString(16)}:9`;
+      for (let i = 1; i <= 4; i += 1) {
+        ip = `${prefix}::${i}`;
+        await post('/api/auth/login', { email, password: 'guess' }).expect(401);
+      }
+      ip = `${prefix}:ffff:ffff:ffff:ffff`;
+      await post('/api/auth/login', { email, password: 'guess' }).expect(429);
+      ip = `${prefix}::abcd`;
+      await post('/api/auth/login', { email, password: PASSWORD }).expect(429);
+      // the next /64 is another network
+      ip = `2001:db8:${(Date.now() % 60000).toString(16)}:a::1`;
+      await login(email);
+    });
+
+    it('checks one password at a time per address, so a burst of guesses cannot outrun the locks', async () => {
+      const email = await verifiedUser();
+      const auth = app.get(AuthService);
+      const tag = (Date.now() % 60000).toString(16);
+      // 99 wrong and then the right one, all at once, each from its own network
+      const outcomes = await Promise.all(
+        Array.from({ length: 100 }, (_, i) =>
+          auth
+            .login(
+              { email, password: i === 99 ? PASSWORD : 'guess' },
+              undefined,
+              `2001:db8:${tag}:${i.toString(16)}::1`,
+            )
+            .then(
+              () => 'signed in',
+              (e: HttpException) => e.getResponse() as { code?: string; retryAfter?: number },
+            ),
+        ),
+      );
+      expect(outcomes).not.toContain('signed in');
+      const waitedTheirTurn = outcomes.filter(
+        (o) => typeof o === 'object' && o.code === 'SIGN_IN_PAUSED' && o.retryAfter! <= 2,
+      );
+      expect(waitedTheirTurn).toHaveLength(99);
+      // one attempt at a time still gets in
+      ip = nextIp();
+      await login(email);
+    });
+
+    it('lets the owner back in after a password reset, however paused the address was', async () => {
+      const email = await verifiedUser();
+      const home = ip;
+      for (let i = 0; i < 5; i += 1) await post('/api/auth/login', { email, password: 'guess' });
+      for (let i = 0; i < 30; i += 1) {
+        ip = nextIp();
+        await post('/api/auth/login', { email, password: 'guess' });
+      }
+      ip = home;
+      await post('/api/auth/login', { email, password: PASSWORD }).expect(429);
+      await post('/api/auth/forgot-password', { email }).expect(202);
+      await post('/api/auth/reset-password', {
+        token: mail.lastToken(email),
+        password: 'a brand new passphrase',
+      }).expect(200);
+      await login(email, 'a brand new passphrase');
+    });
+
+    it('pauses one network trying many addresses after 20 failures, whichever address it tries next', async () => {
+      // through the service: 20 attempts from one network would meet the 10-a-minute throttle first
+      const auth = app.get(AuthService);
+      const network = nextIp();
+      const attempt = (email: string, password = 'guess') =>
+        auth.login({ email, password }, undefined, network);
+      const statuses = [];
+      for (let i = 0; i < 20; i += 1) {
+        statuses.push(
+          await attempt(`nobody-${randomUUID()}@test.example`).then(
+            () => 200,
+            (e: HttpException) => e.getStatus(),
+          ),
+        );
+      }
+      expect(statuses).toEqual([...Array<number>(19).fill(401), 429]);
+      const email = await verifiedUser();
+      await expect(attempt(email, PASSWORD)).rejects.toMatchObject({
+        response: { code: 'SIGN_IN_PAUSED' },
+      });
+      // the same account from another network is not affected
+      await login(email);
+    });
+
     it('treats unknown addresses the same way, so the lock reveals nothing', async () => {
       const email = `nobody-${randomUUID()}@test.example`;
       for (let i = 0; i < 4; i += 1) {
-        ip = nextIp();
         await post('/api/auth/login', { email, password: 'whatever' }).expect(401);
       }
-      ip = nextIp();
       await post('/api/auth/login', { email, password: 'whatever' }).expect(429);
     });
 
@@ -344,6 +535,64 @@ describe('Auth (e2e)', () => {
       await me(here.body.accessToken).expect(200);
       await me(elsewhere.body.accessToken).expect(401);
     });
+
+    const changeFrom = (accessToken: string, currentPassword: string, from = nextIp()) =>
+      request(app.getHttpServer())
+        .post('/api/me/password')
+        .set('X-Forwarded-For', from)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ currentPassword, newPassword: 'a changed passphrase' });
+
+    it('pauses password changes on an account after 5 wrong current passwords, from any address', async () => {
+      const { body } = await login(await verifiedUser());
+      for (let i = 0; i < 4; i += 1) {
+        const wrong = await changeFrom(body.accessToken, 'not my password').expect(400);
+        expect(wrong.body.message).toBe('Current password is incorrect');
+      }
+      const fifth = await changeFrom(body.accessToken, 'not my password').expect(429);
+      expect(fifth.body).toMatchObject({ statusCode: 429, code: 'SIGN_IN_PAUSED', retryAfter: 60 });
+      expect(fifth.body.message).toMatch(/Try again in 60 seconds/);
+      // the right password waits too, and another account is not affected
+      await changeFrom(body.accessToken, PASSWORD).expect(429);
+      const other = await login(await verifiedUser());
+      await changeFrom(other.body.accessToken, PASSWORD).expect(200);
+    });
+
+    it('checks one current password at a time per account, so a burst cannot outrun the pause', async () => {
+      const { body } = await login(await verifiedUser());
+      const { id } = userSchema.parse((await me(body.accessToken).expect(200)).body);
+      const { sessionId } = await prisma().refreshToken.findFirstOrThrow({
+        where: { session: { userId: id } },
+        select: { sessionId: true },
+      });
+      const auth = app.get(AuthService);
+      const outcomes = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          auth
+            .changePassword(id, sessionId, {
+              currentPassword: 'not my password',
+              newPassword: 'a changed passphrase',
+            })
+            .then(
+              () => 'changed',
+              (e: HttpException) => e.getStatus(),
+            ),
+        ),
+      );
+      expect(outcomes.filter((o) => o === 400)).toHaveLength(1);
+      expect(outcomes.filter((o) => o === 429)).toHaveLength(9);
+      await changeFrom(body.accessToken, PASSWORD).expect(200);
+    });
+
+    it('limits password changes to 5 a minute per client', async () => {
+      const a = await login(await verifiedUser());
+      const b = await login(await verifiedUser());
+      const from = nextIp();
+      const statuses = [];
+      for (const token of [a, a, a, b, b, b].map((s) => s.body.accessToken))
+        statuses.push((await changeFrom(token, 'not my password', from)).status);
+      expect(statuses).toEqual([400, 400, 400, 400, 400, 429]);
+    });
   });
 
   describe('native apps (refresh token in the body)', () => {
@@ -407,10 +656,8 @@ describe('Auth (e2e)', () => {
     it('shares the per-address pause with web sign-in', async () => {
       const email = await verifiedUser();
       for (let i = 0; i < 5; i += 1) {
-        ip = nextIp();
         await post('/api/auth/login', { email, password: 'not the password' });
       }
-      ip = nextIp();
       const res = await post('/api/auth/native/login', { email, password: PASSWORD }).expect(429);
       expect(res.body).toMatchObject({ code: 'SIGN_IN_PAUSED' });
     });

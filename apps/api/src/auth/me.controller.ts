@@ -1,5 +1,6 @@
 import { Body, Controller, ForbiddenException, Get, HttpCode, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   changePasswordSchema,
   messageSchema,
@@ -11,6 +12,7 @@ import {
   type User,
 } from '@gear-store/shared';
 import { openApiSchema } from '../common/openapi.js';
+import { FIVE_PER_MINUTE } from '../common/throttle.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from './access-token.guard.js';
@@ -61,6 +63,8 @@ export class MeController {
 
   @Post('password')
   @HttpCode(200)
+  // a stolen session must not become a way to guess the password: wrong ones also pause the account (AuthService)
+  @Throttle(FIVE_PER_MINUTE)
   @ApiOperation({ summary: 'Change the password; other devices are signed out' })
   @ApiBody({ schema: openApiSchema(changePasswordSchema, 'input') })
   @ApiOkResponse({ schema: openApiSchema(messageSchema) })

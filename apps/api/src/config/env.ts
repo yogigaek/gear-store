@@ -27,6 +27,8 @@ const envSchema = z.object({
         .map((h) => h.trim().toLowerCase())
         .filter(Boolean),
     ),
+  // sent by the web app's proxy; while set, x-vercel-forwarded-for needs it (common/client-ip.ts)
+  PROXY_SECRET: z.string().min(32).optional(),
 });
 
 // the values in .env.example: a production copied from it would sign tokens and check webhooks with public keys

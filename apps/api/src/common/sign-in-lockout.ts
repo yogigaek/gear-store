@@ -24,12 +24,21 @@ export interface LockoutRule {
 export class SignInLockout {
   private readonly entries = new Map<string, Entry>();
 
-  constructor(private readonly rule: LockoutRule) {}
+  constructor(
+    private readonly rule: LockoutRule,
+    /** a soft cap on memory: past it, keys with no running pause are forgotten, least recently failed first */
+    private readonly maxKeys = 20_000,
+  ) {}
 
   /** Milliseconds the key must still wait (0 when it may try). */
   pausedFor(key: string, now = Date.now()): number {
     const e = this.current(key, now);
     return e ? Math.max(0, e.pausedUntil - now) : 0;
+  }
+
+  /** Whether the key has a failure on record (one not yet forgotten). */
+  hasFailures(key: string, now = Date.now()): boolean {
+    return this.current(key, now) !== undefined;
   }
 
   /** Failed attempts left before the next pause. */
@@ -41,18 +50,31 @@ export class SignInLockout {
 
   /** Records a failure; returns the pause it started, in milliseconds (0 when none). */
   fail(key: string, now = Date.now()): number {
-    if (this.entries.size > 10_000) this.prune(now);
     const e = this.current(key, now) ?? { failures: 0, pauses: 0, pausedUntil: 0, lastFailure: now };
     e.failures += 1;
     e.lastFailure = now;
+    // re-inserted, so the map stays in order of last failure and the oldest key is the first one out
+    this.entries.delete(key);
     this.entries.set(key, e);
     // before the first pause a few mistakes are free; after it, every failure pauses again, for longer
-    if (e.pauses === 0 && e.failures < this.rule.failuresBeforePause) return 0;
-    const pause = Math.min(this.rule.firstPauseMs * 2 ** e.pauses, this.rule.maxPauseMs);
-    e.pauses += 1;
-    e.failures = 0;
-    e.pausedUntil = now + pause;
+    let pause = 0;
+    if (e.pauses > 0 || e.failures >= this.rule.failuresBeforePause) {
+      pause = Math.min(this.rule.firstPauseMs * 2 ** e.pauses, this.rule.maxPauseMs);
+      e.pauses += 1;
+      e.failures = 0;
+      e.pausedUntil = now + pause;
+    }
+    for (const [oldest, entry] of this.entries) {
+      if (this.entries.size <= this.maxKeys) break;
+      if (oldest !== key && entry.pausedUntil <= now) this.entries.delete(oldest);
+    }
+    // past the cap with only running pauses left, keys are kept anyway: they expire, and dropping one would lift a limit
     return pause;
+  }
+
+  /** Forgets every key starting with `prefix` (an account's per-network keys, after its password is reset). */
+  forgetStartingWith(prefix: string): void {
+    for (const key of this.entries.keys()) if (key.startsWith(prefix)) this.entries.delete(key);
   }
 
   succeed(key: string): void {
@@ -66,9 +88,5 @@ export class SignInLockout {
       return undefined;
     }
     return e;
-  }
-
-  private prune(now: number): void {
-    for (const key of this.entries.keys()) this.current(key, now);
   }
 }

@@ -41,7 +41,7 @@ export class PaymentsController {
   /** Midtrans calls this from its own servers; the signature, not a session, proves who sent it. */
   @Post('payments/midtrans/notification')
   @HttpCode(200)
-  // generous for Midtrans' retries, but bounded: every call is written to the audit table
+  // generous for Midtrans' retries, but bounded: every correctly signed call is written to the audit table
   @Throttle({ default: { limit: 300, ttl: 60_000 } })
   @ApiExcludeEndpoint()
   async notification(@Body() payload: unknown): Promise<{ outcome: string }> {

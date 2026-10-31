@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import type { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
-import { configureApp } from '../src/app.setup.js';
+import { APP_OPTIONS, configureApp } from '../src/app.setup.js';
 import { loadEnv } from '../src/config/env.js';
 import type { Mail } from '../src/mail/mail.service.js';
 import { MailService } from '../src/mail/mail.service.js';
@@ -39,7 +39,7 @@ export async function createTestApp(
   if (options.mail) builder.overrideProvider(MailService).useValue(options.mail);
   if (options.midtrans) builder.overrideProvider(MidtransClient).useValue(options.midtrans);
   const moduleRef = await builder.compile();
-  const app = moduleRef.createNestApplication<INestApplication<App>>();
+  const app = moduleRef.createNestApplication<INestApplication<App>>(APP_OPTIONS);
   configureApp(app, loadEnv());
   await app.init();
   return app;

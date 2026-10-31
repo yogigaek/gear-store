@@ -1,10 +1,13 @@
-import type { INestApplication } from '@nestjs/common';
+import type { INestApplication, NestApplicationOptions } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import type { Env } from './config/env.js';
+
+/** JSON bodies only: Nest's default form parser would let another site post a sign-in form (login CSRF). */
+export const APP_OPTIONS: NestApplicationOptions = { bodyParser: false };
 
 /** Everything main.ts applies to the app, shared with the e2e tests so they exercise the same stack. */
 export function configureApp(app: INestApplication, env: Env): void {

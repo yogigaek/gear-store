@@ -46,15 +46,21 @@ export const REFRESH_REUSE_GRACE_MS = 2 * 60 * 1000;
 export const DEMO_SESSIONS_KEPT = 200;
 
 const MINUTE_MS = 60 * 1000;
-/** per address: five mistakes, then a minute's pause that doubles with every further failure, up to an hour */
-const ADDRESS_LOCKOUT = {
+/** five mistakes, then a minute's pause that doubles with every further failure, up to an hour */
+const STRICT_LOCKOUT = {
   failuresBeforePause: 5,
   firstPauseMs: MINUTE_MS,
   maxPauseMs: 60 * MINUTE_MS,
   forgetAfterMs: 24 * 60 * MINUTE_MS,
 };
-/** per visitor address: wider, for someone trying many accounts from one place */
-const NETWORK_LOCKOUT = { ...ADDRESS_LOCKOUT, failuresBeforePause: 20 };
+/** per visitor network: wider, for someone trying many accounts from one place */
+const NETWORK_LOCKOUT = { ...STRICT_LOCKOUT, failuresBeforePause: 20 };
+/** per address from any network, only for networks that failed themselves: guesses spread over many networks */
+const SPREAD_LOCKOUT = { ...STRICT_LOCKOUT, failuresBeforePause: 10 };
+/** per address, for every network: the ceiling on guessing from any number of networks */
+const CEILING_LOCKOUT = { ...STRICT_LOCKOUT, failuresBeforePause: 30 };
+/** the wait for a password check that came while another one for the same account was still running */
+const CHECK_RUNNING_MS = 2000;
 /** a warning joins the error once this few attempts are left */
 const WARN_WHEN_LEFT = 2;
 const EMAILS_PER_ADDRESS = 3;
@@ -67,13 +73,13 @@ const invalidSession = () => new UnauthorizedException('Session expired, sign in
 const invalidLink = () => new BadRequestException('This link is invalid or has expired');
 
 /** A 429 that says how long to wait; `retryAfter` (seconds) lets the sign-in form count down. */
-function tooManySignIns(pauseMs: number): HttpException {
+function tooManySignIns(pauseMs: number, what = 'failed sign-ins'): HttpException {
   const seconds = Math.ceil(pauseMs / 1000);
   const wait = seconds < 120 ? `${seconds} seconds` : `${Math.ceil(seconds / 60)} minutes`;
   return new HttpException(
     {
       statusCode: 429,
-      message: `Too many failed sign-ins. Try again in ${wait}.`,
+      message: `Too many ${what}. Try again in ${wait}.`,
       code: 'SIGN_IN_PAUSED',
       retryAfter: seconds,
     },
@@ -119,8 +125,15 @@ export class AuthService {
     @Inject(ENV) private readonly env: Env,
   ) {}
 
-  private readonly addressLockout = new SignInLockout(ADDRESS_LOCKOUT);
+  /** sign-in, per address and network */
+  private readonly addressLockout = new SignInLockout(STRICT_LOCKOUT);
   private readonly networkLockout = new SignInLockout(NETWORK_LOCKOUT);
+  private readonly spreadLockout = new SignInLockout(SPREAD_LOCKOUT);
+  private readonly ceilingLockout = new SignInLockout(CEILING_LOCKOUT);
+  /** change of password, per account */
+  private readonly passwordLockout = new SignInLockout(STRICT_LOCKOUT);
+  /** accounts with a password check running: the locks above count a failure only once its check is done */
+  private readonly checking = new Set<string>();
 
   // ── registration and email verification ───────────────────────────────────
 
@@ -165,16 +178,25 @@ export class AuthService {
   // ── sign in, refresh, sign out ────────────────────────────────────────────
 
   async login(input: LoginInput, userAgent: string | undefined, clientIp = ''): Promise<IssuedSession> {
-    // Two locks. Per address, not per IP: holds however many addresses a password guesser rotates through,
-    // and applies the same way to unknown addresses, so it does not reveal which ones have accounts. Per
-    // visitor address, wider: holds someone trying many accounts from one place.
-    const address = `login:${input.email}`;
+    // a guesser pauses their own network first; the owner on a clean network gets in until the ceiling
+    const address = `login:${input.email}|${clientIp}`;
+    const anyNetwork = `login:${input.email}`;
     const network = `ip:${clientIp}`;
-    const paused = Math.max(this.addressLockout.pausedFor(address), this.networkLockout.pausedFor(network));
+    const paused = Math.max(
+      this.addressLockout.pausedFor(address),
+      this.networkLockout.pausedFor(network),
+      this.networkLockout.hasFailures(network) ? this.spreadLockout.pausedFor(anyNetwork) : 0,
+      this.ceilingLockout.pausedFor(anyNetwork),
+    );
     if (paused > 0) throw tooManySignIns(paused);
 
     const failed = () => {
-      const pause = Math.max(this.addressLockout.fail(address), this.networkLockout.fail(network));
+      const pause = Math.max(
+        this.addressLockout.fail(address),
+        this.networkLockout.fail(network),
+        this.spreadLockout.fail(anyNetwork),
+        this.ceilingLockout.fail(anyNetwork),
+      );
       if (pause > 0) return tooManySignIns(pause);
       const left = this.addressLockout.attemptsLeft(address);
       if (left > WARN_WHEN_LEFT) return invalidCredentials();
@@ -182,13 +204,18 @@ export class AuthService {
         `Email or password is incorrect. ${left} ${left === 1 ? 'attempt' : 'attempts'} left before sign-in pauses for a minute.`,
       );
     };
-    const user = await this.prisma.user.findUnique({ where: { email: input.email } });
-    if (!user || user.isDemo) {
-      await verify(await this.dummyHash, input.password);
-      throw failed();
-    }
-    if (!(await verify(user.passwordHash, input.password))) throw failed();
+    const user = await this.oneCheckAtATime(anyNetwork, 'sign-in attempts at once', async () => {
+      const found = await this.prisma.user.findUnique({ where: { email: input.email } });
+      if (!found || found.isDemo) {
+        await verify(await this.dummyHash, input.password);
+        throw failed();
+      }
+      if (!(await verify(found.passwordHash, input.password))) throw failed();
+      return found;
+    });
     this.addressLockout.succeed(address);
+    this.spreadLockout.succeed(anyNetwork);
+    this.ceilingLockout.succeed(anyNetwork);
     if (!user.emailVerifiedAt) {
       throw new ForbiddenException({
         statusCode: 403,
@@ -274,7 +301,7 @@ export class AuthService {
 
   async resetPassword(input: ResetPasswordInput): Promise<Message> {
     const passwordHash = await hash(input.password);
-    await this.prisma.$transaction(async (tx) => {
+    const email = await this.prisma.$transaction(async (tx) => {
       const row = await this.consumeEmailToken(tx, input.token, EmailTokenPurpose.RESET_PASSWORD);
       const now = new Date();
       await tx.user.update({
@@ -286,16 +313,29 @@ export class AuthService {
         where: { userId: row.userId, revokedAt: null },
         data: { revokedAt: now },
       });
+      return row.user.email;
     });
+    // whoever paused the address, its owner has proved they read the inbox: sign-in opens again
+    this.addressLockout.forgetStartingWith(`login:${email}|`);
+    this.spreadLockout.succeed(`login:${email}`);
+    this.ceilingLockout.succeed(`login:${email}`);
     return { message: 'Password changed. Sign in with your new password.' };
   }
 
   async changePassword(userId: string, sessionId: string, input: ChangePasswordInput): Promise<Message> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (user.isDemo) throw new ForbiddenException('Demo accounts cannot change their password');
-    if (!(await verify(user.passwordHash, input.currentPassword))) {
+    // per account: whoever holds a session cannot guess its password from many IPs
+    const account = `password:${userId}`;
+    const paused = this.passwordLockout.pausedFor(account);
+    if (paused > 0) throw tooManySignIns(paused, 'wrong passwords');
+    await this.oneCheckAtATime(account, 'password changes at once', async () => {
+      if (await verify(user.passwordHash, input.currentPassword)) return;
+      const pause = this.passwordLockout.fail(account);
+      if (pause > 0) throw tooManySignIns(pause, 'wrong passwords');
       throw new BadRequestException('Current password is incorrect');
-    }
+    });
+    this.passwordLockout.succeed(account);
     await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: userId },
@@ -311,6 +351,17 @@ export class AuthService {
   }
 
   // ── internals ─────────────────────────────────────────────────────────────
+
+  /** A burst of guesses for one account is checked one at a time, so each failure counts before the next check. */
+  private async oneCheckAtATime<T>(key: string, what: string, check: () => Promise<T>): Promise<T> {
+    if (this.checking.has(key)) throw tooManySignIns(CHECK_RUNNING_MS, what);
+    this.checking.add(key);
+    try {
+      return await check();
+    } finally {
+      this.checking.delete(key);
+    }
+  }
 
   private async startSession(user: UserRow, userAgent: string | undefined): Promise<IssuedSession> {
     await this.pruneSessions(user.id);

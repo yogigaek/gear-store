@@ -80,7 +80,7 @@ export class AdminController {
   requestInfo(@Req() req: Request) {
     const h = (name: string) => req.headers[name] ?? null;
     return {
-      clientIp: clientIp(req, this.env.CLIENT_IP_HEADERS),
+      clientIp: clientIp(req, this.env.CLIENT_IP_HEADERS, this.env.PROXY_SECRET),
       ip: req.ip,
       ips: req.ips,
       trustProxy: req.app.get('trust proxy') as unknown,
@@ -96,8 +96,8 @@ export class AdminController {
   @ApiOperation({ summary: 'Revenue, orders, best sellers and what needs attention' })
   @ApiQueryFrom(adminStatsQuerySchema)
   @ApiOkResponse({ schema: openApiSchema(adminStatsSchema) })
-  overview(@Query(pipe(adminStatsQuerySchema)) query: { days: number }) {
-    return this.stats.stats(query.days);
+  overview(@CurrentAuth() auth: AuthContext, @Query(pipe(adminStatsQuerySchema)) query: { days: number }) {
+    return this.stats.stats(query.days, auth.isDemo);
   }
 
   // ── products ──
@@ -172,14 +172,14 @@ export class AdminController {
   @Get('orders')
   @ApiQueryFrom(adminOrderQuerySchema)
   @ApiOkResponse({ schema: openApiSchema(pageOf(adminOrderRowSchema)) })
-  listOrders(@Query(pipe(adminOrderQuerySchema)) query: AdminOrderQuery) {
-    return this.orders.list(query);
+  listOrders(@CurrentAuth() auth: AuthContext, @Query(pipe(adminOrderQuerySchema)) query: AdminOrderQuery) {
+    return this.orders.list(query, auth.isDemo);
   }
 
   @Get('orders/:number')
   @ApiOkResponse({ schema: openApiSchema(adminOrderSchema) })
-  order(@Param('number', numberParam) number: string) {
-    return this.orders.detail(number);
+  order(@CurrentAuth() auth: AuthContext, @Param('number', numberParam) number: string) {
+    return this.orders.detail(number, auth.isDemo);
   }
 
   @Post('orders/:number/ship')
@@ -211,8 +211,8 @@ export class AdminController {
   @Get('users')
   @ApiQueryFrom(adminListQuerySchema)
   @ApiOkResponse({ schema: openApiSchema(pageOf(adminUserRowSchema)) })
-  listUsers(@Query(pipe(adminListQuerySchema)) query: AdminListQuery) {
-    return this.users.list(query);
+  listUsers(@CurrentAuth() auth: AuthContext, @Query(pipe(adminListQuerySchema)) query: AdminListQuery) {
+    return this.users.list(query, auth.isDemo);
   }
 
   @Patch('users/:id/role')

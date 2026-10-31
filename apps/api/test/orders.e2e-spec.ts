@@ -555,6 +555,172 @@ describe('Addresses and orders (e2e)', () => {
     });
   });
 
+  describe('limits on orders waiting for payment', () => {
+    const markDemo = async (addressId: string) => {
+      const { userId } = await prisma.address.findUniqueOrThrow({
+        where: { id: addressId },
+        select: { userId: true },
+      });
+      await prisma.user.update({ where: { id: userId }, data: { isDemo: true } });
+    };
+    const hex = (quantity = 1) => [{ slug: 'workshop-hex-set', quantity }];
+
+    it('lets an account hold 3 orders waiting for payment and refuses a 4th, by cart or Buy now', async () => {
+      const { me, address } = await customerWithAddress();
+      const placed = [];
+      for (let i = 0; i < 3; i += 1)
+        placed.push(orderDetailSchema.parse((await me.buyNow(address.id, hex()).expect(201)).body));
+      const before = await stockOf('workshop-hex-set');
+      const fourth = await me.buyNow(address.id, hex()).expect(409);
+      expect(fourth.body).toMatchObject({ code: 'TOO_MANY_UNPAID_ORDERS' });
+      expect(fourth.body.message).toBe(
+        'You have 3 orders waiting for payment. Pay or cancel one of them before placing another.',
+      );
+      await me.cartSet('workshop-hex-set', 1).expect(200);
+      expect((await me.checkout(address.id).expect(409)).body.code).toBe('TOO_MANY_UNPAID_ORDERS');
+      expect(await stockOf('workshop-hex-set')).toBe(before);
+      // the cart is left for when there is room
+      expect(cartSchema.parse((await me.cart().expect(200)).body).items).toHaveLength(1);
+      // a repeated key still answers with its order
+      const key = randomUUID();
+      await prisma.order.update({ where: { number: placed[0]!.number }, data: { idempotencyKey: key } });
+      expect((await me.buyNow(address.id, hex(), key).expect(201)).body.number).toBe(placed[0]!.number);
+
+      // a cancelled or expired order makes room
+      await me.cancel(placed[0]!.number).expect(200);
+      await prisma.order.update({
+        where: { number: placed[1]!.number },
+        data: { paymentExpiresAt: new Date(Date.now() - 1000) },
+      });
+      const next = orderDetailSchema.parse((await me.checkout(address.id).expect(201)).body);
+      const another = orderDetailSchema.parse((await me.buyNow(address.id, hex()).expect(201)).body);
+      for (const n of [placed[2]!.number, next.number, another.number]) await me.cancel(n).expect(200);
+    });
+
+    it('replaces a demo account’s waiting order with the new one, so a demo checkout is never refused', async () => {
+      const { me, address } = await customerWithAddress();
+      await markDemo(address.id);
+      const before = await stockOf('workshop-hex-set');
+      const first = orderDetailSchema.parse((await me.buyNow(address.id, hex(2)).expect(201)).body);
+      expect(await stockOf('workshop-hex-set')).toBe(before - 2);
+      // another visitor of the shared account checks out while the first order is still unpaid
+      const second = orderDetailSchema.parse((await me.buyNow(address.id, hex()).expect(201)).body);
+      const replaced = orderDetailSchema.parse((await me.order(first.number).expect(200)).body);
+      expect(replaced.status).toBe('CANCELLED');
+      expect(replaced.canPay).toBe(false);
+      expect(replaced.events.at(-1)?.note).toBe(
+        'Replaced by a newer demo order. The items went back on sale.',
+      );
+      expect(await stockOf('workshop-hex-set')).toBe(before - 1);
+      // by cart too, and only one order is ever left waiting
+      await me.cartSet('workshop-hex-set', 1).expect(200);
+      const third = orderDetailSchema.parse((await me.checkout(address.id).expect(201)).body);
+      const listed = z.array(orderSummarySchema).parse((await me.orders().expect(200)).body);
+      expect(listed.filter((o) => o.status === 'PENDING_PAYMENT').map((o) => o.number)).toEqual([
+        third.number,
+      ]);
+      expect(listed.find((o) => o.number === second.number)?.status).toBe('CANCELLED');
+      await me.cancel(third.number).expect(200);
+      expect(await stockOf('workshop-hex-set')).toBe(before);
+    });
+
+    it('replaces a demo order while a cancel of that order is half done, without a deadlock', async () => {
+      const { me, address } = await customerWithAddress();
+      await markDemo(address.id);
+      const before = await stockOf('workshop-hex-set');
+      const first = orderDetailSchema.parse((await me.buyNow(address.id, hex()).expect(201)).body);
+      const { id: orderId } = await prisma.order.findUniqueOrThrow({ where: { number: first.number } });
+      const { id: productId } = await prisma.product.findUniqueOrThrow({
+        where: { slug: 'workshop-hex-set' },
+      });
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => (release = resolve));
+      let started!: () => void;
+      const holding = new Promise<void>((resolve) => (started = resolve));
+      // what close() does, paused between its two steps: the order row moved (and locked), stock not yet back
+      const closing = prisma.$transaction(
+        async (tx) => {
+          await tx.order.updateMany({
+            where: { id: orderId, status: 'PENDING_PAYMENT' },
+            data: { status: 'CANCELLED', closedAt: new Date() },
+          });
+          started();
+          await gate;
+          await tx.product.update({ where: { id: productId }, data: { stock: { increment: 1 } } });
+        },
+        { timeout: 20_000 },
+      );
+      await holding;
+      const replacing = Promise.resolve(me.buyNow(address.id, hex()));
+      // the checkout reaches the order row the half-done cancel holds, and waits for it
+      let waiting = 0;
+      for (let i = 0; i < 100 && waiting === 0; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        [{ waiting }] = await prisma.$queryRaw<{ waiting: number }[]>`
+          SELECT count(*)::int AS waiting FROM pg_stat_activity
+          WHERE datname = current_database() AND pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock' AND query LIKE '%"Order"%'`;
+      }
+      expect(waiting).toBeGreaterThan(0);
+      release();
+      const [closed, placed] = await Promise.allSettled([closing, replacing]);
+      expect(closed.status).toBe('fulfilled');
+      expect(placed.status === 'fulfilled' && placed.value.status).toBe(201);
+      const next = orderDetailSchema.parse((placed as PromiseFulfilledResult<request.Response>).value.body);
+      expect(await stockOf('workshop-hex-set')).toBe(before - 1);
+      await me.cancel(next.number).expect(200);
+      expect(await stockOf('workshop-hex-set')).toBe(before);
+    });
+
+    it('keeps a demo account’s waiting order when the new one is refused', async () => {
+      const { me, address } = await customerWithAddress();
+      await markDemo(address.id);
+      const first = orderDetailSchema.parse((await me.buyNow(address.id, hex()).expect(201)).body);
+      await me.buyNow(address.id, hex(6)).expect(409);
+      await me.buyNow(address.id, [{ slug: TEMP_SLUG, quantity: 2 }]).expect(409);
+      expect(orderDetailSchema.parse((await me.order(first.number).expect(200)).body).status).toBe(
+        'PENDING_PAYMENT',
+      );
+      await me.cancel(first.number).expect(200);
+    });
+
+    it('caps a demo order at 5 items, a bike counting as one', async () => {
+      const { me, address } = await customerWithAddress();
+      await markDemo(address.id);
+      const before = await stockOf('workshop-hex-set');
+      const six = await me
+        .buyNow(address.id, [...hex(4), { slug: 'lights-front-rear', quantity: 2 }])
+        .expect(409);
+      expect(six.body).toMatchObject({
+        code: 'DEMO_ORDER_TOO_LARGE',
+        message: 'A demo order holds at most 5 items. Remove some and try again.',
+      });
+      expect(await stockOf('workshop-hex-set')).toBe(before);
+      const five = orderDetailSchema.parse(
+        (await me.buyNow(address.id, [...hex(3), { slug: 'lights-front-rear', quantity: 2 }]).expect(201))
+          .body,
+      );
+      await me.cancel(five.number).expect(200);
+
+      await me.addBike(start, 'ember', 1).expect(200);
+      await me.cartSet('battery-charger-4a', 5).expect(200);
+      expect((await me.checkout(address.id).expect(409)).body.code).toBe('DEMO_ORDER_TOO_LARGE');
+      await me.cartSet('battery-charger-4a', 4).expect(200);
+      const bike = orderDetailSchema.parse((await me.checkout(address.id).expect(201)).body);
+      expect(bike.builds).toHaveLength(1);
+      await me.cancel(bike.number).expect(200);
+    });
+
+    it('does not cap the size of an ordinary account’s order beyond the per-line limit', async () => {
+      const { me, address } = await customerWithAddress();
+      const order = orderDetailSchema.parse(
+        (await me.buyNow(address.id, [...hex(3), { slug: 'lights-front-rear', quantity: 3 }]).expect(201))
+          .body,
+      );
+      await me.cancel(order.number).expect(200);
+    });
+  });
+
   describe('after checkout', () => {
     it('cancels once, returns the stock, and records the timeline', async () => {
       const { me, address } = await customerWithAddress();

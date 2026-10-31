@@ -36,7 +36,7 @@ import type { Request, Response } from 'express';
 import type { z } from 'zod';
 import { clientIp } from '../common/client-ip.js';
 import { openApiSchema } from '../common/openapi.js';
-import { TEN_PER_MINUTE } from '../common/throttle.js';
+import { FIVE_PER_MINUTE, TEN_PER_MINUTE } from '../common/throttle.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
@@ -51,7 +51,6 @@ const ApiContract = (input: z.ZodType, output: z.ZodType = messageSchema) =>
     ApiBody({ schema: openApiSchema(input, 'input') }),
     ApiOkResponse({ schema: openApiSchema(output) }),
   );
-const strict = { default: { limit: 5, ttl: 60_000 } };
 
 // named fields only: whatever IssuedSession gains later stays out of the reply until it is added here
 const toNative = (issued: IssuedSession): NativeAuthResponse => ({
@@ -73,7 +72,7 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(202)
-  @Throttle(strict)
+  @Throttle(FIVE_PER_MINUTE)
   @ApiOperation({
     summary: 'Create an account; a confirmation link is emailed. Same reply if the email is taken.',
   })
@@ -92,7 +91,7 @@ export class AuthController {
 
   @Post('resend-verification')
   @HttpCode(202)
-  @Throttle(strict)
+  @Throttle(FIVE_PER_MINUTE)
   @ApiOperation({ summary: 'Send a new confirmation link' })
   @ApiContract(emailOnlySchema)
   resend(@Body(body(emailOnlySchema)) input: { email: string }): Promise<Message> {
@@ -112,7 +111,8 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthResponse> {
-    const ip = clientIp(req, this.env.CLIENT_IP_HEADERS);
+    this.assertSameOrigin(req);
+    const ip = clientIp(req, this.env.CLIENT_IP_HEADERS, this.env.PROXY_SECRET);
     return this.withCookie(res, await this.auth.login(input, userAgent, ip));
   }
 
@@ -124,8 +124,10 @@ export class AuthController {
   async demo(
     @Body(body(demoLoginSchema)) input: DemoLoginInput,
     @Headers('user-agent') userAgent: string | undefined,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthResponse> {
+    this.assertSameOrigin(req);
     return this.withCookie(res, await this.auth.demoLogin(input, userAgent));
   }
 
@@ -168,7 +170,7 @@ export class AuthController {
     @Headers('user-agent') userAgent: string | undefined,
     @Req() req: Request,
   ): Promise<NativeAuthResponse> {
-    const ip = clientIp(req, this.env.CLIENT_IP_HEADERS);
+    const ip = clientIp(req, this.env.CLIENT_IP_HEADERS, this.env.PROXY_SECRET);
     return toNative(await this.auth.login(input, userAgent, ip));
   }
 
@@ -204,7 +206,7 @@ export class AuthController {
 
   @Post('forgot-password')
   @HttpCode(202)
-  @Throttle(strict)
+  @Throttle(FIVE_PER_MINUTE)
   @ApiOperation({ summary: 'Email a password reset link. Same reply whether or not the account exists.' })
   @ApiContract(emailOnlySchema)
   forgot(@Body(body(emailOnlySchema)) input: { email: string }): Promise<Message> {
@@ -213,7 +215,7 @@ export class AuthController {
 
   @Post('reset-password')
   @HttpCode(200)
-  @Throttle(strict)
+  @Throttle(FIVE_PER_MINUTE)
   @ApiOperation({ summary: 'Set a new password with the token from the link; signs out every device' })
   @ApiContract(resetPasswordSchema)
   reset(@Body(body(resetPasswordSchema)) input: ResetPasswordInput): Promise<Message> {
@@ -247,7 +249,7 @@ export class AuthController {
     return typeof value === 'string' ? value : undefined;
   }
 
-  /** Defence in depth for the two cookie-authenticated routes: a browser request from another site is refused. */
+  /** Every route that reads or sets the refresh cookie: a browser request from another site is refused. */
   private assertSameOrigin(req: Request): void {
     const origin = req.headers.origin;
     if (origin !== undefined && origin !== this.env.WEB_ORIGIN)

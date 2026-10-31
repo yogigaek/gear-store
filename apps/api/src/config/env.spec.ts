@@ -16,6 +16,11 @@ describe('loadEnv', () => {
     expect(env.MIDTRANS_PRODUCTION).toBe(false);
   });
 
+  it('leaves PROXY_SECRET unset unless given', () => {
+    expect(loadEnv(valid).PROXY_SECRET).toBeUndefined();
+    expect(loadEnv({ ...valid, PROXY_SECRET: 'p'.repeat(64) }).PROXY_SECRET).toBe('p'.repeat(64));
+  });
+
   it('coerces PORT', () => {
     expect(loadEnv({ ...valid, PORT: '8080' }).PORT).toBe(8080);
   });
@@ -27,6 +32,7 @@ describe('loadEnv', () => {
     ['bad PORT', { ...valid, PORT: 'eighty' }, 'PORT'],
     ['short JWT_ACCESS_SECRET', { ...valid, JWT_ACCESS_SECRET: 'short' }, 'JWT_ACCESS_SECRET'],
     ['non-SMTP SMTP_URL', { ...valid, SMTP_URL: 'https://mail.example' }, 'SMTP_URL'],
+    ['short PROXY_SECRET', { ...valid, PROXY_SECRET: 'short' }, 'PROXY_SECRET'],
   ])('rejects %s', (_, source, field) => {
     expect(() => loadEnv(source)).toThrow(field);
   });
