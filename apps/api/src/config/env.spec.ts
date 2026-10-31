@@ -39,10 +39,16 @@ describe('loadEnv', () => {
       MIDTRANS_SERVER_KEY: 'SB-Mid-server-real-sandbox-key',
     };
 
-    it('boots with real values and a key that matches the Midtrans environment', () => {
+    it('boots with real values, in sandbox or production mode', () => {
       expect(loadEnv(production).NODE_ENV).toBe('production');
       const live = { ...production, MIDTRANS_PRODUCTION: 'true', MIDTRANS_SERVER_KEY: 'Mid-server-real-key' };
       expect(loadEnv(live).MIDTRANS_PRODUCTION).toBe(true);
+    });
+
+    it('accepts a sandbox key without the SB- prefix, as older Midtrans accounts have', () => {
+      expect(
+        loadEnv({ ...production, MIDTRANS_SERVER_KEY: 'Mid-server-real-sandbox-key' }).MIDTRANS_PRODUCTION,
+      ).toBe(false);
     });
 
     it.each([
@@ -69,17 +75,6 @@ describe('loadEnv', () => {
       [
         'the example Midtrans key in other case',
         { MIDTRANS_SERVER_KEY: 'SB-Mid-server-replace_me' },
-        'MIDTRANS_SERVER_KEY',
-      ],
-      [
-        'a production key in sandbox mode',
-        { MIDTRANS_SERVER_KEY: 'Mid-server-real-key' },
-        'MIDTRANS_SERVER_KEY',
-      ],
-      ['a sandbox key in production mode', { MIDTRANS_PRODUCTION: 'true' }, 'MIDTRANS_SERVER_KEY'],
-      [
-        'a key of neither kind in production mode',
-        { MIDTRANS_PRODUCTION: 'true', MIDTRANS_SERVER_KEY: 'not-a-midtrans-key' },
         'MIDTRANS_SERVER_KEY',
       ],
     ])('refuses %s', (_, change, field) => {

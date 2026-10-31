@@ -12,7 +12,7 @@ const envSchema = z.object({
   // smtp://localhost:1025 is Mailpit in development; production uses the provider's SMTP URL
   SMTP_URL: z.url({ protocol: /^smtps?$/ }),
   MAIL_FROM: z.string().min(3).default('Rakit <no-reply@rakit.example>'),
-  // Midtrans server key (sandbox keys start with "SB-Mid-server-"); signs webhook checks and API calls
+  // Midtrans server key (newer sandbox keys start with "SB-", older accounts' do not); signs webhook checks and API calls
   MIDTRANS_SERVER_KEY: z.string().min(10),
   MIDTRANS_PRODUCTION: z.stringbool().default(false),
   // how many proxies sit in front of the API; req.ip (rate limits) must be the visitor, not the last proxy
@@ -43,12 +43,6 @@ const checkedEnvSchema = envSchema.superRefine((env, ctx) => {
     refuse('JWT_ACCESS_SECRET', 'still the example value from .env.example');
   if (isExample(env.MIDTRANS_SERVER_KEY, EXAMPLE_MIDTRANS_SERVER_KEY))
     refuse('MIDTRANS_SERVER_KEY', 'still the example value from .env.example');
-  const prefix = env.MIDTRANS_PRODUCTION ? 'Mid-server-' : 'SB-Mid-server-';
-  if (!env.MIDTRANS_SERVER_KEY.startsWith(prefix))
-    refuse(
-      'MIDTRANS_SERVER_KEY',
-      `must start with ${prefix} when MIDTRANS_PRODUCTION is ${env.MIDTRANS_PRODUCTION}`,
-    );
 });
 
 export type Env = z.infer<typeof envSchema>;
