@@ -58,7 +58,8 @@ export class MidtransClient {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    return z.object({ token: z.string(), redirect_url: z.url() }).parse(res);
+    // the apps open this link as given (APK v1.0.0 only checks it parses), so only https is passed on
+    return z.object({ token: z.string(), redirect_url: z.url({ protocol: /^https$/ }) }).parse(res);
   }
 
   /** null when Midtrans has no transaction for this order yet (the buyer never opened the payment page). */

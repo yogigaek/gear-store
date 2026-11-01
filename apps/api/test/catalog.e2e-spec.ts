@@ -3,12 +3,14 @@ import {
   buildCatalogSchema,
   buildQuoteSchema,
   categorySchema,
+  MAX_LINE_QUANTITY,
   productDetailSchema,
   productPageSchema,
 } from '@gear-store/shared';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { z } from 'zod';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp } from './setup.js';
 
 // Runs against the seeded demo catalogue (npm run db:seed).
@@ -75,6 +77,39 @@ describe('Catalogue and build (e2e)', () => {
   it('treats query text as data, not SQL', async () => {
     const res = await get(`/api/products?q=${encodeURIComponent("' OR 1=1 --")}`).expect(200);
     expect(res.body.total).toBe(0);
+  });
+
+  it('treats percent, underscore and backslash in a search as the characters themselves: found where they are, never as wildcards', async () => {
+    const prisma = app.get(PrismaService);
+    const marker = crypto.randomUUID().slice(0, 8);
+    const { id: categoryId } = await prisma.category.findUniqueOrThrow({ where: { slug: 'accessories' } });
+    const part = (kind: string, name: string) => ({
+      slug: `e2e-search-${marker}-${kind}`,
+      name: `${name} ${marker}`,
+      model: 'S-1',
+      module: 'ACCESSORY' as const,
+      description: 'Created by the catalogue e2e suite',
+      price: 10000,
+      stock: 1,
+      categoryId,
+    });
+    // the near miss matches every query below only if the characters were read as LIKE wildcards
+    await prisma.product.createMany({
+      data: [part('real', 'Wild_card 100% back\\slash'), part('near', 'Wildxcard 100x backslash')],
+    });
+    try {
+      for (const q of ['_', '%', '\\', 'wild_card', '100%', 'back\\slash']) {
+        const res = await get(`/api/products?pageSize=48&q=${encodeURIComponent(q)}`).expect(200);
+        const slugs = productPageSchema.parse(res.body).items.map((p) => p.slug);
+        expect([
+          q,
+          slugs.includes(`e2e-search-${marker}-real`),
+          slugs.includes(`e2e-search-${marker}-near`),
+        ]).toEqual([q, true, false]);
+      }
+    } finally {
+      await prisma.product.deleteMany({ where: { slug: { startsWith: `e2e-search-${marker}` } } });
+    }
   });
 
   it('pages without overlap', async () => {
@@ -158,6 +193,69 @@ describe('Catalogue and build (e2e)', () => {
     it('validates the selection before looking anything up', async () => {
       await quote({ parts: { frames: 'Frame M' }, colorKey: 'signal' }).expect(400);
       await quote({ colorKey: 'signal' }).expect(400);
+    });
+  });
+
+  describe('edge cases', () => {
+    const issuesOf = async (url: string) =>
+      ((await get(url).expect(400)).body.issues as { path: string }[]).map((i) => i.path);
+
+    it('pages from 1 to 1000, 1 to 48 a page, and refuses anything outside', async () => {
+      expect(
+        productPageSchema.parse((await get('/api/products?pageSize=48').expect(200)).body).pageSize,
+      ).toBe(48);
+      const last = productPageSchema.parse(
+        (await get('/api/products?page=1000&pageSize=1').expect(200)).body,
+      );
+      expect(last).toMatchObject({ items: [], page: 1000 });
+      expect(await issuesOf('/api/products?pageSize=49')).toEqual(['pageSize']);
+      expect(await issuesOf('/api/products?pageSize=0')).toEqual(['pageSize']);
+      expect(await issuesOf('/api/products?page=0')).toEqual(['page']);
+      expect(await issuesOf('/api/products?page=1001')).toEqual(['page']);
+      expect(await issuesOf('/api/products?page=1.5')).toEqual(['page']);
+    });
+
+    it('searches with up to 80 characters, and refuses more or only spaces', async () => {
+      await get(`/api/products?q=${'q'.repeat(80)}`).expect(200);
+      expect(await issuesOf(`/api/products?q=${'q'.repeat(81)}`)).toEqual(['q']);
+      expect(await issuesOf('/api/products?q=%20%20')).toEqual(['q']);
+    });
+
+    it('filters to parts in stock or sold out, and the two together make the whole catalogue', async () => {
+      const page = async (query: string) =>
+        productPageSchema.parse((await get(`/api/products?pageSize=48${query}`).expect(200)).body);
+      const [all, inStock, soldOut] = await Promise.all([
+        page(''),
+        page('&inStock=true'),
+        page('&inStock=false'),
+      ]);
+      expect(inStock.items.every((p) => p.stock > 0)).toBe(true);
+      expect(soldOut.items.every((p) => p.stock === 0)).toBe(true);
+      expect(inStock.total + soldOut.total).toBe(all.total);
+      expect(await issuesOf('/api/products?inStock=maybe')).toEqual(['inStock']);
+    });
+
+    it('refuses a price range turned around or below zero, and answers an unknown part type with nothing', async () => {
+      expect(await issuesOf('/api/products?minPrice=5000&maxPrice=1000')).toEqual(['minPrice']);
+      expect(await issuesOf('/api/products?minPrice=-1')).toEqual(['minPrice']);
+      await get('/api/products?minPrice=1000&maxPrice=1000').expect(200);
+      const none = productPageSchema.parse(
+        (await get('/api/products?category=no-such-type').expect(200)).body,
+      );
+      expect(none).toMatchObject({ items: [], total: 0 });
+    });
+
+    it(`quotes 1 to ${MAX_LINE_QUANTITY} bikes and refuses 0, ${MAX_LINE_QUANTITY + 1} or more than 12 slots`, async () => {
+      const book = buildCatalogSchema.parse((await get('/api/build').expect(200)).body);
+      const parts = Object.fromEntries(book.slots.map((s) => [s.category, s.defaultSlug!]));
+      for (const quantity of [1, MAX_LINE_QUANTITY])
+        await quote({ parts, colorKey: 'signal', quantity, price: 1 }).expect(200);
+      for (const quantity of [0, MAX_LINE_QUANTITY + 1, 2.5])
+        await quote({ parts, colorKey: 'signal', quantity }).expect(400);
+      const thirteen = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`slot-${i}`, 'e1-frame-m']));
+      const res = await quote({ parts: thirteen, colorKey: 'signal' }).expect(400);
+      expect(res.body.issues).toEqual([{ path: 'parts', message: 'Too many slots' }]);
+      await quote({ parts, colorKey: 'c'.repeat(41) }).expect(400);
     });
   });
 });

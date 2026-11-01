@@ -70,3 +70,35 @@ describe('finishSwapNote', () => {
     );
   });
 });
+
+describe('parseBuyLine boundaries', () => {
+  it('reads 1 and 10, leading zeros included, and the longest finish and slug', () => {
+    expect(read('buy=folding-lock&qty=01')?.quantity).toBe(1);
+    expect(read('buy=folding-lock&qty=10')?.quantity).toBe(10);
+    expect(read(`buy=folding-lock&finish=${'a'.repeat(40)}`)?.colorKey).toBe('a'.repeat(40));
+    expect(read(`buy=${'a'.repeat(80)}`)?.slug).toBe('a'.repeat(80));
+    expect(read('buy=folding-lock&utm_source=x&next=//evil.example')).toEqual({
+      slug: 'folding-lock',
+      colorKey: '',
+      quantity: 1,
+    });
+  });
+
+  it.each([
+    'buy=folding-lock&qty=00',
+    'buy=folding-lock&qty=010',
+    'buy=folding-lock&qty=%201',
+    'buy=folding-lock&qty=1e1',
+    'buy=folding-lock&qty=%EF%BC%91',
+    `buy=${'a'.repeat(81)}`,
+    'buy=folding-lock%00',
+    'buy=folding-lock&finish=-signal',
+    'buy=folding-lock&finish=signal-',
+    'buy=folding-lock&finish=sig--nal',
+    'buy=folding-lock&finish=%3Cscript%3E',
+    'buy=%2F%2Fevil.example',
+    'qty=1&finish=signal',
+  ])('refuses %j', (query) => {
+    expect(read(query)).toBeNull();
+  });
+});

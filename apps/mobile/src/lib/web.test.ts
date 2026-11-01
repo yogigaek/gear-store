@@ -84,3 +84,33 @@ describe('openWeb', () => {
     expect(WEB_URL).toBe('https://yogi-store.vercel.app');
   });
 });
+
+describe('afterSignIn against crafted rakit:// links', () => {
+  it.each([
+    'checkout\u0000',
+    ' checkout',
+    'CHECKOUT',
+    'checkout?next=//evil.example',
+    '../checkout',
+    'constructor',
+    '__proto__',
+  ])('ignores next %j', (next) => {
+    expect(afterSignIn({ next })).toBeNull();
+  });
+
+  it.each(['RKT-261027-AB2C3D\n', ' RKT-261027-AB2C3D', 'RKT-261027-AB2C30', 'RKT-261027-AB2C3D%2F..'])(
+    'ignores the order number %j',
+    (number) => {
+      expect(afterSignIn({ next: 'order', number })).toBeNull();
+    },
+  );
+
+  it('carries only the Buy now params it checked, whatever else the link holds', () => {
+    expect(
+      afterSignIn({ next: 'checkout', buy: 'folding-lock', qty: '10', number: 'RKT-261027-AB2C3D' }),
+    ).toEqual({
+      pathname: '/checkout',
+      params: { buy: 'folding-lock', qty: '10' },
+    });
+  });
+});

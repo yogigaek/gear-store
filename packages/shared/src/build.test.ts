@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildSelectionSchema } from './build.js';
+import {
+  buildCatalogSchema,
+  buildProblemSchema,
+  buildQuoteInputSchema,
+  buildSelectionSchema,
+  MAX_LINE_QUANTITY,
+} from './build.js';
 import { guestCartSchema } from './cart.js';
 
 describe('build schemas', () => {
@@ -26,5 +32,44 @@ describe('build schemas', () => {
     expect(
       guestCartSchema.safeParse({ items: [], builds: [{ ...build, key: crypto.randomUUID() }] }).success,
     ).toBe(true);
+  });
+});
+
+describe('build boundaries', () => {
+  const slots = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`slot-${i}`, 'x']));
+
+  it('takes up to 12 slots, and none', () => {
+    expect(buildSelectionSchema.safeParse({ parts: slots(12), colorKey: '' }).success).toBe(true);
+    expect(buildSelectionSchema.safeParse({ parts: {}, colorKey: '' }).success).toBe(true);
+    expect(buildSelectionSchema.safeParse({ parts: slots(13), colorKey: '' }).error?.issues[0]?.message).toBe(
+      'Too many slots',
+    );
+  });
+
+  it('caps the colour key at 40 characters', () => {
+    expect(buildSelectionSchema.safeParse({ parts: {}, colorKey: 'x'.repeat(40) }).success).toBe(true);
+    expect(buildSelectionSchema.safeParse({ parts: {}, colorKey: 'x'.repeat(41) }).success).toBe(false);
+  });
+
+  it('quotes 1 bike by default and up to 10', () => {
+    expect(buildQuoteInputSchema.parse({ parts: {}, colorKey: '' }).quantity).toBe(1);
+    expect(
+      buildQuoteInputSchema.parse({ parts: {}, colorKey: '', quantity: MAX_LINE_QUANTITY }).quantity,
+    ).toBe(10);
+    for (const quantity of [0, 11, 1.5])
+      expect(buildQuoteInputSchema.safeParse({ parts: {}, colorKey: '', quantity }).success).toBe(false);
+  });
+
+  it('names a build problem by a known kind only', () => {
+    expect(buildProblemSchema.safeParse({ kind: 'CONFLICT', message: 'x', slots: ['forks'] }).success).toBe(
+      true,
+    );
+    expect(buildProblemSchema.safeParse({ kind: 'TOO_HEAVY', message: 'x', slots: [] }).success).toBe(false);
+  });
+
+  it('gives no starting price when the starting build cannot be made', () => {
+    const catalog = { name: 'E-1', slots: [], conflicts: [], fromPrice: null };
+    expect(buildCatalogSchema.safeParse(catalog).success).toBe(true);
+    expect(buildCatalogSchema.safeParse({ ...catalog, fromPrice: -1 }).success).toBe(false);
   });
 });

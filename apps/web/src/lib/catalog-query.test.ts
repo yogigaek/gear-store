@@ -29,3 +29,49 @@ describe('catalog query in the URL', () => {
     expect(readCatalogQuery(writeCatalogQuery(query))).toMatchObject(query);
   });
 });
+
+describe('catalog query edges', () => {
+  it('reads an empty or unknown-only query as the defaults', () => {
+    expect(readCatalogQuery(new URLSearchParams(''))).toEqual({ sort: 'type', page: 1, pageSize: 12 });
+    expect(readCatalogQuery(new URLSearchParams('__proto__=x&constructor=y&utm=z'))).toEqual({
+      sort: 'type',
+      page: 1,
+      pageSize: 12,
+    });
+  });
+
+  it('drops every bad parameter at once and keeps the good ones', () => {
+    const q = readCatalogQuery(
+      new URLSearchParams(
+        'category=Bad Slug&q=%20&minPrice=-1&maxPrice=x&inStock=maybe&page=0&pageSize=49&sort=name',
+      ),
+    );
+    expect(q).toEqual({ sort: 'name', page: 1, pageSize: 12 });
+  });
+
+  it('reads the last value of a parameter given twice', () => {
+    expect(readCatalogQuery(new URLSearchParams('page=2&page=3')).page).toBe(3);
+  });
+
+  it('writes no empty, default or missing value', () => {
+    expect(writeCatalogQuery({ q: '', category: undefined, inStock: false, page: 2 }).toString()).toBe(
+      'inStock=false&page=2',
+    );
+  });
+
+  it('gives the defaults instead of looping when a failure names no parameter', async () => {
+    const { vi } = await import('vitest');
+    vi.resetModules();
+    vi.doMock('@gear-store/shared', async (actual) => {
+      const shared = await actual<typeof import('@gear-store/shared')>();
+      const failing = {
+        safeParse: () => ({ success: false, error: { issues: [{ path: [] }] } }),
+        parse: () => ({ sort: 'type', page: 1, pageSize: 12 }),
+      };
+      return { ...shared, productQuerySchema: failing };
+    });
+    const { readCatalogQuery: read } = await import('./catalog-query');
+    expect(read(new URLSearchParams('page=2'))).toEqual({ sort: 'type', page: 1, pageSize: 12 });
+    vi.doUnmock('@gear-store/shared');
+  });
+});

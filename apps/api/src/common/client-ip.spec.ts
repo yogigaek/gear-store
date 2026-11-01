@@ -24,6 +24,32 @@ describe('clientIp', () => {
     expect(clientIp(req({}), order)).toBe('10.0.0.1');
   });
 
+  it('skips a header sent empty or blank, and reads the first of a repeated header', () => {
+    expect(clientIp(req({ 'x-vercel-forwarded-for': '', 'true-client-ip': '5.6.7.8' }), order)).toBe(
+      '5.6.7.8',
+    );
+    expect(clientIp(req({ 'x-vercel-forwarded-for': ' , 1.2.3.4' }), order)).toBe('10.0.0.1');
+    const repeated = { headers: { 'true-client-ip': ['1.2.3.4', '5.6.7.8'] }, ip: '10.0.0.1', socket: {} };
+    expect(clientIp(repeated as unknown as Request, order)).toBe('1.2.3.4');
+  });
+
+  it('falls back to the socket address, then to one shared key, when Express has no req.ip', () => {
+    const bare = (remoteAddress?: string) =>
+      ({ headers: {}, ip: undefined, socket: { remoteAddress } }) as unknown as Request;
+    expect(clientIp(bare('192.0.2.7'), order)).toBe('192.0.2.7');
+    expect(clientIp(bare(), order)).toBe('unknown');
+  });
+
+  it('refuses a secret sent twice, as a repeated header', () => {
+    const secret = 'a-proxy-secret-of-at-least-32-characters';
+    const twice = {
+      headers: { 'x-rakit-proxy': [secret, secret], 'x-vercel-forwarded-for': '1.2.3.4' },
+      ip: '10.0.0.1',
+      socket: {},
+    };
+    expect(clientIp(twice as unknown as Request, order, secret)).toBe('10.0.0.1');
+  });
+
   describe('with the web proxy’s secret', () => {
     const secret = 'a-proxy-secret-of-at-least-32-characters';
     const sent = (proxy?: string) => ({
@@ -57,6 +83,11 @@ describe('clientIp', () => {
       expect(of('2001:db8:1:2:3:4:5:6')).toBe('2001:db8:1:2::/64');
       expect(of('2001:db8::1')).toBe('2001:db8:0:0::/64');
       expect(of('2001:db8:1:3::1')).toBe('2001:db8:1:3::/64');
+      expect(of('::1')).toBe('0:0:0:0::/64');
+      expect(of('2001:db8:1:2::')).toBe('2001:db8:1:2::/64');
+      expect(of('fe80::1%eth0')).toBe('fe80:0:0:0::/64');
+      // NAT64: an IPv4 tail fills the last two groups
+      expect(of('64:ff9b::192.0.2.33')).toBe('64:ff9b:0:0::/64');
       expect(clientIp(req({}, '2001:db8:1:2::9'), order)).toBe('2001:db8:1:2::/64');
     });
 

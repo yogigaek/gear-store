@@ -14,6 +14,18 @@ import { useAuth } from './auth-context';
 
 const ADDRESSES = ['me', 'addresses'];
 const ORDERS = ['me', 'orders'];
+// the page is left for this address: only an https page, never a javascript: or data: URL
+export const paymentPageSchema = z.object({ redirectUrl: z.url({ protocol: /^https$/ }) });
+
+/** The Midtrans page of an order waiting for payment, for "Place order and pay" and "Pay now" alike. */
+export async function paymentPage(accessToken: string, number: string): Promise<string> {
+  const { redirectUrl } = await api(`/me/orders/${encodeURIComponent(number)}/pay`, {
+    method: 'POST',
+    accessToken,
+    schema: paymentPageSchema,
+  });
+  return redirectUrl;
+}
 
 export function useAddresses() {
   const { status, authed } = useAuth();
@@ -108,12 +120,9 @@ export function useOrderActions(number: string) {
     );
   return {
     pay: useMutation({
-      mutationFn: () =>
-        authed((accessToken) =>
-          api(`${path}/pay`, { method: 'POST', accessToken, schema: z.object({ redirectUrl: z.url() }) }),
-        ),
+      mutationFn: () => authed((accessToken) => paymentPage(accessToken, number)),
       // the payment page is Midtrans' own site; it sends the buyer back to this order afterwards
-      onSuccess: ({ redirectUrl }) => window.location.assign(redirectUrl),
+      onSuccess: (redirectUrl) => window.location.assign(redirectUrl),
     }),
     checkStatus: useMutation({ mutationFn: askStatus, onSuccess: store }),
     /**

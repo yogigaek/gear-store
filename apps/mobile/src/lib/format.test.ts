@@ -45,3 +45,25 @@ describe('lineDetail', () => {
     expect(unitLine(2, 650000)).toBe('2 × Rp 650.000');
   });
 });
+
+describe('format edges', () => {
+  it('groups the largest product price and rounds half a rupiah up', () => {
+    expect(formatRupiah(1_000_000_000)).toBe('Rp 1.000.000.000');
+    expect(formatRupiah(0.5)).toBe('Rp 1');
+    expect(unitLine(10, 1_000_000_000)).toBe('10 × Rp 1.000.000.000');
+  });
+
+  it.each([
+    ['20   mAh', '20 mAh'],
+    ['20\tmAh', '20 mAh'],
+    ['Size M', 'Size M'],
+    ['', ''],
+  ])('keeps units with %j', (input, expected) => {
+    expect(keepUnits(input)).toBe(expected);
+  });
+
+  it('counts a negative or large number as plural', () => {
+    expect(count(-1, 'part')).toBe('-1 parts');
+    expect(count(50, 'part')).toBe('50 parts');
+  });
+});

@@ -5,6 +5,9 @@ interface Fakes {
   storage: Map<string, string>;
   /** makes the next SecureStore writes throw, as a broken Keystore does */
   secureWriteFails: boolean;
+  /** makes SecureStore reads and deletes throw */
+  secureReadFails: boolean;
+  secureDeleteFails: boolean;
   /** runs before each SecureStore write: return a promise to hold the write until it settles */
   beforeSecureWrite: (() => Promise<void> | void) | null;
   /** makes AsyncStorage reads throw, as storage that cannot be opened at launch does */
@@ -21,6 +24,8 @@ export const fakes: Fakes = (holder.__rakitFakes ??= {
   secure: new Map(),
   storage: new Map(),
   secureWriteFails: false,
+  secureReadFails: false,
+  secureDeleteFails: false,
   beforeSecureWrite: null,
   storageReadFails: false,
   beforeStorageWrite: null,
@@ -31,6 +36,8 @@ export function resetFakes() {
   fakes.secure.clear();
   fakes.storage.clear();
   fakes.secureWriteFails = false;
+  fakes.secureReadFails = false;
+  fakes.secureDeleteFails = false;
   fakes.beforeSecureWrite = null;
   fakes.storageReadFails = false;
   fakes.beforeStorageWrite = null;
@@ -38,13 +45,17 @@ export function resetFakes() {
 }
 
 export const secureStore = {
-  getItemAsync: async (key: string) => fakes.secure.get(key) ?? null,
+  getItemAsync: async (key: string) => {
+    if (fakes.secureReadFails) throw new Error('Keystore operation failed');
+    return fakes.secure.get(key) ?? null;
+  },
   setItemAsync: async (key: string, value: string) => {
     await fakes.beforeSecureWrite?.();
     if (fakes.secureWriteFails) throw new Error('Keystore operation failed');
     fakes.secure.set(key, value);
   },
   deleteItemAsync: async (key: string) => {
+    if (fakes.secureDeleteFails) throw new Error('Keystore operation failed');
     fakes.secure.delete(key);
   },
 };

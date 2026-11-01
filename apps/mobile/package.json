@@ -37,6 +37,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "oxlint",
     "test": "vitest run",
+    "test:cov": "vitest run --coverage",
     "eas-build-pre-install": "npm install -g npm@11.21.0",
     "eas-build-post-install": "npm run build -w @gear-store/shared"
   },

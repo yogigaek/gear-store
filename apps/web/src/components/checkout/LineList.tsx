@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { NO_PRICE_YET } from '../../lib/bike-line';
 import { Price } from '../ui/Price';
 
 export interface Line {
@@ -10,8 +11,9 @@ export interface Line {
   what: string;
   finish: string | null;
   quantity: number;
-  unitPrice: number;
-  lineTotal: number;
+  /** null for a bike that can no longer be built: it has no price until it is built again */
+  unitPrice: number | null;
+  lineTotal: number | null;
   /** under the row, lined up with the text: a bike's parts */
   extra?: ReactNode;
 }
@@ -32,10 +34,18 @@ export function LineList({ lines, className = '' }: { lines: Line[]; className?:
                 {line.finish && ` · ${line.finish}`}
               </p>
               <p className="font-mono text-xs text-ink-3">
-                {line.quantity} × <Price amount={line.unitPrice} className="font-normal" />
+                {line.unitPrice === null ? (
+                  NO_PRICE_YET
+                ) : (
+                  <>
+                    {line.quantity} × <Price amount={line.unitPrice} className="font-normal" />
+                  </>
+                )}
               </p>
             </div>
-            <Price amount={line.lineTotal} className="ml-auto shrink-0 text-sm" />
+            {line.lineTotal !== null && (
+              <Price amount={line.lineTotal} className="ml-auto shrink-0 text-sm" />
+            )}
           </div>
           {line.extra}
         </li>

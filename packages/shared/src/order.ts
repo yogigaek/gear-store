@@ -137,5 +137,6 @@ const paymentMethods: Record<string, string> = {
 
 /** Midtrans payment_type as people say it: "qris" → "QRIS", "bank_transfer" → "Bank transfer (virtual account)". */
 export function paymentMethodLabel(type: string): string {
-  return paymentMethods[type] ?? type.replaceAll('_', ' ');
+  // own keys only: "constructor" or "toString" would otherwise name a built-in function
+  return Object.hasOwn(paymentMethods, type) ? paymentMethods[type] : type.replaceAll('_', ' ');
 }

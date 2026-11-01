@@ -3,6 +3,7 @@ import type { AdminOrder, AdminOrderQuery, AdminOrderRow, ShipInput } from '@gea
 import { OrderStatus, RefundStatus, type Prisma } from '../generated/prisma/client.js';
 import { countItems, detailInclude, toDetail } from '../orders/order.mapper.js';
 import { OrdersService } from '../orders/orders.service.js';
+import { literal } from '../prisma/like.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /** The demo administrator, whom anyone can sign in as, sees demo accounts' orders only. */
@@ -23,9 +24,9 @@ export class AdminOrdersService {
       ...(query.refund === 'needed' && { refundStatus: RefundStatus.NEEDED }),
       ...(query.q && {
         OR: [
-          { number: { contains: query.q.toUpperCase() } },
-          { user: { email: { contains: query.q.toLowerCase() } } },
-          { shipRecipient: { contains: query.q, mode: 'insensitive' } },
+          { number: { contains: literal(query.q.toUpperCase()) } },
+          { user: { email: { contains: literal(query.q.toLowerCase()) } } },
+          { shipRecipient: { contains: literal(query.q), mode: 'insensitive' } },
         ],
       }),
     };

@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import type { AdminListQuery, AdminUserRow } from '@gear-store/shared';
 import type { Prisma, Role } from '../generated/prisma/client.js';
 import { publicUserSelect } from '../auth/public-user.js';
+import { literal } from '../prisma/like.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const userRowSelect = {
@@ -19,8 +20,8 @@ export class AdminUsersService {
       ...(demoOnly && { isDemo: true }),
       ...(query.q && {
         OR: [
-          { email: { contains: query.q.toLowerCase() } },
-          { name: { contains: query.q, mode: 'insensitive' } },
+          { email: { contains: literal(query.q.toLowerCase()) } },
+          { name: { contains: literal(query.q), mode: 'insensitive' } },
         ],
       }),
     };

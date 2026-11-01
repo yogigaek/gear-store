@@ -108,6 +108,32 @@ describe('checkBuild', () => {
     ]);
   });
 
+  it('says a part is sold out rather than "only 0 left"', () => {
+    const soldOut = part('battery-sold-out', 'batteries', 4_000, {
+      summary: { ...battery625.summary, slug: 'battery-sold-out', name: 'Sold-out battery', stock: 0 },
+    });
+    const withSoldOut: Rulebook = { ...book, parts: new Map([...book.parts, ['battery-sold-out', soldOut]]) };
+    expect(
+      checkBuild(withSoldOut, {
+        parts: { frames: 'frame-m', batteries: 'battery-sold-out' },
+        colorKey: 'signal',
+      }).problems,
+    ).toEqual([{ kind: 'OUT_OF_STOCK', message: 'Sold-out battery is sold out.', slots: ['batteries'] }]);
+  });
+
+  it('names an empty slot with "an" before a vowel', () => {
+    const withAccessory: Rulebook = {
+      ...book,
+      slots: [...book.slots, { category: 'extras', name: 'Extras' }],
+    };
+    expect(
+      checkBuild(withAccessory, {
+        parts: { frames: 'frame-m', batteries: 'battery-625' },
+        colorKey: 'signal',
+      }).problems,
+    ).toEqual([{ kind: 'MISSING_PART', message: 'Choose an extra.', slots: ['extras'] }]);
+  });
+
   it('checks stock against the number of bikes', () => {
     const selection = { parts: { frames: 'frame-m', batteries: 'battery-625' }, colorKey: 'signal' };
     expect(kinds(selection, 5)).toEqual([]);

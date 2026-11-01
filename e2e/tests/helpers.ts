@@ -72,6 +72,24 @@ export async function confirmedAccount(tag: string, name = 'E2E Customer'): Prom
   return email;
 }
 
+/** Signs in through the API and returns a caller for that account, to set up what a test starts from. */
+export async function apiAs(email: string) {
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-forwarded-for': visitorIp(),
+  };
+  const call = async (path: string, method = 'GET', body?: unknown) => {
+    const init: RequestInit = { method, headers };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const res = await fetch(`${API}${path}`, init);
+    if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
+    return res.status === 204 ? null : res.json();
+  };
+  const { accessToken } = await call('/auth/login', 'POST', { email, password: PASSWORD });
+  headers['authorization'] = `Bearer ${accessToken}`;
+  return call;
+}
+
 export function grantAdmin(email: string): void {
   const root = fileURLToPath(new URL('../..', import.meta.url));
   execSync(`npm run admin:grant -w @gear-store/api -- ${email}`, { cwd: root, stdio: 'pipe' });

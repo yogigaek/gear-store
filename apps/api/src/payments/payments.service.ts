@@ -142,6 +142,11 @@ export class PaymentsService {
     } catch (error) {
       // two "Pay now" clicks at once: keep whichever link was saved first
       if (!isUniqueViolation(error)) throw error;
+      // or a notification wrote the payment row before any link: keep this one, so the next click reuses it
+      await this.prisma.payment.updateMany({
+        where: { orderId: order.id, redirectUrl: null },
+        data: { redirectUrl: snap.redirect_url },
+      });
       const saved = await this.prisma.payment.findUniqueOrThrow({ where: { orderId: order.id } });
       return { redirectUrl: saved.redirectUrl ?? snap.redirect_url };
     }

@@ -4,7 +4,13 @@ import { Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
-import { AuthService, DEMO_SESSIONS_KEPT, REFRESH_REUSE_GRACE_MS } from '../src/auth/auth.service.js';
+import { JwtService } from '@nestjs/jwt';
+import {
+  AuthService,
+  DEMO_EMAILS,
+  DEMO_SESSIONS_KEPT,
+  REFRESH_REUSE_GRACE_MS,
+} from '../src/auth/auth.service.js';
 import { sha256 } from '../src/common/tokens.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { loadEnv } from '../src/config/env.js';
@@ -1005,6 +1011,302 @@ describe('Auth (e2e)', () => {
         .send({ currentPassword: 'anything', newPassword: 'a long new password' })
         .expect(403);
       await post('/api/auth/login', { email: 'shopper@rakit.example', password: 'anything' }).expect(401);
+    });
+  });
+
+  describe('edge cases', () => {
+    const authed = (accessToken: string) => ({
+      patch: (body: object) =>
+        request(app.getHttpServer())
+          .patch('/api/me')
+          .set('X-Forwarded-For', ip)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(body),
+      password: (body: object) =>
+        request(app.getHttpServer())
+          .post('/api/me/password')
+          .set('X-Forwarded-For', ip)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(body),
+    });
+    const mailsTo = (email: string) => mail.sent.filter((m) => m.to === email).length;
+    const userRow = (email: string) => prisma().user.findUnique({ where: { email } });
+
+    describe('input limits', () => {
+      it.each([
+        [7, 400],
+        [8, 202],
+        [128, 202],
+        [129, 400],
+      ])('answers a %i-character password at sign-up with %i', async (length, status) => {
+        const email = `user-${randomUUID()}@test.example`;
+        const res = await post('/api/auth/register', { name: 'Ana', email, password: 'p'.repeat(length) });
+        expect(res.status).toBe(status);
+        expect((await userRow(email)) !== null).toBe(status === 202);
+      });
+
+      it('takes a name of 80 characters, trimmed, and refuses 81 or only spaces', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        await post('/api/auth/register', { name: ` ${'n'.repeat(80)} `, email, password: PASSWORD }).expect(
+          202,
+        );
+        expect((await userRow(email))?.name).toBe('n'.repeat(80));
+        for (const name of ['n'.repeat(81), '   ']) {
+          const res = await post('/api/auth/register', {
+            name,
+            email: `user-${randomUUID()}@test.example`,
+            password: PASSWORD,
+          }).expect(400);
+          expect(res.body.issues.map((i: { path: string }) => i.path)).toEqual(['name']);
+        }
+      });
+
+      it('takes an email address of 254 characters and refuses 255', async () => {
+        const domain = '@test.example';
+        const fits = `${'a'.repeat(254 - domain.length)}${domain}`;
+        await post('/api/auth/register', { name: 'Ana', email: fits, password: PASSWORD }).expect(202);
+        expect(await userRow(fits)).not.toBeNull();
+        const res = await post('/api/auth/register', {
+          name: 'Ana',
+          email: `b${fits}`,
+          password: PASSWORD,
+        }).expect(400);
+        expect(res.body.issues.map((i: { path: string }) => i.path)).toEqual(['email']);
+      });
+
+      it('refuses a sign-in password over 128 characters before checking anything', async () => {
+        const email = await verifiedUser();
+        const res = await post('/api/auth/login', { email, password: 'p'.repeat(129) }).expect(400);
+        expect(res.body.issues.map((i: { path: string }) => i.path)).toEqual(['password']);
+        // refused by validation, so it is not a failed attempt: the right password still gets in at once
+        await login(email);
+      });
+
+      it('refuses fields of the wrong type with field issues, never a 500', async () => {
+        const res = await post('/api/auth/register', { name: ['Ana'], email: 42, password: true }).expect(
+          400,
+        );
+        expect(res.body.issues.map((i: { path: string }) => i.path).sort()).toEqual([
+          'email',
+          'name',
+          'password',
+        ]);
+        await post('/api/auth/login', { email: "' OR 1=1 --", password: 'x' }).expect(400);
+        await post('/api/auth/demo', { role: 'owner' }).expect(400);
+      });
+
+      it('ignores a role, demo flag or confirmation sent with a sign-up', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        await post('/api/auth/register', {
+          name: 'Ana',
+          email,
+          password: PASSWORD,
+          role: 'ADMIN',
+          isDemo: true,
+          emailVerifiedAt: new Date().toISOString(),
+        }).expect(202);
+        expect(await userRow(email)).toMatchObject({
+          role: 'CUSTOMER',
+          isDemo: false,
+          emailVerifiedAt: null,
+        });
+        await post('/api/auth/login', { email, password: PASSWORD }).expect(403);
+      });
+
+      it('keeps a name with markup or SQL exactly as typed', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        const name = `<img src=x onerror=alert(1)>'; DROP TABLE "User"; --`;
+        await post('/api/auth/register', { name, email, password: PASSWORD }).expect(202);
+        await post('/api/auth/verify-email', { token: mail.lastToken(email) }).expect(200);
+        const { body } = await login(email);
+        expect(userSchema.parse((await me(body.accessToken).expect(200)).body).name).toBe(name);
+      });
+    });
+
+    describe('tokens and time', () => {
+      const jwt = () => app.get(JwtService);
+
+      it('refuses an access token past its 15 minutes, though its session is alive', async () => {
+        const { body } = await login(await verifiedUser());
+        const { sub, sid } = await jwt().verifyAsync<{ sub: string; sid: string }>(body.accessToken);
+        // issued 16 minutes ago: the module's 15-minute lifetime counts from iat
+        const stale = await jwt().signAsync({ sub, sid, iat: Math.floor(Date.now() / 1000) - 16 * 60 });
+        await me(stale).expect(401);
+        await me(body.accessToken).expect(200);
+      });
+
+      it('refuses a correctly signed token for another account’s session or a session that does not exist', async () => {
+        const mine = await login(await verifiedUser());
+        const theirs = await login(await verifiedUser());
+        const a = await jwt().verifyAsync<{ sub: string; sid: string }>(mine.body.accessToken);
+        const b = await jwt().verifyAsync<{ sub: string; sid: string }>(theirs.body.accessToken);
+        await me(await jwt().signAsync({ sub: a.sub, sid: b.sid })).expect(401);
+        await me(await jwt().signAsync({ sub: a.sub, sid: randomUUID() })).expect(401);
+      });
+
+      it('refuses an Authorization header that is not a Bearer token', async () => {
+        const { body } = await login(await verifiedUser());
+        for (const header of [`Basic ${body.accessToken}`, 'Bearer', `bearer ${body.accessToken}`]) {
+          await request(app.getHttpServer())
+            .get('/api/me')
+            .set('X-Forwarded-For', ip)
+            .set('Authorization', header)
+            .expect(401);
+        }
+      });
+
+      it('refuses a confirmation link after its 24 hours and a reset link after its 30 minutes', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        await post('/api/auth/register', { name: 'Ana', email, password: PASSWORD }).expect(202);
+        const confirm = mail.lastToken(email);
+        const past = { expiresAt: new Date(Date.now() - 1000) };
+        await prisma().emailToken.update({ where: { tokenHash: sha256(confirm) }, data: past });
+        await post('/api/auth/verify-email', { token: confirm }).expect(400);
+
+        const verified = await verifiedUser();
+        await post('/api/auth/forgot-password', { email: verified }).expect(202);
+        const reset = mail.lastToken(verified);
+        await prisma().emailToken.update({ where: { tokenHash: sha256(reset) }, data: past });
+        await post('/api/auth/reset-password', { token: reset, password: 'a brand new passphrase' }).expect(
+          400,
+        );
+        await login(verified);
+      });
+
+      it('refuses a link used for the other purpose: a confirmation is not a reset', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        await post('/api/auth/register', { name: 'Ana', email, password: PASSWORD }).expect(202);
+        const confirm = mail.lastToken(email);
+        await post('/api/auth/reset-password', { token: confirm, password: 'taken over passphrase' }).expect(
+          400,
+        );
+        // still unused, so it confirms the address
+        await post('/api/auth/verify-email', { token: confirm }).expect(200);
+      });
+
+      it('answers a refresh with no cookie with 401, clearing the cookie', async () => {
+        const res = await post('/api/auth/refresh').expect(401);
+        expect(refreshCookie(res)).toMatch(/rakit_rt=;/);
+      });
+
+      it('treats a refresh cookie that parses as JSON as no cookie at all', async () => {
+        // cookie-parser turns a "j:" value into an object
+        const res = await refresh(`rakit_rt=${encodeURIComponent('j:{"tokenHash":"x"}')}`).expect(401);
+        expect(res.body.message).toBe('Session expired, sign in again');
+      });
+
+      it('signs out without a cookie without complaint', async () => {
+        const res = await post('/api/auth/logout').expect(204);
+        expect(refreshCookie(res)).toMatch(/rakit_rt=;/);
+      });
+    });
+
+    describe('profile', () => {
+      it('renames an account, trimmed, and ignores a role sent along', async () => {
+        const { body } = await login(await verifiedUser());
+        const res = await authed(body.accessToken)
+          .patch({ name: '  Budi Santoso ', role: 'ADMIN' })
+          .expect(200);
+        expect(userSchema.parse(res.body)).toMatchObject({ name: 'Budi Santoso', role: 'CUSTOMER' });
+        expect(userSchema.parse((await me(body.accessToken).expect(200)).body).name).toBe('Budi Santoso');
+      });
+
+      it('refuses a name over 80 characters or empty, and keeps the old one', async () => {
+        const { body } = await login(await verifiedUser());
+        for (const name of ['n'.repeat(81), ' ', 42])
+          await authed(body.accessToken).patch({ name }).expect(400);
+        expect(userSchema.parse((await me(body.accessToken).expect(200)).body).name).toBe('Test User');
+        await request(app.getHttpServer()).patch('/api/me').send({ name: 'Nobody' }).expect(401);
+      });
+
+      it('refuses a new password under 8 or over 128 characters, and keeps the old one', async () => {
+        const email = await verifiedUser();
+        const { body } = await login(email);
+        for (const newPassword of ['p'.repeat(7), 'p'.repeat(129)]) {
+          const res = await authed(body.accessToken)
+            .password({ currentPassword: PASSWORD, newPassword })
+            .expect(400);
+          expect(res.body.issues.map((i: { path: string }) => i.path)).toEqual(['newPassword']);
+        }
+        await login(email);
+      });
+    });
+
+    describe('account emails', () => {
+      it('sends nothing for a sign-up with a demo account’s address, with the same reply', async () => {
+        const before = mailsTo(DEMO_EMAILS.shopper);
+        const res = await post('/api/auth/register', {
+          name: 'Ana',
+          email: DEMO_EMAILS.shopper,
+          password: PASSWORD,
+        }).expect(202);
+        expect(res.body.message).toBe('Check your inbox to confirm your email address.');
+        await post('/api/auth/resend-verification', { email: DEMO_EMAILS.shopper }).expect(202);
+        await post('/api/auth/forgot-password', { email: DEMO_EMAILS.shopper }).expect(202);
+        expect(mailsTo(DEMO_EMAILS.shopper)).toBe(before);
+      });
+
+      it('caps the "account exists" emails to a confirmed address at 3 an hour, with the same reply', async () => {
+        const email = await verifiedUser(); // the confirmation is the first
+        const replies = [];
+        for (let i = 0; i < 3; i += 1)
+          replies.push(
+            (await post('/api/auth/register', { name: 'Ana', email, password: PASSWORD }).expect(202)).body,
+          );
+        expect(new Set(replies.map((r) => JSON.stringify(r))).size).toBe(1);
+        expect(mailsTo(email)).toBe(3);
+      });
+
+      it('caps the "finish creating your account" links to an unconfirmed address at 3 an hour', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        await post('/api/auth/register', { name: 'Ana', email, password: PASSWORD }).expect(202);
+        for (let i = 0; i < 3; i += 1) await post('/api/auth/resend-verification', { email }).expect(202);
+        expect(mailsTo(email)).toBe(3);
+        // the newest link that did go out still works
+        await post('/api/auth/reset-password', { token: mail.lastToken(email), password: PASSWORD }).expect(
+          200,
+        );
+      });
+
+      it('keeps counting an address’s emails for the hour after its account is deleted', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        await post('/api/auth/register', { name: 'Ana', email, password: PASSWORD }).expect(202);
+        await post('/api/auth/resend-verification', { email }).expect(202);
+        await post('/api/auth/resend-verification', { email }).expect(202);
+        await prisma().user.delete({ where: { email } });
+        await post('/api/auth/register', { name: 'Ana', email, password: PASSWORD }).expect(202);
+        expect(await userRow(email)).not.toBeNull();
+        expect(mailsTo(email)).toBe(3);
+      });
+
+      it('creates one account when the same address signs up twice at once', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        const replies = await Promise.all(
+          [0, 1].map(() => post('/api/auth/register', { name: 'Ana', email, password: PASSWORD })),
+        );
+        expect(replies.map((r) => r.status)).toEqual([202, 202]);
+        expect(replies[0]!.body).toEqual(replies[1]!.body);
+        expect(await prisma().user.count({ where: { email } })).toBe(1);
+      });
+    });
+
+    describe('failures', () => {
+      it('answers a database failure during sign-up with a bare 500, and sends nothing', async () => {
+        const email = `user-${randomUUID()}@test.example`;
+        const create = vi.spyOn(prisma().user, 'create').mockRejectedValueOnce(new Error('connection reset'));
+        const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+        try {
+          const res = await post('/api/auth/register', { name: 'Ana', email, password: PASSWORD }).expect(
+            500,
+          );
+          expect(res.body).toEqual({ statusCode: 500, message: 'Internal server error' });
+        } finally {
+          create.mockRestore();
+          logged.mockRestore();
+        }
+        expect(mailsTo(email)).toBe(0);
+        expect(await userRow(email)).toBeNull();
+      });
     });
   });
 });

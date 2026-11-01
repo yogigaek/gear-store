@@ -38,7 +38,8 @@ export const orderKey = (userId: string, number: string) => ['me', userId, 'orde
 
 const addressListSchema = z.array(addressSchema);
 const orderListSchema = z.array(orderSummarySchema);
-const paymentPageSchema = z.object({ redirectUrl: z.url() });
+// opened in the browser: only an https page, never a javascript: or data: URL (as on the web)
+const paymentPageSchema = z.object({ redirectUrl: z.url({ protocol: /^https$/ }) });
 
 function useUserId() {
   const state = useAuth();

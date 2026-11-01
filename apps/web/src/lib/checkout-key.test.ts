@@ -114,3 +114,68 @@ describe('cartScope', () => {
     );
   });
 });
+
+describe('checkout key edges', () => {
+  it('opens a new attempt over a stored record it cannot read', async () => {
+    const k = await load();
+    for (const raw of ['{', 'null', '{"key":1,"at":1}', '{"key":"k"}', '{"key":"k","at":"1"}']) {
+      store.set('rakit:checkout-key:cart:a', raw);
+      expect(k.hasOpenCheckoutKey('cart:a'), raw).toBe(false);
+      expect(k.checkoutKey('cart:a')).not.toBe('k');
+    }
+  });
+
+  it('keeps scopes apart: a Buy now attempt is not an open cart attempt', async () => {
+    const k = await load();
+    k.checkoutKey('buy:fender-set::1', 1_000);
+    store.set('rakit:other', 'x');
+    expect(k.hasOpenCartAttempt(1_000)).toBe(false);
+    k.checkoutKey('cart:fender-set::1', 1_000);
+    expect(k.hasOpenCartAttempt(1_000)).toBe(true);
+    expect(k.hasOpenCartAttempt(1_000 + k.CHECKOUT_KEY_TTL_MS)).toBe(false);
+  });
+
+  it('settles at exactly the margin before the read, not a millisecond later', async () => {
+    const k = await load();
+    const key = k.checkoutKey('cart:a', 10_000);
+    k.closeCheckoutKeysBefore(10_000 + k.SETTLE_MARGIN_MS);
+    expect(k.checkoutKey('cart:a', 10_001)).toBe(key);
+    k.closeCheckoutKeysBefore(10_001 + k.SETTLE_MARGIN_MS);
+    expect(k.hasOpenCheckoutKey('cart:a', 10_001)).toBe(false);
+  });
+
+  it('settles what it cannot read, and leaves other site data alone', async () => {
+    const k = await load();
+    store.set('rakit:checkout-key:cart:broken', '{');
+    store.set('rakit:cart:v2', 'kept');
+    k.closeCheckoutKeysBefore(0);
+    expect(store.has('rakit:checkout-key:cart:broken')).toBe(false);
+    expect(store.get('rakit:cart:v2')).toBe('kept');
+  });
+
+  it('settles the page’s own keys when storage is refused', async () => {
+    vi.stubGlobal('sessionStorage', {
+      getItem: refuse,
+      setItem: refuse,
+      removeItem: refuse,
+      key: refuse,
+      get length() {
+        return refuse();
+      },
+    });
+    const k = await load();
+    const key = k.checkoutKey('cart:a', 1_000);
+    expect(k.hasOpenCartAttempt(1_000)).toBe(true);
+    k.closeCheckoutKeysBefore(1_000 + k.SETTLE_MARGIN_MS + 1);
+    expect(k.hasOpenCartAttempt(1_000)).toBe(false);
+    expect(k.checkoutKey('cart:a', 1_000)).not.toBe(key);
+  });
+
+  it('names carts that differ by finish, by bike or by a bike’s count differently', async () => {
+    const { cartScope } = await load();
+    const line = (colorKey: string) => [{ slug: 'e1-frame-m', colorKey, quantity: 1 }];
+    expect(cartScope(line('moss'), [])).not.toBe(cartScope(line('signal'), []));
+    expect(cartScope([], [{ id: 'b1', quantity: 1 }])).not.toBe(cartScope([], [{ id: 'b1', quantity: 2 }]));
+    expect(cartScope([], [])).toBe('cart:');
+  });
+});

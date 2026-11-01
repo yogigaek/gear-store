@@ -12,3 +12,17 @@ describe('keepUnits', () => {
     expect(keepUnits(input)).toBe(expected);
   });
 });
+
+describe('keepUnits edges', () => {
+  it.each([
+    ['20   mAh', '20\u00a0mAh'],
+    ['20\tmAh', '20\u00a0mAh'],
+    ['Size M', 'Size M'],
+    ['', ''],
+    ['10 %', '10\u00a0%'],
+    ['90 °', '90\u00a0°'],
+    ['5 µm', '5\u00a0µm'],
+  ])('%j', (input, expected) => {
+    expect(keepUnits(input)).toBe(expected);
+  });
+});

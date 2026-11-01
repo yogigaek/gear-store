@@ -1,6 +1,15 @@
 import { mergeCartResultSchema } from '@gear-store/shared';
-import { afterEach, describe, expect, it } from 'vitest';
-import { mergeNotice, takeMergeReply } from './merge-notice';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mergeNotice, takeMergeReply, useMergeNotice } from './merge-notice';
+
+const external = vi.hoisted(() => ({ subscribe: null as ((notify: () => void) => () => void) | null }));
+vi.mock('react', async (actual) => ({
+  ...(await actual<typeof import('react')>()),
+  useSyncExternalStore: (subscribe: (n: () => void) => () => void, read: () => unknown) => {
+    external.subscribe = subscribe;
+    return read();
+  },
+}));
 
 const reply = (notMerged: object[]) =>
   mergeCartResultSchema.parse({
@@ -43,5 +52,30 @@ describe('merge notice', () => {
     takeMergeReply('budi', reply([{ slug: 'rear-rack', colorKey: '', quantity: 1 }]));
     expect(mergeNotice.count('budi')).toBe(1);
     expect(mergeNotice.count('ana')).toBe(0);
+  });
+});
+
+describe('useMergeNotice', () => {
+  afterEach(() => mergeNotice.dismiss());
+
+  it('reads the count for the account shown, and none signed out', () => {
+    takeMergeReply('ana', reply([{ slug: 'fender-set', colorKey: '', quantity: 2 }]));
+    expect(useMergeNotice('ana')).toBe(2);
+    expect(useMergeNotice(null)).toBe(0);
+    expect(useMergeNotice(undefined)).toBe(0);
+  });
+
+  it('tells its readers when a merge leaves something out or the notice is dismissed, until they leave', () => {
+    useMergeNotice('ana');
+    const notify = vi.fn();
+    const leave = external.subscribe!(notify);
+    takeMergeReply('ana', reply([]));
+    expect(notify).not.toHaveBeenCalled();
+    takeMergeReply('ana', reply([{ slug: 'fender-set', colorKey: '', quantity: 1 }]));
+    mergeNotice.dismiss();
+    expect(notify).toHaveBeenCalledTimes(2);
+    leave();
+    takeMergeReply('ana', reply([{ slug: 'fender-set', colorKey: '', quantity: 1 }]));
+    expect(notify).toHaveBeenCalledTimes(2);
   });
 });

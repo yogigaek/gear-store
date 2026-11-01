@@ -121,4 +121,63 @@ describe('Wishlist (e2e)', () => {
     expect(replies.map((r) => r.status).sort((a, b) => a - b)).toEqual([204, 409, 409, 409]);
     expect(await prisma.wishlistItem.count({ where: { userId } })).toBe(WISHLIST_LIMIT);
   });
+
+  describe('edge cases', () => {
+    const userIdOf = (token: string) =>
+      (JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString()) as { sub: string }).sub;
+    const temps = () =>
+      app.get(PrismaService).product.findMany({
+        where: { slug: { startsWith: TEMP_PREFIX } },
+        orderBy: { slug: 'asc' },
+        select: { id: true, slug: true },
+      });
+
+    it(`takes a ${WISHLIST_LIMIT}th product, refuses the next, and still accepts one already saved`, async () => {
+      const token = await signedInUser();
+      const prisma = app.get(PrismaService);
+      const parts = await temps();
+      await prisma.wishlistItem.createMany({
+        data: parts.slice(0, WISHLIST_LIMIT - 1).map((p) => ({ userId: userIdOf(token), productId: p.id })),
+      });
+      const me = as(token);
+      await me.put(parts[WISHLIST_LIMIT - 1]!.slug).expect(204);
+      const refused = await me.put(parts[WISHLIST_LIMIT]!.slug).expect(409);
+      expect(refused.body.message).toBe(`A wishlist holds up to ${WISHLIST_LIMIT} products`);
+      await me.put(parts[0]!.slug).expect(204);
+      expect(await prisma.wishlistItem.count({ where: { userId: userIdOf(token) } })).toBe(WISHLIST_LIMIT);
+    });
+
+    it('hides a saved product taken off sale but keeps it saved, and refuses to save one off sale', async () => {
+      const token = await signedInUser();
+      const me = as(token);
+      const prisma = app.get(PrismaService);
+      const [kept, other] = (await temps()).slice(-2);
+      await me.put(kept!.slug).expect(204);
+      await prisma.product.updateMany({
+        where: { slug: { in: [kept!.slug, other!.slug] } },
+        data: { isActive: false },
+      });
+      try {
+        expect(wishlistSchema.parse((await me.list().expect(200)).body)).toEqual([]);
+        await me.put(other!.slug).expect(404);
+      } finally {
+        await prisma.product.updateMany({
+          where: { slug: { in: [kept!.slug, other!.slug] } },
+          data: { isActive: true },
+        });
+      }
+      expect(wishlistSchema.parse((await me.list().expect(200)).body).map((p) => p.slug)).toEqual([
+        kept!.slug,
+      ]);
+    });
+
+    it('removes a product that is not saved or not known without complaint, and refuses a malformed slug', async () => {
+      const me = as(await signedInUser());
+      await me.del('no-such-product').expect(204);
+      await me.del('e1-frame-m').expect(204);
+      await me.del('Bad%20Slug').expect(400);
+      await me.del('x'.repeat(81)).expect(400);
+      await request(app.getHttpServer()).delete('/api/me/wishlist/e1-frame-m').expect(401);
+    });
+  });
 });

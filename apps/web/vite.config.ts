@@ -15,7 +15,17 @@ export default defineConfig({
     // every source file counts, tested or not; the 3D scene in three/ is left to the browser tests
     coverage: {
       include: ['src/**/*.{ts,tsx}'],
-      exclude: ['src/**/*.test.ts', 'src/**/*.d.ts', 'src/three/**'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.d.ts', 'src/three/**', 'src/test/**'],
+      // the logic is held to 90%: lib/ and the two stores outside it. Components and pages stay in the report
+      // unthresholded: they are UI, left to the browser tests (no component test framework here)
+      thresholds: {
+        '{src/lib/**,src/components/cart/cart-drawer-store.ts,src/components/layout/page-tone.ts}': {
+          lines: 90,
+          branches: 90,
+          statements: 90,
+          functions: 90,
+        },
+      },
     },
   },
 });
