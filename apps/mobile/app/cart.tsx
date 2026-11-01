@@ -9,6 +9,7 @@ import { EmptyCart, EmptyState } from '../src/components/EmptyState';
 import { Loading } from '../src/components/Loading';
 import { ArtPlaceholder, PartImage } from '../src/components/parts';
 import { useAuth } from '../src/lib/auth';
+import { bikeLineTotal } from '../src/lib/bike-line';
 import {
   dismissMergeNotice,
   mergeInto,
@@ -269,7 +270,7 @@ function BikeRow({ build, remote }: { build: CartBuild; remote: boolean }) {
       <Controls
         name={build.quote.label}
         quantity={build.quantity}
-        total={build.lineTotal}
+        total={bikeLineTotal(build)}
         busy={remote && pending}
         onStep={(delta) => run(actions.adjustBuild(build.id, delta))}
       />
@@ -302,7 +303,8 @@ function Controls({
 }: {
   name: string;
   quantity: number;
-  total: number;
+  /** null for a bike that can no longer be built: it has no price until it is built again */
+  total: number | null;
   /** a change to this row is queued or on its way */
   busy: boolean;
   onStep: (delta: number) => void;
@@ -335,7 +337,7 @@ function Controls({
       </View>
       <View style={styles.totalBox}>
         {busy && <ActivityIndicator size="small" color={colors.ink3} accessibilityLabel="Updating" />}
-        <Text style={styles.lineTotal}>{formatRupiah(total)}</Text>
+        {total !== null && <Text style={styles.lineTotal}>{formatRupiah(total)}</Text>}
       </View>
     </View>
   );

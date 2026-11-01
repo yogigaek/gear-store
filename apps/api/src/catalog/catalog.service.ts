@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Category, ProductDetail, ProductPage, ProductQuery } from '@gear-store/shared';
 import type { Prisma } from '../generated/prisma/client.js';
+import { literal } from '../prisma/like.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { summarySelect, toSummary } from './product.projection.js';
 
@@ -30,6 +31,7 @@ export class CatalogService {
   }
 
   async products(query: ProductQuery): Promise<ProductPage> {
+    const { q } = query;
     const where: Prisma.ProductWhereInput = {
       isActive: true,
       ...(query.category && { category: { slug: query.category } }),
@@ -38,9 +40,9 @@ export class CatalogService {
       ...((query.minPrice !== undefined || query.maxPrice !== undefined) && {
         price: { gte: query.minPrice, lte: query.maxPrice },
       }),
-      ...(query.q && {
+      ...(q && {
         OR: (['name', 'model'] as const).map((field) => ({
-          [field]: { contains: query.q, mode: 'insensitive' as const },
+          [field]: { contains: literal(q), mode: 'insensitive' as const },
         })),
       }),
     };

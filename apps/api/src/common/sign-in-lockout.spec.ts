@@ -19,6 +19,15 @@ describe('SignInLockout', () => {
     expect(lockout.pausedFor('a', t0 + MINUTE)).toBe(0);
   });
 
+  it('reports no attempts left while a pause runs, and the full allowance for an unknown key', () => {
+    const lockout = new SignInLockout(rule);
+    const t0 = 1_000_000;
+    expect(lockout.attemptsLeft('a', t0)).toBe(5);
+    for (let i = 0; i < 5; i += 1) lockout.fail('a', t0);
+    expect(lockout.attemptsLeft('a', t0)).toBe(0);
+    expect(lockout.attemptsLeft('a', t0 + 2 * MINUTE)).toBe(0);
+  });
+
   it('doubles the pause with every failure after the first one, up to an hour', () => {
     const lockout = new SignInLockout(rule);
     let now = 1_000_000;

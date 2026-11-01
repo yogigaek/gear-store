@@ -75,3 +75,34 @@ describe('checkout scope', () => {
     expect(m.checkoutKey('a', 'cart', create)).toBe(cart);
   });
 });
+
+describe('checkout key edges', () => {
+  it('has nothing to close before any attempt', async () => {
+    const m = await load();
+    expect(() => m.closeCheckout('key-1')).not.toThrow();
+    expect(m.hasOpenCheckout('a', 'cart')).toBe(false);
+  });
+
+  it('keeps the open key when another account only asks whether it has one', async () => {
+    const m = await load();
+    const key = m.checkoutKey('a', 'cart', create);
+    expect(m.hasOpenCheckout('b', 'cart')).toBe(false);
+    expect(m.checkoutKey('a', 'cart', create)).toBe(key);
+  });
+
+  it('gives a sign-out and sign-in as another account, then back, a new key: the first account’s attempt is let go', async () => {
+    const m = await load();
+    const first = m.checkoutKey('a', 'cart', create);
+    m.checkoutKey('b', 'cart', create);
+    expect(m.checkoutKey('a', 'cart', create)).not.toBe(first);
+  });
+
+  it('names Buy now scopes by every field, and the cart without a line', async () => {
+    const m = await load();
+    expect(m.checkoutScope(null)).toBe('cart');
+    expect(m.checkoutScope(undefined)).toBe('cart');
+    expect(m.checkoutScope({ slug: 'e1-frame-m', colorKey: 'moss', quantity: 10 })).toBe(
+      'buy:e1-frame-m:moss:10',
+    );
+  });
+});

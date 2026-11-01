@@ -1,4 +1,4 @@
-import type { INestApplication } from '@nestjs/common';
+import { Logger, type INestApplication } from '@nestjs/common';
 import {
   addressSchema,
   adminOrderSchema,
@@ -469,6 +469,260 @@ describe('Admin (e2e)', () => {
         .get(`/admin/orders?q=${encodeURIComponent(detail.customer.email)}`)
         .expect(200);
       expect(byEmail.body.items).toHaveLength(1);
+    });
+  });
+
+  describe('edge cases', () => {
+    const missingOrder = 'RKT-000000-ZZZZZZ';
+
+    it('answers 404 for an unknown part, part type, order or account, and creates nothing', async () => {
+      const { api } = await admin();
+      const ghost = `${TEMP}-ghost`;
+      await api.get(`/admin/products/${ghost}`).expect(404);
+      await api
+        .put(`/admin/products/${ghost}`, {
+          ...PRODUCT,
+          slug: ghost,
+          expectedUpdatedAt: new Date().toISOString(),
+        })
+        .expect(404);
+      const category = {
+        slug: 'e2e-cat-ghost',
+        name: 'Ghost',
+        description: 'Not there',
+        sortOrder: 1,
+        slot: null,
+      };
+      await api.put('/admin/categories/e2e-cat-ghost', category).expect(404);
+      await api.del('/admin/categories/e2e-cat-ghost').expect(404);
+      await api.get(`/admin/orders/${missingOrder}`).expect(404);
+      await api
+        .post(`/admin/orders/${missingOrder}/ship`, { courier: 'JNE', trackingNumber: 'JP1234567890' })
+        .expect(404);
+      await api.post(`/admin/orders/${missingOrder}/deliver`).expect(404);
+      await api.post(`/admin/orders/${missingOrder}/refund`).expect(404);
+      await api.patch(`/admin/users/${randomUUID()}/role`, { role: 'ADMIN' }).expect(404);
+      expect(await prisma.product.findUnique({ where: { slug: ghost } })).toBeNull();
+      expect(await prisma.category.findUnique({ where: { slug: 'e2e-cat-ghost' } })).toBeNull();
+    });
+
+    it('keeps a part type’s slug, and keeps accessories out of build slots', async () => {
+      const { api } = await admin();
+      const forks = (await api.get('/admin/categories').expect(200)).body.find(
+        (c: { slug: string }) => c.slug === 'forks',
+      );
+      await api.put('/admin/categories/forks', { ...forks, slug: 'forkz' }).expect(400);
+      const res = await api
+        .post('/admin/products', { ...PRODUCT, slug: `${TEMP}-fork`, category: 'forks', module: 'ACCESSORY' })
+        .expect(400);
+      expect(res.body.issues).toEqual([
+        { path: 'module', message: 'Forks go on the bike: choose the module that draws them' },
+      ]);
+    });
+
+    it('takes every product field at its limit and refuses each one past it', async () => {
+      const { api } = await admin();
+      const slug = `${TEMP}-max`;
+      const fullest = {
+        ...PRODUCT,
+        slug,
+        name: 'N'.repeat(80),
+        model: 'M'.repeat(20),
+        description: 'D'.repeat(2000),
+        price: 1_000_000_000,
+        stock: 100_000,
+        specs: Array.from({ length: 20 }, (_, i) => ({
+          label: `L${i}`.padEnd(40, 'l'),
+          value: 'v'.repeat(80),
+        })),
+        colors: Array.from({ length: 8 }, (_, i) => ({
+          key: `c${i}`,
+          label: 'x'.repeat(30),
+          hex: '#ABCDEF',
+        })),
+        // not part of the form: ignored
+        id: randomUUID(),
+        updatedAt: '2000-01-01T00:00:00.000Z',
+      };
+      try {
+        const created = adminProductSchema.parse(
+          (await api.post('/admin/products', fullest).expect(201)).body,
+        );
+        expect(created).toMatchObject({ name: fullest.name, price: 1_000_000_000, stock: 100_000 });
+        expect(created.specs).toHaveLength(20);
+        expect(created.colors).toHaveLength(8);
+        expect(created.updatedAt).not.toBe(fullest.updatedAt);
+        const over: [string, unknown][] = [
+          ['name', 'N'.repeat(81)],
+          ['model', 'M'.repeat(21)],
+          ['description', 'D'.repeat(2001)],
+          ['description', 'too short'],
+          ['price', 999],
+          ['price', 1_000_000_001],
+          ['stock', -1],
+          ['stock', 100_001],
+          ['specs', fullest.specs.slice(0, 2)],
+          ['specs', [...fullest.specs, { label: 'one', value: 'more' }]],
+          ['colors', [...fullest.colors, { key: 'c8', label: 'one more', hex: '#000000' }]],
+          ['colors', [fullest.colors[0], fullest.colors[0]]],
+        ];
+        for (const [field, value] of over) {
+          const res = await api.post('/admin/products', { ...fullest, slug: `${TEMP}-over`, [field]: value });
+          expect([field, res.status, res.body.issues?.[0]?.path]).toEqual([field, 400, field]);
+        }
+        expect(await prisma.product.findUnique({ where: { slug: `${TEMP}-over` } })).toBeNull();
+      } finally {
+        await prisma.product.deleteMany({ where: { slug } });
+      }
+    });
+
+    it.each(['products', 'orders', 'users'])(
+      'pages the %s list from 1 to 1000, 1 to 100 a page, with searches up to 80 characters',
+      async (list) => {
+        const { api } = await admin();
+        const page = await api.get(`/admin/${list}?pageSize=100&page=1000`).expect(200);
+        expect(page.body).toMatchObject({ items: [], page: 1000, pageSize: 100 });
+        await api.get(`/admin/${list}?q=${'q'.repeat(80)}`).expect(200);
+        for (const query of [
+          'pageSize=101',
+          'pageSize=0',
+          'page=0',
+          'page=1001',
+          `q=${'q'.repeat(81)}`,
+          'page=abc',
+        ])
+          await api.get(`/admin/${list}?${query}`).expect(400);
+      },
+    );
+
+    it.each(['products', 'orders', 'users'])(
+      'searches the %s list as text: percent, underscore and backslash find what holds them, never a near miss, and SQL finds nothing',
+      async (list) => {
+        const { api } = await admin();
+        const marker = randomUUID().slice(0, 8);
+        // the near miss matches every character query only if it were read as a LIKE wildcard
+        const names = {
+          real: `Wild_card 100% back\\slash ${marker}`,
+          near: `Wildxcard 100x backslash ${marker}`,
+        };
+        const users = await Promise.all(
+          (['real', 'near'] as const).map((kind) =>
+            prisma.user.create({
+              data: { email: `search-${marker}-${kind}@test.example`, name: names[kind], passwordHash: 'x' },
+            }),
+          ),
+        );
+        const keys: Record<'real' | 'near', string> = { real: '', near: '' };
+        if (list === 'users') [keys.real, keys.near] = users.map((u) => u.id);
+        if (list === 'products') {
+          const { id: categoryId } = await prisma.category.findUniqueOrThrow({
+            where: { slug: 'accessories' },
+          });
+          for (const kind of ['real', 'near'] as const) {
+            keys[kind] = `${TEMP}-search-${marker}-${kind}`;
+            await prisma.product.create({
+              data: {
+                slug: keys[kind],
+                name: names[kind],
+                model: 'S-1',
+                module: 'ACCESSORY',
+                description: 'Created by the admin e2e suite',
+                price: 10000,
+                stock: 1,
+                categoryId,
+              },
+            });
+          }
+        }
+        if (list === 'orders') {
+          for (const [i, kind] of (['real', 'near'] as const).entries()) {
+            keys[kind] = `E2E-SEARCH-${marker}-${kind}`.toUpperCase();
+            await prisma.order.create({
+              data: {
+                number: keys[kind],
+                userId: users[i]!.id,
+                status: 'CANCELLED',
+                subtotal: 1000,
+                shippingFee: 0,
+                total: 1000,
+                shippingZone: 'Sumatra',
+                shipRecipient: names[kind],
+                shipPhone: '+6281234567890',
+                shipLine1: 'Jl. Sudirman No. 1',
+                shipLine2: '',
+                shipCity: 'Pekanbaru',
+                shipProvince: 'Riau',
+                shipPostalCode: '28111',
+                idempotencyKey: randomUUID(),
+                paymentExpiresAt: new Date(),
+              },
+            });
+          }
+        }
+        const keyOf = (row: { slug?: string; number?: string; id?: string }) =>
+          list === 'products' ? row.slug : list === 'orders' ? row.number : row.id;
+        const found = async (q: string) =>
+          (
+            (await api.get(`/admin/${list}?pageSize=100&q=${encodeURIComponent(q)}`).expect(200)).body
+              .items as object[]
+          ).map(keyOf);
+        try {
+          for (const q of ['_', '%', '\\', 'wild_card', '100%', 'back\\slash']) {
+            const keysFound = await found(q);
+            expect([q, keysFound.includes(keys.real), keysFound.includes(keys.near)]).toEqual([
+              q,
+              true,
+              false,
+            ]);
+          }
+          expect(await found("' OR 1=1 --")).toEqual([]);
+        } finally {
+          await prisma.order.deleteMany({
+            where: { number: { startsWith: `E2E-SEARCH-${marker.toUpperCase()}` } },
+          });
+          await prisma.product.deleteMany({ where: { slug: { startsWith: `${TEMP}-search-${marker}` } } });
+          await prisma.user.deleteMany({ where: { email: { startsWith: `search-${marker}-` } } });
+        }
+      },
+    );
+
+    it('answers a database failure on a catalogue write with a bare 500, telling nothing', async () => {
+      const { api } = await admin();
+      const failures = [
+        vi.spyOn(prisma.product, 'create').mockRejectedValueOnce(new Error('connection reset')),
+        vi.spyOn(prisma.category, 'create').mockRejectedValueOnce(new Error('connection reset')),
+        vi.spyOn(prisma.category, 'updateMany').mockRejectedValueOnce(new Error('connection reset')),
+      ];
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      const category = {
+        slug: `e2e-cat-fail-${Date.now()}`,
+        name: 'Fail',
+        description: 'Fails',
+        sortOrder: 1,
+        slot: null,
+      };
+      try {
+        const replies = [
+          await api.post('/admin/products', { ...PRODUCT, slug: `${TEMP}-fail` }),
+          await api.post('/admin/categories', category),
+          await api.put('/admin/categories/accessories', {
+            slug: 'accessories',
+            name: 'Accessories',
+            description: 'Unchanged',
+            sortOrder: 1,
+            slot: null,
+          }),
+        ];
+        for (const res of replies)
+          expect(res.body).toEqual({ statusCode: 500, message: 'Internal server error' });
+      } finally {
+        for (const f of failures) f.mockRestore();
+        logged.mockRestore();
+      }
+      expect(await prisma.category.findUnique({ where: { slug: category.slug } })).toBeNull();
+      expect(
+        (await prisma.category.findUniqueOrThrow({ where: { slug: 'accessories' } })).description,
+      ).not.toBe('Unchanged');
     });
   });
 });

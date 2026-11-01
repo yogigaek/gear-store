@@ -13,3 +13,14 @@ describe('shownOrders', () => {
     }
   });
 });
+
+describe('shownOrders boundaries', () => {
+  it('shows at least one page, and up to 999 rows from a three-digit value', () => {
+    expect(shownOrders('9')).toBe(ORDERS_PAGE);
+    expect(shownOrders('10')).toBe(10);
+    expect(shownOrders('11')).toBe(11);
+    expect(shownOrders('010')).toBe(10);
+    expect(shownOrders('999')).toBe(999);
+    expect(shownOrders('20\n')).toBe(ORDERS_PAGE);
+  });
+});

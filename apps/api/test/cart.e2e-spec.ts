@@ -1,5 +1,12 @@
 import type { INestApplication } from '@nestjs/common';
-import { MAX_CART_LINES, buildCatalogSchema, cartSchema, mergeCartResultSchema } from '@gear-store/shared';
+import {
+  MAX_CART_BUILDS,
+  MAX_CART_LINES,
+  MAX_LINE_QUANTITY,
+  buildCatalogSchema,
+  cartSchema,
+  mergeCartResultSchema,
+} from '@gear-store/shared';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
@@ -412,6 +419,173 @@ describe('Cart (e2e)', () => {
       expect(theirs.builds).toEqual([]);
       const mine = cartSchema.parse((await ana.get().expect(200)).body);
       await budi.setBuild(mine.builds[0]!.id, 0).expect(404);
+    });
+  });
+
+  describe('edge cases', () => {
+    const colours = ['signal', 'graphite', 'glacier', 'ember', 'moss'];
+    const lineCount = (token: string) => prisma.cartItem.count({ where: { userId: userIdOf(token) } });
+
+    it('answers 404 for a part it does not know or no longer sells, and changes nothing', async () => {
+      const token = await signedInCustomer(app, mail, nextIp());
+      const me = as(token);
+      expect((await me.set({ slug: 'no-such-part', quantity: 1 }).expect(404)).body.message).toBe(
+        'Part not found',
+      );
+      await me.set({ slug: WITHDRAWN, quantity: 1 }).expect(404);
+      expect(await lineCount(token)).toBe(0);
+    });
+
+    it(`takes ${MAX_LINE_QUANTITY} of a part, refuses ${MAX_LINE_QUANTITY + 1} and keeps what it had`, async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      await me.set({ slug: 'workshop-hex-set', quantity: 0 }).expect(200);
+      await me.set({ slug: 'workshop-hex-set', quantity: MAX_LINE_QUANTITY }).expect(200);
+      const res = await me.set({ slug: 'workshop-hex-set', quantity: MAX_LINE_QUANTITY + 1 }).expect(400);
+      expect(res.body.issues.map((i: { path: string }) => i.path)).toEqual(['quantity']);
+      const cart = cartSchema.parse((await me.get().expect(200)).body);
+      expect(cart.items.map((i) => i.quantity)).toEqual([MAX_LINE_QUANTITY]);
+    });
+
+    it('refuses malformed lines with field issues: a bad slug, a long finish, a wrong type', async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      const res = await me.set({ slug: 'Bad Slug', colorKey: 'x'.repeat(41), quantity: '2' }).expect(400);
+      expect(res.body.issues.map((i: { path: string }) => i.path).sort()).toEqual([
+        'colorKey',
+        'quantity',
+        'slug',
+      ]);
+      await me.merge([], [], 'not-a-uuid').expect(400);
+    });
+
+    it(`holds ${MAX_CART_BUILDS} different bikes, refuses another, and still adds to one it holds`, async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      for (const colorKey of colours) await me.addBuild({ parts: start, colorKey, quantity: 1 }).expect(200);
+      const sixth = await me
+        .addBuild({ parts: { ...start, cockpits: 'e1-cockpit-carbon' }, colorKey: 'signal', quantity: 1 })
+        .expect(409);
+      expect(sixth.body.message).toBe(`A cart holds up to ${MAX_CART_BUILDS} different bikes`);
+      const cart = cartSchema.parse(
+        (await me.addBuild({ parts: start, colorKey: 'graphite', quantity: 1 }).expect(200)).body,
+      );
+      expect(cart.builds).toHaveLength(MAX_CART_BUILDS);
+      expect(cart.builds.find((b) => b.quote.colorKey === 'graphite')?.quantity).toBe(2);
+    });
+
+    it(`leaves a guest’s bike behind on sign-in when the cart already holds ${MAX_CART_BUILDS} others`, async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      for (const colorKey of colours) await me.addBuild({ parts: start, colorKey, quantity: 1 }).expect(200);
+      const merged = mergeCartResultSchema.parse(
+        (
+          await me
+            .merge(
+              [{ slug: 'workshop-hex-set', quantity: 1 }],
+              [
+                {
+                  key: crypto.randomUUID(),
+                  parts: { ...start, cockpits: 'e1-cockpit-carbon' },
+                  colorKey: 'moss',
+                  quantity: 1,
+                },
+              ],
+            )
+            .expect(200)
+        ).body,
+      );
+      expect(merged.builds).toHaveLength(MAX_CART_BUILDS);
+      expect(
+        merged.builds.every((b) => b.quote.parts.every((p) => p.product.slug !== 'e1-cockpit-carbon')),
+      ).toBe(true);
+      expect(merged.items.map((i) => i.product.slug)).toEqual(['workshop-hex-set']);
+    });
+
+    it(`sets a bike to an exact quantity up to ${MAX_LINE_QUANTITY}, and refuses more`, async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      const added = cartSchema.parse(
+        (await me.addBuild({ parts: start, colorKey: 'signal', quantity: 1 }).expect(200)).body,
+      );
+      const id = added.builds[0]!.id;
+      const three = cartSchema.parse((await me.setBuild(id, 3).expect(200)).body);
+      expect(three.builds.map((b) => b.quantity)).toEqual([3]);
+      await me.setBuild(id, MAX_LINE_QUANTITY).expect(200);
+      await me.setBuild(id, MAX_LINE_QUANTITY + 1).expect(400);
+      await me.setBuild(crypto.randomUUID(), 1).expect(404);
+      expect(cartSchema.parse((await me.get().expect(200)).body).builds.map((b) => b.quantity)).toEqual([
+        MAX_LINE_QUANTITY,
+      ]);
+    });
+
+    it(`prices an empty guest cart, and refuses one over ${MAX_CART_LINES} lines or ${MAX_CART_BUILDS} bikes`, async () => {
+      const empty = cartSchema.parse((await quote([]).expect(200)).body);
+      expect(empty).toEqual({ items: [], builds: [], subtotal: 0, itemCount: 0, canCheckout: false });
+      const line = { slug: 'workshop-hex-set', quantity: 1 };
+      await quote(Array.from({ length: MAX_CART_LINES }, () => line)).expect(200);
+      await quote(Array.from({ length: MAX_CART_LINES + 1 }, () => line)).expect(400);
+      const bike = () => ({ key: crypto.randomUUID(), parts: start, colorKey: 'signal', quantity: 1 });
+      await quote([], Array.from({ length: MAX_CART_BUILDS }, bike)).expect(200);
+      const res = await quote([], Array.from({ length: MAX_CART_BUILDS + 1 }, bike)).expect(400);
+      expect(res.body.issues.map((i: { path: string }) => i.path)).toEqual(['builds']);
+    });
+
+    it('marks a bike with a sold-out part as out of stock, still priced, rather than unbuildable', async () => {
+      const slug = `${TEMP_PREFIX}-sold-out-fork`;
+      const { id: categoryId } = await prisma.category.findUniqueOrThrow({ where: { slug: 'forks' } });
+      await prisma.product.create({
+        data: {
+          slug,
+          name: 'Sold-out Test Fork',
+          model: 'SF-1',
+          module: 'FORK',
+          description: 'Created by the cart e2e suite',
+          price: 100000,
+          stock: 0,
+          categoryId,
+        },
+      });
+      try {
+        const cart = cartSchema.parse(
+          (
+            await quote(
+              [],
+              [
+                {
+                  key: crypto.randomUUID(),
+                  parts: { ...start, forks: slug },
+                  colorKey: 'signal',
+                  quantity: 1,
+                },
+              ],
+            ).expect(200)
+          ).body,
+        );
+        expect(cart.builds[0]).toMatchObject({ problem: 'OUT_OF_STOCK' });
+        expect(cart.builds[0]!.lineTotal).toBeGreaterThan(0);
+        expect(cart.canCheckout).toBe(false);
+      } finally {
+        await prisma.product.delete({ where: { slug } });
+      }
+    });
+
+    it(`keeps to ${MAX_CART_LINES} lines when parts are added at the same moment`, async () => {
+      const token = await signedInCustomer(app, mail, nextIp());
+      await fillCart(token, temps(0, MAX_CART_LINES - 1));
+      const me = as(token);
+      const replies = await Promise.all(
+        temps(MAX_CART_LINES - 1, 3).map((slug) => me.set({ slug, quantity: 1 })),
+      );
+      expect(replies.map((r) => r.status).sort((a, b) => a - b)).toEqual([200, 409, 409]);
+      expect(await lineCount(token)).toBe(MAX_CART_LINES);
+    });
+
+    it('refuses every signed-in cart route without a token', async () => {
+      const server = () => request(app.getHttpServer());
+      const id = crypto.randomUUID();
+      for (const res of [
+        await server().put('/api/me/cart/items').send({ slug: 'workshop-hex-set', quantity: 1 }),
+        await server().post('/api/me/cart/builds').send({ parts: start, colorKey: 'signal', quantity: 1 }),
+        await server().put(`/api/me/cart/builds/${id}`).send({ quantity: 1 }),
+        await server().post('/api/me/cart/merge').send({ items: [], builds: [] }),
+      ])
+        expect(res.status).toBe(401);
     });
   });
 });

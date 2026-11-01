@@ -3,6 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createServer, deferred, USERS, type FakeServer } from '../test/fake-api';
 import { fakes, resetFakes } from '../test/fakes';
 
+// useAuth read as React would: the store's subscribe, then its snapshot
+const external = vi.hoisted(() => ({ subscribe: null as ((notify: () => void) => () => void) | null }));
+vi.mock('react', async (actual) => ({
+  ...(await actual<typeof import('react')>()),
+  useSyncExternalStore: (subscribe: (n: () => void) => () => void, read: () => unknown) => {
+    external.subscribe = subscribe;
+    return read();
+  },
+}));
+
 const REFRESH_KEY = 'rakit.refresh-token';
 let server: FakeServer;
 
@@ -317,5 +327,150 @@ describe('a session that changes while work for it is out', () => {
     expect(await m.auth.restore()).toBe(false);
     expect(await m.auth.resume()).toBe(false);
     expect(server.calls('/auth/native/refresh')).toHaveLength(0);
+  });
+});
+
+describe('auth edges', () => {
+  const nativeReply = (user: keyof typeof USERS) => ({
+    accessToken: 'demo-access',
+    expiresIn: 900,
+    user: { ...USERS[user], name: 'Demo', role: 'CUSTOMER', emailVerified: true, isDemo: true },
+    refreshToken: 'd'.padEnd(43, 'x'),
+    refreshExpiresAt: new Date(Date.UTC(2030, 0, 1)).toISOString(),
+  });
+
+  it('tells the screens about every change of session, until they leave', async () => {
+    const m = await launch();
+    expect(m.useAuth()).toEqual({ status: 'restoring' });
+    const notify = vi.fn();
+    const leave = external.subscribe!(notify);
+    await signedInAs(m, 'a');
+    expect(m.useAuth()).toMatchObject({ status: 'signed-in', user: { id: USERS.a.id } });
+    const seen = notify.mock.calls.length;
+    expect(seen).toBeGreaterThan(0);
+    leave();
+    await m.auth.signOut();
+    expect(notify).toHaveBeenCalledTimes(seen);
+    expect(m.useAuth()).toEqual({ status: 'signed-out' });
+  });
+
+  it('signs in to a demo account with its role', async () => {
+    server.gate('/auth/native/demo', { reply: { status: 200, body: nativeReply('a') } });
+    const m = await launch();
+    await m.auth.signInDemo('shopper');
+    expect(server.calls('/auth/native/demo')[0]!.body).toEqual({ role: 'shopper' });
+    expect(m.currentUserId()).toBe(USERS.a.id);
+    expect(fakes.secure.get(REFRESH_KEY)).toBe('d'.padEnd(43, 'x'));
+  });
+
+  it('stays signed out after a wrong password, keeping the session stored for later', async () => {
+    const first = await launch();
+    await signedInAs(first, 'a');
+    const stored = fakes.secure.get(REFRESH_KEY);
+    const m = await launch();
+    await expect(m.auth.signIn({ email: 'nobody@rakit.test', password: 'x' })).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(m.currentUserId()).toBeNull();
+    expect(fakes.secure.get(REFRESH_KEY)).toBe(stored);
+  });
+
+  it('signs out on the phone even when the Keystore cannot be read or cleared, and the API not reached', async () => {
+    const m = await launch();
+    await signedInAs(m, 'a');
+    fakes.secureReadFails = true;
+    fakes.secureDeleteFails = true;
+    offline();
+    await expect(m.auth.signOut()).resolves.toBeUndefined();
+    expect(m.useAuth()).toEqual({ status: 'signed-out' });
+    online();
+    expect(revokedTokens()).toEqual([]);
+  });
+
+  it('signs out without calling the API when nothing is stored', async () => {
+    const m = await launch();
+    await m.auth.signOut();
+    expect(server.calls('/auth/native/logout')).toHaveLength(0);
+    expect(m.useAuth()).toEqual({ status: 'signed-out' });
+  });
+
+  it('signs out cleanly while the API is unreachable: the stored token is still removed', async () => {
+    const m = await launch();
+    await signedInAs(m, 'a');
+    offline();
+    await m.auth.signOut();
+    expect(fakes.secure.has(REFRESH_KEY)).toBe(false);
+  });
+
+  it('shows a launch whose Keystore cannot be read as signed out, keeping the token for the next try', async () => {
+    const first = await launch();
+    await signedInAs(first, 'a');
+    fakes.secureReadFails = true;
+    const m = await launch();
+    expect(await m.auth.restore()).toBe(false);
+    expect(m.useAuth()).toEqual({ status: 'signed-out' });
+    expect(await m.auth.resume()).toBe(false);
+    fakes.secureReadFails = false;
+    expect(fakes.secure.has(REFRESH_KEY)).toBe(true);
+    expect(await m.auth.resume()).toBe(true);
+  });
+
+  it('does not resume a session that is already signed in', async () => {
+    const m = await launch();
+    await signedInAs(m, 'a');
+    expect(await m.auth.resume()).toBe(false);
+    expect(server.calls('/auth/native/refresh')).toHaveLength(0);
+  });
+
+  it('signs in when the session stored before cannot be read, revoking nothing', async () => {
+    const m = await launch();
+    fakes.secure.set(REFRESH_KEY, 'old'.padEnd(43, 'x'));
+    fakes.secureReadFails = true;
+    await signedInAs(m, 'a');
+    fakes.secureReadFails = false;
+    expect(revokedTokens()).toEqual([]);
+  });
+
+  it('keeps a failed sign-in signed out without telling the screens again', async () => {
+    const m = await launch();
+    await m.auth.restore();
+    const notify = vi.fn();
+    external.subscribe!(notify);
+    fakes.secureWriteFails = true;
+    await expect(signedInAs(m, 'a')).rejects.toThrow('could not keep you signed in');
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('a restore that a sign-out overtakes sends no refresh at all', async () => {
+    const first = await launch();
+    await signedInAs(first, 'a');
+    const m = await launch();
+    const restoring = m.auth.restore();
+    await m.auth.signOut();
+    expect(await restoring).toBe(false);
+    expect(server.calls('/auth/native/refresh')).toHaveLength(0);
+    expect(fakes.secure.has(REFRESH_KEY)).toBe(false);
+  });
+
+  it('a sign-in overtaken by a sign-out while another is being stored keeps neither session', async () => {
+    const m = await launch();
+    const entered = deferred();
+    const release = deferred();
+    fakes.beforeSecureWrite = () => {
+      fakes.beforeSecureWrite = null;
+      entered.resolve();
+      return release.wait;
+    };
+    const a = m.auth.signIn({ email: USERS.a.email, password: 'secret-password' });
+    await entered.wait;
+    const b = m.auth.signIn({ email: USERS.b.email, password: 'secret-password' });
+    await vi.waitFor(() => expect(server.calls('/auth/native/login')).toHaveLength(2));
+    await new Promise((r) => setTimeout(r, 0));
+    const out = m.auth.signOut();
+    release.resolve();
+    await Promise.all([a, b, out]);
+    expect(m.currentUserId()).toBeNull();
+    expect(fakes.secure.has(REFRESH_KEY)).toBe(false);
+    await vi.waitFor(() => expect(revokedTokens()).toHaveLength(2));
   });
 });

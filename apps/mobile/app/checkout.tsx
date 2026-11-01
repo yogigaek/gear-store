@@ -28,6 +28,7 @@ import { ArtPlaceholder, PartImage } from '../src/components/parts';
 import { SandboxPaymentGuide } from '../src/components/SandboxPaymentGuide';
 import { ApiError } from '../src/lib/api';
 import { useAuth } from '../src/lib/auth';
+import { bikeTotalText, bikeUnitText } from '../src/lib/bike-line';
 import { buyParams, parseBuyLine } from '../src/lib/buy-now';
 import {
   accountCartKey,
@@ -383,8 +384,8 @@ function orderLines(priced: Cart): Line[] {
         ),
         name: b.quote.label,
         detail: lineDetail(count(b.quote.parts.length, 'part'), b.quote.colorLabel),
-        unit: unitLine(b.quantity, b.lineTotal / b.quantity),
-        total: formatRupiah(b.lineTotal),
+        unit: bikeUnitText(b),
+        total: bikeTotalText(b),
       };
     }),
   ];

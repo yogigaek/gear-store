@@ -100,6 +100,63 @@ describe('api', () => {
   });
 });
 
+describe('api address', () => {
+  afterEach(() => {
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+  });
+
+  it('drops a trailing slash from the configured address', async () => {
+    process.env.EXPO_PUBLIC_API_URL = 'http://api.test/api/';
+    const fetch = vi.fn(async () => json(200, { name: 'lock' }));
+    globalThis.fetch = fetch as unknown as typeof globalThis.fetch;
+    await api('/x', named);
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('http://api.test/api/x');
+  });
+
+  it('uses the developer machine’s API in a development build without an address', async () => {
+    delete process.env.EXPO_PUBLIC_API_URL;
+    (globalThis as { __DEV__?: boolean }).__DEV__ = true;
+    const fetch = vi.fn(async () => json(200, { name: 'lock' }));
+    globalThis.fetch = fetch as unknown as typeof globalThis.fetch;
+    await api('/x', named);
+    expect((fetch.mock.calls[0] as unknown as [string])[0]).toBe('http://localhost:3000/api/x');
+  });
+
+  it('sends JSON with the token only when there is one, and reads nothing without a schema', async () => {
+    const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+    globalThis.fetch = fetch as unknown as typeof globalThis.fetch;
+    await expect(
+      api('/x', undefined, { method: 'POST', body: { a: 1 }, accessToken: 'tok' }),
+    ).resolves.toBeUndefined();
+    expect((fetch.mock.calls[0] as unknown as [string, RequestInit])[1]).toMatchObject({
+      method: 'POST',
+      body: '{"a":1}',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer tok',
+      },
+    });
+  });
+
+  it.each([
+    [500, 'not json', 'Something went wrong. Try again.'],
+    [404, { message: ['first', 'second'] }, 'first'],
+    [400, { message: 42 }, 'Something went wrong. Try again.'],
+    [429, 'not json', 'Too many attempts. Wait a minute and try again.'],
+  ])('reads a %i replying %j as %j', async (status, body, message) => {
+    respond(() => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status }));
+    await expect(api('/x', named)).rejects.toMatchObject({ status, message });
+  });
+
+  it('reads a reply that is not the expected shape as a server fault', async () => {
+    respond(() => json(200, { name: 1 }));
+    await expect(api('/x', named)).rejects.toMatchObject({ status: 502 });
+    respond(() => new Response('<html>', { status: 200 }));
+    await expect(api('/x', named)).rejects.toMatchObject({ status: 502 });
+  });
+});
+
 describe('retryTransient', () => {
   it.each([404, 400])('does not ask again after a %i', (status) => {
     expect(retryTransient(0, new ApiError(status, 'x'))).toBe(false);

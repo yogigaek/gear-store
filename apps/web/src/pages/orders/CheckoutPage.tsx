@@ -2,7 +2,6 @@ import { paymentWindowMinutes, type Cart, type CartLineInput, type ProductDetail
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
-import { z } from 'zod';
 import { AddressForm, AddressLines } from '../../components/checkout/AddressForm';
 import { LineList, type Line } from '../../components/checkout/LineList';
 import { SandboxPaymentGuide } from '../../components/checkout/SandboxPaymentGuide';
@@ -13,8 +12,9 @@ import { Label } from '../../components/ui/Label';
 import { PageTitle } from '../../components/ui/PageTitle';
 import { Price } from '../../components/ui/Price';
 import { SlowServerNote } from '../../components/ui/SlowServerNote';
-import { api, ApiError } from '../../lib/api';
+import { ApiError } from '../../lib/api';
 import { useAuth } from '../../lib/auth-context';
+import { bikeLine } from '../../lib/bike-line';
 import { buyNowPath, finishSwapNote, parseBuyLine } from '../../lib/buy-now';
 import { useCart, useLinesQuote } from '../../lib/cart';
 import {
@@ -24,9 +24,7 @@ import {
   hasOpenCartAttempt,
   hasOpenCheckoutKey,
 } from '../../lib/checkout-key';
-import { useAddresses, useCheckout } from '../../lib/orders';
-
-const redirectSchema = z.object({ redirectUrl: z.url() });
+import { paymentPage, useAddresses, useCheckout } from '../../lib/orders';
 
 /** The whole cart, or with `?buy=<slug>&finish=<key>&qty=<n>` (Buy now) that one part, leaving the cart as it is. */
 export function CheckoutPage() {
@@ -183,13 +181,7 @@ function Checkout({
           // straight on to the payment page; if that cannot be reached, the order page offers "Pay now"
           setPaying(true);
           try {
-            const { redirectUrl } = await authed((accessToken) =>
-              api(`/me/orders/${order.number}/pay`, {
-                method: 'POST',
-                accessToken,
-                schema: redirectSchema,
-              }),
-            );
+            const redirectUrl = await authed((accessToken) => paymentPage(accessToken, order.number));
             window.location.assign(redirectUrl);
           } catch (error) {
             // the order page says which: payments not set up on this server, or the provider out of reach
@@ -378,14 +370,8 @@ function Checkout({
 function summaryLines(priced: Cart): Line[] {
   return [
     ...priced.builds.map((b) => ({
-      key: `bike:${b.id}`,
+      ...bikeLine(b),
       art: <PartImage slug="e1-bike" colorKey={b.quote.colorKey} module="FRAME" className="size-full" />,
-      name: b.quote.label,
-      what: `${b.quote.parts.length} ${b.quote.parts.length === 1 ? 'part' : 'parts'}`,
-      finish: b.quote.colorLabel,
-      quantity: b.quantity,
-      unitPrice: b.quote.unitPrice,
-      lineTotal: b.lineTotal,
     })),
     ...priced.items.map((i) => ({
       key: `part:${i.product.slug}:${i.colorKey}`,

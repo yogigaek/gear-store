@@ -11,6 +11,7 @@ import type {
 } from '@gear-store/shared';
 import type { Prisma } from '../generated/prisma/client.js';
 import { isUniqueViolation } from '../prisma/errors.js';
+import { literal } from '../prisma/like.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const productInclude = {
@@ -43,10 +44,11 @@ export class AdminCatalogService {
   constructor(private readonly prisma: PrismaService) {}
 
   async products(query: AdminListQuery) {
+    const { q } = query;
     const where: Prisma.ProductWhereInput = {
-      ...(query.q && {
+      ...(q && {
         OR: (['name', 'model', 'slug'] as const).map((f) => ({
-          [f]: { contains: query.q, mode: 'insensitive' as const },
+          [f]: { contains: literal(q), mode: 'insensitive' as const },
         })),
       }),
     };

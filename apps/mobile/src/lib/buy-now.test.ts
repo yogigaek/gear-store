@@ -53,3 +53,27 @@ describe('parseBuyLine', () => {
     });
   });
 });
+
+describe('parseBuyLine boundaries', () => {
+  it('reads 1 and 10, a leading zero, the longest finish and slug', () => {
+    expect(parseBuyLine({ buy: 'folding-lock', qty: '01' })?.quantity).toBe(1);
+    expect(parseBuyLine({ buy: 'folding-lock', finish: 'a'.repeat(40) })?.colorKey).toBe('a'.repeat(40));
+    expect(parseBuyLine({ buy: 'a'.repeat(80) })?.slug).toBe('a'.repeat(80));
+  });
+
+  it.each([
+    { buy: 'folding-lock', qty: '00' },
+    { buy: 'folding-lock', qty: '010' },
+    { buy: 'folding-lock', qty: ' 1' },
+    { buy: 'folding-lock', qty: '1e1' },
+    { buy: 'folding-lock', qty: '１' },
+    { buy: 'folding-lock', qty: ['1'] },
+    { buy: 'a'.repeat(81) },
+    { buy: 'folding-lock\u0000' },
+    { buy: 'folding-lock', finish: '-signal' },
+    { buy: 'folding-lock', finish: 'sig--nal' },
+    { buy: '//evil.example' },
+  ])('refuses %j', (params) => {
+    expect(parseBuyLine(params)).toBeNull();
+  });
+});

@@ -7,6 +7,7 @@ import { APP_OPTIONS, configureApp } from '../src/app.setup.js';
 import { CatalogService } from '../src/catalog/catalog.service.js';
 import { loadEnv } from '../src/config/env.js';
 import { Prisma } from '../src/generated/prisma/client.js';
+import { createPrismaClient } from '../src/prisma/prisma-client.js';
 
 const prismaError = (code: string) =>
   new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the fields: (`passwordHash`)', {
@@ -54,9 +55,33 @@ describe('Database errors (e2e)', () => {
     }
   });
 
+  it('names an unknown model in the log when Prisma gives none, still answering plainly', async () => {
+    failure = new Prisma.PrismaClientKnownRequestError('Record to update not found.', {
+      code: 'P2025',
+      clientVersion: Prisma.prismaVersion.client,
+    });
+    const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    try {
+      const res = await categories().expect(404);
+      expect(res.body).toEqual({ statusCode: 404, message: 'Not found' });
+      expect(warn.mock.calls.map((c) => String(c[0]))).toEqual(['P2025 on unknown model, answered 404']);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it('answers any other database error with a bare 500', async () => {
     failure = prismaError('P2003');
     const res = await categories().expect(500);
     expect(res.body).toEqual({ statusCode: 500, message: 'Internal server error' });
+  });
+
+  it('connects the scripts’ own client to the same database', async () => {
+    const client = createPrismaClient();
+    try {
+      expect(await client.$queryRaw<{ ok: number }[]>`SELECT 1 AS ok`).toEqual([{ ok: 1 }]);
+    } finally {
+      await client.$disconnect();
+    }
   });
 });

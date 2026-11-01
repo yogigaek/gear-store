@@ -5,7 +5,12 @@ import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { loadEnv } from '../src/config/env.js';
 import { OrdersRepository } from '../src/orders/orders.repository.js';
-import { MidtransError, type MidtransStatus, type SnapRequest } from '../src/payments/midtrans.client.js';
+import {
+  MidtransClient,
+  MidtransError,
+  type MidtransStatus,
+  type SnapRequest,
+} from '../src/payments/midtrans.client.js';
 import { expectedSignature } from '../src/payments/signature.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp, deleteTestUsers, FakeMail, nextIp, signedInCustomer } from './setup.js';
@@ -440,6 +445,204 @@ describe('Payments (e2e)', () => {
       expect(orderDetailSchema.parse((await o.refresh().expect(200)).body).status).toBe('PENDING_PAYMENT');
       midtrans.status = signed(o.order, 'settlement');
       expect(orderDetailSchema.parse((await o.refresh().expect(200)).body).status).toBe('PAID');
+    });
+  });
+
+  describe('edge cases', () => {
+    const stockOf = async (slug: string) =>
+      (await prisma.product.findUniqueOrThrow({ where: { slug }, select: { stock: true } })).stock;
+
+    it.each(['cancel', 'deny', 'failure'])(
+      'closes the order as cancelled on a "%s" notification, gives the stock back once, and records it once',
+      async (transactionStatus) => {
+        const before = await stockOf('lights-front-rear');
+        const o = await placedOrder('lights-front-rear', 1);
+        const message = signed(o.order, transactionStatus);
+        expect((await notify(message).expect(200)).body.outcome).toBe('closed');
+        expect((await notify(message).expect(200)).body.outcome).toBe('duplicate');
+        const order = await o.get();
+        expect(order.status).toBe('CANCELLED');
+        expect(order.events.at(-1)?.note).toBe('The payment was declined or cancelled.');
+        expect(order.payment?.status).toBe(transactionStatus);
+        expect(await stockOf('lights-front-rear')).toBe(before);
+      },
+    );
+
+    it('notes a payment without a method as simply received', async () => {
+      const o = await placedOrder();
+      expect(
+        (await notify(signed(o.order, 'settlement', { payment_type: undefined })).expect(200)).body.outcome,
+      ).toBe('paid');
+      const paid = await o.get();
+      expect(paid.events.at(-1)?.note).toBe('Payment received.');
+      expect(paid.payment).toMatchObject({ status: 'settlement', method: null });
+    });
+
+    it('treats an amount that is not a number as a mismatch, even correctly signed', async () => {
+      const o = await placedOrder();
+      for (const gross_amount of ['NaN', 'Infinity', '1e999', ''])
+        expect((await notify(signed(o.order, 'settlement', { gross_amount })).expect(200)).body.outcome).toBe(
+          'amount-mismatch',
+        );
+      expect((await o.get()).status).toBe('PENDING_PAYMENT');
+      await o.cancel().expect(200);
+    });
+
+    it('refuses a notification that is not a JSON object, and stores nothing', async () => {
+      const before = await prisma.paymentNotification.count();
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const server = app.getHttpServer();
+      const raw = (type: string, body: string) =>
+        request(server).post('/api/payments/midtrans/notification').set('Content-Type', type).send(body);
+      try {
+        const statuses = [
+          await raw('application/json', '[]'),
+          await raw(
+            'application/x-www-form-urlencoded',
+            'order_id=RKT-000000-ZZZZZZ&transaction_status=settlement',
+          ),
+          await notify({
+            ...signed({ number: 'RKT-000000-ZZZZZZ', total: 1 }, 'settlement'),
+            gross_amount: 1,
+          }),
+          // the JSON parser itself refuses a bare value and broken JSON
+          await raw('application/json', '"settlement"'),
+          await raw('application/json', 'null'),
+          await raw('application/json', '{"order_id": '),
+        ].map((r) => r.status);
+        expect(statuses).toEqual([401, 401, 401, 400, 400, 400]);
+      } finally {
+        warn.mockRestore();
+      }
+      expect(await prisma.paymentNotification.count()).toBe(before);
+    });
+
+    it('names a part with its finish for Midtrans, within its 50 characters', async () => {
+      const o = await placedOrder('e1-frame-m');
+      await o.pay().expect(200);
+      const sent = midtrans.snapCalls.at(-1)!;
+      expect(sent.item_details[0]!.name).toMatch(/ \(Signal yellow\)$/);
+      for (const item of sent.item_details) {
+        expect(item.name.length).toBeLessThanOrEqual(50);
+        expect(item.id.length).toBeLessThanOrEqual(50);
+      }
+      await o.cancel().expect(200);
+    });
+
+    it('gives two "Pay now" clicks at once one payment page', async () => {
+      const o = await placedOrder();
+      let arrived = 0;
+      let bothIn: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        bothIn = resolve;
+      });
+      // each click waits until the other has also asked Midtrans, so both reach the insert
+      const create = vi.spyOn(midtrans, 'createSnapTransaction').mockImplementation(async () => {
+        arrived += 1;
+        if (arrived === 2) bothIn();
+        await Promise.race([gate, new Promise((r) => setTimeout(r, 3000))]);
+        return {
+          token: 't',
+          redirect_url: `https://app.sandbox.midtrans.com/snap/v4/redirection/${randomUUID()}`,
+        };
+      });
+      try {
+        const [a, b] = await Promise.all([o.pay(), o.pay()]);
+        expect([a.status, b.status]).toEqual([200, 200]);
+        expect(arrived).toBe(2);
+        expect(a.body.redirectUrl).toBe(b.body.redirectUrl);
+      } finally {
+        create.mockRestore();
+      }
+      const saved = await prisma.payment.findMany({ where: { order: { number: o.order.number } } });
+      expect(saved.map((p) => p.redirectUrl)).toEqual([(await o.pay().expect(200)).body.redirectUrl]);
+      await o.cancel().expect(200);
+    });
+
+    it('answers a failure to save the payment page with a bare 500, and asks Midtrans again on the next click', async () => {
+      const o = await placedOrder();
+      const before = midtrans.snapCalls.length;
+      const save = vi.spyOn(prisma.payment, 'create').mockRejectedValueOnce(new Error('connection reset'));
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      try {
+        expect((await o.pay().expect(500)).body).toEqual({
+          statusCode: 500,
+          message: 'Internal server error',
+        });
+      } finally {
+        save.mockRestore();
+        logged.mockRestore();
+      }
+      const { redirectUrl } = (await o.pay().expect(200)).body as { redirectUrl: string };
+      expect(midtrans.snapCalls.length).toBe(before + 2);
+      expect((await o.get()).payment?.redirectUrl).toBe(redirectUrl);
+      await o.cancel().expect(200);
+    });
+
+    it('keeps the payment page when a notification recorded the payment before the first click', async () => {
+      const o = await placedOrder();
+      expect((await notify(signed(o.order, 'pending')).expect(200)).body.outcome).toBe('pending');
+      const before = midtrans.snapCalls.length;
+      const first = (await o.pay().expect(200)).body as { redirectUrl: string };
+      const again = (await o.pay().expect(200)).body as { redirectUrl: string };
+      expect(again.redirectUrl).toBe(first.redirectUrl);
+      // Midtrans refuses a second transaction for one order_id, so it must be asked once
+      expect(midtrans.snapCalls.length).toBe(before + 1);
+      await o.cancel().expect(200);
+    });
+
+    it('answers 503 PAYMENTS_UNAVAILABLE, saving no link, when Midtrans hands back a payment page that is not https', async () => {
+      const o = await placedOrder();
+      // the real client parses the reply; only the network answer is faked
+      const real = new MidtransClient(loadEnv());
+      const create = vi
+        .spyOn(midtrans, 'createSnapTransaction')
+        .mockImplementation((body) => real.createSnapTransaction(body));
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ token: 't', redirect_url: 'http://app.sandbox.midtrans.com/x' }), {
+            status: 201,
+          }),
+        ),
+      );
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      try {
+        expect((await o.pay().expect(503)).body).toMatchObject({ code: 'PAYMENTS_UNAVAILABLE' });
+      } finally {
+        create.mockRestore();
+        vi.unstubAllGlobals();
+        logged.mockRestore();
+      }
+      expect((await o.get()).payment).toBeNull();
+      await o.cancel().expect(200);
+    });
+
+    it('answers a status check that fails unexpectedly with a bare 500, and leaves the order as it was', async () => {
+      const o = await placedOrder();
+      const getStatus = vi.spyOn(midtrans, 'getStatus').mockRejectedValueOnce(new TypeError('boom'));
+      const logged = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+      try {
+        const res = await o.refresh().expect(500);
+        expect(res.body).toEqual({ statusCode: 500, message: 'Internal server error' });
+      } finally {
+        getStatus.mockRestore();
+        logged.mockRestore();
+      }
+      expect((await o.get()).status).toBe('PENDING_PAYMENT');
+      await o.cancel().expect(200);
+    });
+
+    it('refuses to start or check a payment without a token, or for a malformed order number', async () => {
+      const server = app.getHttpServer();
+      await request(server).post('/api/me/orders/RKT-261101-ABCDEF/pay').expect(401);
+      await request(server).post('/api/me/orders/RKT-261101-ABCDEF/payment-status').expect(401);
+      const auth = { Authorization: `Bearer ${await signedInCustomer(app, mail, nextIp())}` };
+      await request(server)
+        .post(`/api/me/orders/${encodeURIComponent("RKT' OR 1=1")}/pay`)
+        .set(auth)
+        .expect(400);
+      await request(server).post('/api/me/orders/RKT-261101-ABCDEF/pay').set(auth).expect(404);
     });
   });
 });

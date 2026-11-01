@@ -47,14 +47,20 @@ jobs:
         run: npm run typecheck
       - name: lint
         run: npm run lint
-      - name: unit tests
-        run: npm test
+      # each workspace's tests with its coverage thresholds (set in its vitest config)
+      - name: shared tests and coverage
+        run: npm run test:cov -w @gear-store/shared
+      - name: web tests and coverage
+        run: npm run test:cov -w @gear-store/web
+      - name: mobile tests and coverage
+        run: npm run test:cov -w @gear-store/mobile
       - name: migrate test database
         run: npm run db:deploy -w @gear-store/api
       - name: seed demo data
         run: npm run db:seed -w @gear-store/api
-      - name: API e2e
-        run: npm run test:e2e -w @gear-store/api
+      # unit and e2e specs in one instrumented run: most API code is only reached over HTTP
+      - name: API tests and coverage
+        run: npm run test:cov -w @gear-store/api
       - name: build
         run: npm run build
       # the Android bundle from a clean checkout: proves Metro resolves every import, @gear-store/shared included

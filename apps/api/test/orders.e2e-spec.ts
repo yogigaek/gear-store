@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { z } from 'zod';
+import { Prisma } from '../src/generated/prisma/client.js';
 import { OrdersRepository } from '../src/orders/orders.repository.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp, deleteTestUsers, FakeMail, nextIp, signedInCustomer } from './setup.js';
@@ -818,6 +819,226 @@ describe('Addresses and orders (e2e)', () => {
       } finally {
         sweep.mockRestore();
         warn.mockRestore();
+      }
+    });
+  });
+
+  describe('edge cases', () => {
+    const userIdOf = async (addressId: string) =>
+      (await prisma.address.findUniqueOrThrow({ where: { id: addressId }, select: { userId: true } })).userId;
+    /** a customer with an address, and its raw headers for requests the helpers do not shape */
+    async function customerWithHeaders() {
+      const token = await signedInCustomer(app, mail, nextIp());
+      const me = as(token);
+      const address = addressSchema.parse((await me.addAddress().expect(201)).body);
+      const headers = () => ({ Authorization: `Bearer ${token}`, 'X-Forwarded-For': nextIp() });
+      return { me, address, headers };
+    }
+    const uniqueClash = () =>
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: Prisma.prismaVersion.client,
+        meta: { modelName: 'Order' },
+      });
+
+    it('refuses a checkout whose bike can no longer be built, keeping the cart and every part’s stock', async () => {
+      const slug = `e2e-retired-fork-${Date.now()}`;
+      const forks = await prisma.category.findUniqueOrThrow({ where: { slug: 'forks' } });
+      await prisma.product.create({
+        data: {
+          slug,
+          name: 'Retired Test Fork',
+          model: 'R-1',
+          module: 'FORK',
+          description: 'Created by the e2e suite',
+          price: 100000,
+          stock: 5,
+          categoryId: forks.id,
+        },
+      });
+      try {
+        const { me, address } = await customerWithAddress();
+        await me.addBike({ ...start, forks: slug }).expect(200);
+        await prisma.product.update({ where: { slug }, data: { isActive: false } });
+        const parts = [...Object.values(start).filter((p) => p !== start.forks), slug];
+        const before = await Promise.all(parts.map(stockOf));
+        const res = await me.checkout(address.id).expect(409);
+        expect(res.body.message).toMatch(/^A bike in your cart can no longer be built: /);
+        expect(await Promise.all(parts.map(stockOf))).toEqual(before);
+        expect(cartSchema.parse((await me.cart().expect(200)).body).builds).toHaveLength(1);
+        expect(z.array(orderSummarySchema).parse((await me.orders().expect(200)).body)).toEqual([]);
+      } finally {
+        await prisma.product.delete({ where: { slug } });
+      }
+    });
+
+    it('returns the order that won when its own insert loses the idempotency key at the last moment', async () => {
+      const { me, address } = await customerWithAddress();
+      const repo = app.get(OrdersRepository);
+      const original = repo.createOrder.bind(repo);
+      // another request with the same key commits first, outside this checkout's transaction
+      const create = vi.spyOn(repo, 'createOrder').mockImplementationOnce(async (_tx, order) => {
+        await original(prisma, order);
+        throw uniqueClash();
+      });
+      const key = randomUUID();
+      try {
+        await me.cartSet('battery-charger-4a', 1).expect(200);
+        const res = await me.checkout(address.id, key).expect(201);
+        const winner = await prisma.order.findUniqueOrThrow({
+          where: { userId_idempotencyKey: { userId: await userIdOf(address.id), idempotencyKey: key } },
+        });
+        expect(orderDetailSchema.parse(res.body).number).toBe(winner.number);
+      } finally {
+        create.mockRestore();
+      }
+      expect(z.array(orderSummarySchema).parse((await me.orders().expect(200)).body)).toHaveLength(1);
+    });
+
+    it('answers a clash on the generated order number with 409, taking no stock and keeping the cart', async () => {
+      const { me, address } = await customerWithAddress();
+      const create = vi.spyOn(app.get(OrdersRepository), 'createOrder').mockRejectedValueOnce(uniqueClash());
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const before = await stockOf('battery-charger-4a');
+      try {
+        await me.cartSet('battery-charger-4a', 2).expect(200);
+        const res = await me.checkout(address.id).expect(409);
+        expect(res.body.message).toBe('That was just saved by another request. Reload and try again.');
+      } finally {
+        create.mockRestore();
+        warn.mockRestore();
+      }
+      expect(await stockOf('battery-charger-4a')).toBe(before);
+      expect(cartSchema.parse((await me.cart().expect(200)).body).items).toHaveLength(1);
+      // the next attempt goes through
+      const order = orderDetailSchema.parse((await me.checkout(address.id).expect(201)).body);
+      await me.cancel(order.number).expect(200);
+    });
+
+    it('prices the order itself, ignoring totals, prices and an account id sent along', async () => {
+      const { me, address, headers } = await customerWithHeaders();
+      const other = await prisma.user.findFirstOrThrow({ where: { email: 'shopper@rakit.example' } });
+      const res = await request(app.getHttpServer())
+        .post('/api/me/orders')
+        .set(headers())
+        .send({
+          addressId: address.id,
+          idempotencyKey: randomUUID(),
+          items: [{ slug: 'battery-charger-4a', quantity: 1, price: 1 }],
+          total: 1,
+          userId: other.id,
+          status: 'PAID',
+        })
+        .expect(201);
+      const order = orderDetailSchema.parse(res.body);
+      expect(order).toMatchObject({ status: 'PENDING_PAYMENT', subtotal: 1_150_000 });
+      expect(order.total).toBe(order.subtotal + order.shippingFee);
+      const row = await prisma.order.findUniqueOrThrow({ where: { number: order.number } });
+      expect(row.userId).toBe(await userIdOf(address.id));
+      await me.cancel(order.number).expect(200);
+    });
+
+    it('refuses a malformed checkout with field issues, and a Buy now over 50 lines', async () => {
+      const { me, address, headers } = await customerWithHeaders();
+      const bad = await request(app.getHttpServer())
+        .post('/api/me/orders')
+        .set(headers())
+        .send({ addressId: 'nope', idempotencyKey: 42 })
+        .expect(400);
+      expect(bad.body.issues.map((i: { path: string }) => i.path).sort()).toEqual([
+        'addressId',
+        'idempotencyKey',
+      ]);
+      const line = { slug: 'battery-charger-4a', quantity: 1 };
+      const tooMany = await me
+        .buyNow(
+          address.id,
+          Array.from({ length: 51 }, () => line),
+        )
+        .expect(400);
+      expect(tooMany.body.issues.map((i: { path: string }) => i.path)).toEqual(['items']);
+      expect(z.array(orderSummarySchema).parse((await me.orders().expect(200)).body)).toEqual([]);
+    });
+
+    it('refuses every order route without a token', async () => {
+      const server = () => request(app.getHttpServer());
+      for (const res of [
+        await server().get('/api/me/orders'),
+        await server().post('/api/me/orders').send({ addressId: randomUUID(), idempotencyKey: randomUUID() }),
+        await server().get('/api/me/orders/RKT-261101-ABCDEF'),
+        await server().post('/api/me/orders/RKT-261101-ABCDEF/cancel'),
+      ])
+        expect(res.status).toBe(401);
+    });
+
+    it('lists an account’s newest 50 orders', async () => {
+      const { me, address } = await customerWithAddress();
+      const userId = await userIdOf(address.id);
+      const base = Date.now() - 60 * 60 * 1000;
+      await prisma.order.createMany({
+        data: Array.from({ length: 51 }, (_, i) => ({
+          number: `E2E-LIST-${randomUUID()}`,
+          userId,
+          status: 'CANCELLED' as const,
+          subtotal: 1000,
+          shippingFee: 0,
+          total: 1000,
+          shippingZone: 'Sumatra',
+          shipRecipient: 'Ana',
+          shipPhone: '+6281234567890',
+          shipLine1: 'Jl. Sudirman No. 1',
+          shipLine2: '',
+          shipCity: 'Pekanbaru',
+          shipProvince: 'Riau',
+          shipPostalCode: '28111',
+          idempotencyKey: randomUUID(),
+          paymentExpiresAt: new Date(base),
+          createdAt: new Date(base + i * 1000),
+        })),
+      });
+      // orders without lines, so only their numbers are read
+      const list = (await me.orders().expect(200)).body as { number: string }[];
+      expect(list).toHaveLength(50);
+      const oldest = await prisma.order.findFirstOrThrow({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(list.map((o) => o.number)).not.toContain(oldest.number);
+    });
+
+    it('still shows an order whose part was later deleted from the catalogue, without its part type', async () => {
+      const slug = `e2e-deleted-part-${Date.now()}`;
+      const accessories = await prisma.category.findUniqueOrThrow({ where: { slug: 'accessories' } });
+      await prisma.product.create({
+        data: {
+          slug,
+          name: 'Deleted Test Bell',
+          model: 'D-1',
+          module: 'ACCESSORY',
+          description: 'Created by the e2e suite',
+          price: 30000,
+          stock: 3,
+          categoryId: accessories.id,
+        },
+      });
+      try {
+        const { me, address } = await customerWithAddress();
+        const order = orderDetailSchema.parse(
+          (await me.buyNow(address.id, [{ slug, quantity: 1 }]).expect(201)).body,
+        );
+        expect(order.items[0]).toMatchObject({ category: 'accessories', module: 'ACCESSORY' });
+        await me.cancel(order.number).expect(200);
+        await prisma.product.delete({ where: { slug } });
+        const after = orderDetailSchema.parse((await me.order(order.number).expect(200)).body);
+        expect(after.items[0]).toMatchObject({
+          slug,
+          name: 'Deleted Test Bell',
+          category: null,
+          module: null,
+        });
+      } finally {
+        // deleted above when the test gets that far; an order left open is closed by deleteTestUsers
+        await prisma.product.deleteMany({ where: { slug } });
       }
     });
   });

@@ -279,13 +279,15 @@ npm run typecheck
 npm run lint
 npm test                                   # unit tests
 npm run test:e2e -w @gear-store/api        # API e2e; needs the database from docker compose
+npm run test:cov -w @gear-store/api        # API unit + e2e in one run, ≥ 90 % coverage enforced; same database, migrated and seeded
 npm run test:browser                       # Playwright: API on :3000, `vite preview --port 5173`, Mailpit
 npm run build
 ```
 
 GitHub Actions runs on every push to `main` and every pull request, in two jobs:
 
-- ✅ **check** — format, typecheck, lint, unit tests, migrations and seed, API e2e and the build.
+- ✅ **check** — format, typecheck, lint, unit tests with coverage, migrations and seed, API unit + e2e with
+  coverage thresholds, and the build.
 - 🌐 **browser** — the whole stack in Chromium: sign-up through Mailpit, checkout, a signed payment notification
   and admin fulfilment.
 

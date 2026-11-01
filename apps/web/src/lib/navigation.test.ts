@@ -52,3 +52,64 @@ describe('signInPath', () => {
     expect(landing('/checkout?buy=a&next=//evil.example')).toBe('/checkout?buy=a&next=//evil.example');
   });
 });
+
+describe('safeNext against open redirects', () => {
+  // whatever comes back, the browser must read it as a page of this site
+  const site = 'https://rakit.example';
+  const staysOnSite = (next: string) => new URL(next, `${site}/sign-in`).origin === site;
+
+  it.each([
+    '//evil.example/path',
+    '///evil.example',
+    '/\\/evil.example',
+    '\\\\evil.example',
+    '/\\evil.example',
+    'http://evil.example',
+    'https:evil.example',
+    'javascript:alert(1)',
+    'JaVaScRiPt:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    ' /\t/evil.example',
+    '\t//evil.example',
+    '/\r/evil.example',
+    '/\u0000/evil.example',
+    '/\u001f/evil.example',
+    '/\u007f',
+    'evil.example',
+    './/evil.example',
+    '?next=//evil.example',
+    '#//evil.example',
+  ])('refuses %j', (next) => {
+    expect(safeNext(next)).toBe('/account');
+  });
+
+  it.each([
+    '/%2F%2Fevil.example',
+    '/%5Cevil.example',
+    '/%09/evil.example',
+    '/.//evil.example',
+    '/javascript:alert(1)',
+    '/ /evil.example',
+    '/ /evil.example',
+    '/products?q=a b',
+    '/orders/RKT-261031-ABCD29#top',
+    '/',
+  ])('keeps %j, which can only open a page of this site', (next) => {
+    expect(safeNext(next)).toBe(next);
+    expect(staysOnSite(safeNext(next))).toBe(true);
+  });
+
+  it('takes its fallback for anything refused', () => {
+    expect(safeNext('//evil.example', '/admin')).toBe('/admin');
+    expect(safeNext(null, '/somewhere')).toBe('/somewhere');
+    expect(afterSignIn('ADMIN', '//evil.example')).toBe('/admin');
+    expect(afterSignIn('ADMIN', '')).toBe('/admin');
+  });
+
+  it('keeps every character of a path through the sign-in page', () => {
+    const path = '/products?q=café & bar #1&sort=price-asc';
+    const next = new URL(signInPath(path), site).searchParams.get('next');
+    expect(next).toBe(path);
+    expect(afterSignIn('CUSTOMER', next)).toBe(path);
+  });
+});

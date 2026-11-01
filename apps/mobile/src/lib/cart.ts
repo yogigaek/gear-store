@@ -274,7 +274,8 @@ function mergeAll(queryClient: QueryClient, userId: string): Promise<void> {
       }
       const { notMerged, ...cart } = reply;
       const left = notMerged.reduce((sum, l) => sum + l.quantity, 0);
-      if (left > 0) notice = { userId, count: left };
+      // as on the web: a merge and the one after it both report, so the shopper hears the total
+      if (left > 0) notice = { userId, count: mergeNotice(userId) + left };
       // the merged cart is on screen before the phone's lines go, so checkout never shows it empty in between
       await showAccountCart(queryClient, userId, cart);
       await save({ items: subtract(items, job.cart.items), pending: null });

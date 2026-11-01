@@ -8,6 +8,7 @@ import {
 } from '@gear-store/shared';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PAID_STATUSES } from '../orders/order-status.js';
+import { isUniqueViolation } from '../prisma/errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const reviewSelect = {
@@ -83,11 +84,17 @@ export class ReviewsService {
     if (reason === 'DEMO_ACCOUNT') throw new ForbiddenException('Demo accounts cannot post reviews');
     if (reason === 'NOT_PURCHASED')
       throw new ForbiddenException('Only customers who bought this product can review it');
-    const row = await this.prisma.review.upsert({
-      where: { userId_productId: { userId, productId: product.id } },
-      create: { userId, productId: product.id, ...input },
-      update: input,
-      select: reviewSelect,
+    const write = () =>
+      this.prisma.review.upsert({
+        where: { userId_productId: { userId, productId: product.id } },
+        create: { userId, productId: product.id, ...input },
+        update: input,
+        select: reviewSelect,
+      });
+    // two posts at once may both try to create; the loser's second try finds the row and updates it
+    const row = await write().catch((error: unknown) => {
+      if (isUniqueViolation(error)) return write();
+      throw error;
     });
     return toReview(row);
   }

@@ -462,3 +462,123 @@ describe('edge cases', () => {
     expect(stored()).toBeNull();
   });
 });
+
+describe('cart edges', () => {
+  const emptyCart = { items: [], builds: [], subtotal: 0, itemCount: 0, canCheckout: false };
+  const product = (slug: string) => ({
+    slug,
+    name: slug,
+    model: slug.toUpperCase(),
+    category: 'parts',
+    module: 'FRAME',
+    price: 100_000,
+    stock: 9,
+    plate: [],
+  });
+  const withBike = (quantity: number) => ({
+    ...emptyCart,
+    builds: [
+      {
+        id: 'b1',
+        quote: {
+          label: 'E-1',
+          colorKey: 'signal',
+          colorLabel: null,
+          parts: [{ slot: 'frames', slotName: 'Frame', product: product('e1-frame-m') }],
+          unitPrice: 100_000,
+          problems: [],
+        },
+        quantity,
+        lineTotal: 100_000 * quantity,
+        problem: null,
+      },
+    ],
+    itemCount: quantity,
+  });
+  const ok = (body: unknown) => ({ reply: { status: 200, body } });
+
+  it('adds up what two merges into one account left out, and starts again for another account', async () => {
+    onPhone([line('folding-lock', 1)]);
+    const m = await launch();
+    await signIn(m, 'a');
+    server.gate('/me/cart/merge', ok({ ...emptyCart, notMerged: [line('folding-lock', 3)] }));
+    await m.mergeInto(m.queryClient, USERS.a.id);
+    expect(m.mergeNotice(USERS.a.id)).toBe(3);
+    await m.guestActions.add('e1-fork-160', '', 1);
+    server.gate('/me/cart/merge', ok({ ...emptyCart, notMerged: [line('e1-fork-160', 2)] }));
+    await m.mergeInto(m.queryClient, USERS.a.id);
+    expect(m.mergeNotice(USERS.a.id)).toBe(5);
+
+    await m.auth.signOut();
+    await signIn(m, 'b');
+    await m.guestActions.add('rear-rack', '', 1);
+    server.gate('/me/cart/merge', ok({ ...emptyCart, notMerged: [line('rear-rack', 1)] }));
+    await m.mergeInto(m.queryClient, USERS.b.id);
+    expect(m.mergeNotice(USERS.b.id)).toBe(1);
+    expect(m.mergeNotice(USERS.a.id)).toBe(0);
+  });
+
+  it('changes a bike in the account’s cart by its id, capped at 10, and removes it', async () => {
+    const m = await launch();
+    await signIn(m, 'a');
+    const actions = m.accountActions(m.queryClient, USERS.a.id);
+    server.gate('/me/cart', ok(withBike(9)));
+    server.gate('/me/cart/builds/b1', ok(withBike(10)));
+    await actions.adjustBuild('b1', 5);
+    server.gate('/me/cart/builds/b1', ok(emptyCart));
+    await actions.removeBuild('b1');
+    expect(server.calls('/me/cart/builds/b1').map((c) => c.body)).toEqual([
+      { quantity: 10 },
+      { quantity: 0 },
+    ]);
+    expect(m.queryClient.getQueryData(m.accountCartKey(USERS.a.id))).toEqual(emptyCart);
+  });
+
+  it('shows the cart as it is when a bike was removed elsewhere, sending nothing', async () => {
+    const m = await launch();
+    await signIn(m, 'a');
+    server.gate('/me/cart', ok(emptyCart));
+    await m.accountActions(m.queryClient, USERS.a.id).adjustBuild('b1', 1);
+    expect(server.calls('/me/cart/builds/b1')).toHaveLength(0);
+    expect(m.queryClient.getQueryData(m.accountCartKey(USERS.a.id))).toEqual(emptyCart);
+  });
+
+  it('encodes a bike id in the path', async () => {
+    const m = await launch();
+    await signIn(m, 'a');
+    await expect(m.accountActions(m.queryClient, USERS.a.id).removeBuild('../items')).rejects.toMatchObject({
+      status: 404,
+    });
+    expect(server.log.at(-1)!.path).toBe('/me/cart/builds/..%2Fitems');
+  });
+
+  it('leaves bikes to the website while signed out', async () => {
+    const m = await launch();
+    await expect(m.guestActions.adjustBuild()).rejects.toThrow('Bikes are changed on the website');
+    await expect(m.guestActions.removeBuild()).rejects.toThrow('Bikes are changed on the website');
+  });
+
+  it('steps a line on the phone within 0 to 10, and ignores a line it does not hold', async () => {
+    const m = await launch();
+    await m.guestActions.add('folding-lock', '', 9);
+    await m.guestActions.adjust('folding-lock', '', 5);
+    expect(stored()!.items).toEqual([line('folding-lock', 10)]);
+    await m.guestActions.adjust('rear-rack', '', 1);
+    expect(stored()!.items).toEqual([line('folding-lock', 10)]);
+    await m.guestActions.adjust('folding-lock', '', -20);
+    expect(stored()).toBeNull();
+  });
+
+  it('sends no change for an account that signed out while the fresh cart was being read', async () => {
+    const m = await launch();
+    await signIn(m, 'a');
+    const hold = deferred();
+    server.gate('/me/cart', { wait: hold.wait });
+    const adding = m.accountActions(m.queryClient, USERS.a.id).add('folding-lock', '', 1);
+    await vi.waitFor(() => expect(server.calls('/me/cart')).toHaveLength(0));
+    await m.auth.signOut();
+    hold.resolve();
+    await expect(adding).rejects.toMatchObject({ status: 401 });
+    expect(server.calls('/me/cart/items')).toHaveLength(0);
+  });
+});

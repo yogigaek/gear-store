@@ -20,3 +20,15 @@ describe('posterFrame', () => {
     expect(Math.abs((a.x + b.x) / 2 - width / 2)).toBeLessThan(width * 0.05);
   });
 });
+
+describe('posterFrame edges', () => {
+  it('keeps the image covering a very narrow and a very wide frame', () => {
+    for (const width of [1, 1440, 4000]) {
+      const { height, image } = posterFrame(width);
+      expect(image.left).toBeLessThanOrEqual(0);
+      expect(image.top).toBeLessThanOrEqual(0);
+      expect(image.left + image.width).toBeGreaterThanOrEqual(width - 1e-9);
+      expect(image.top + image.height).toBeGreaterThanOrEqual(height - 1e-9);
+    }
+  });
+});
