@@ -12,6 +12,7 @@ import { ENV } from '../config/config.module.js';
 import type { Env } from '../config/env.js';
 import { OrderStatus, type Prisma, RefundStatus } from '../generated/prisma/client.js';
 import { jakartaIso } from '../common/time.js';
+import { PAID_STATUSES } from '../orders/order-status.js';
 import { OrdersService } from '../orders/orders.service.js';
 import { isUniqueViolation } from '../prisma/errors.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -63,6 +64,23 @@ function loggableOrderId(payload: unknown): string {
   return typeof id === 'string' ? id.slice(0, 50).replace(/[^\w.~-]/g, '?') : 'none';
 }
 
+type PaidOrder = { id: string; total: number };
+/** Midtrans statuses for money returned after it was received */
+const MONEY_BACK = new Set(['refund', 'partial_refund', 'chargeback']);
+
+function savePayment(tx: Prisma.TransactionClient, order: PaidOrder, status: MidtransStatus) {
+  const fields = {
+    transactionId: status.transaction_id,
+    transactionStatus: status.transaction_status,
+    paymentType: status.payment_type,
+  };
+  return tx.payment.upsert({
+    where: { orderId: order.id },
+    create: { orderId: order.id, grossAmount: order.total, ...fields },
+    update: fields,
+  });
+}
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -82,7 +100,8 @@ export class PaymentsService {
       include: { items: true, payment: true, user: { select: { email: true } } },
     });
     if (!order) throw new NotFoundException('Order not found');
-    if (order.status !== OrderStatus.PENDING_PAYMENT)
+    // the window also counts when the sweep that would have closed the order failed
+    if (order.status !== OrderStatus.PENDING_PAYMENT || order.paymentExpiresAt <= new Date())
       throw new ConflictException('This order is no longer waiting for payment');
     if (order.payment?.redirectUrl) return { redirectUrl: order.payment.redirectUrl };
 
@@ -170,7 +189,7 @@ export class PaymentsService {
     return this.orders.detail(userId, number);
   }
 
-  /** Every transition is guarded by the current status, so replays and late or out-of-order messages are harmless. */
+  /** Status-guarded: a late or repeated message leaves an order that moved on, and its payment row, alone. */
   private async apply(status: MidtransStatus): Promise<Outcome> {
     const order = await this.prisma.order.findUnique({
       where: { number: status.order_id },
@@ -186,44 +205,40 @@ export class PaymentsService {
       return 'amount-mismatch';
     }
 
-    await this.prisma.payment.upsert({
-      where: { orderId: order.id },
-      create: {
-        orderId: order.id,
-        grossAmount: order.total,
-        transactionId: status.transaction_id,
-        transactionStatus: status.transaction_status,
-        paymentType: status.payment_type,
-      },
-      update: {
-        transactionId: status.transaction_id,
-        transactionStatus: status.transaction_status,
-        paymentType: status.payment_type,
-      },
-    });
-
     const s = status.transaction_status;
     const fraudOk = status.fraud_status === undefined || status.fraud_status === 'accept';
-    if (s === 'settlement' || (s === 'capture' && fraudOk))
-      return this.markPaid(order.id, status.payment_type);
-    if (s === 'pending') return 'pending';
+    if (s === 'settlement' || (s === 'capture' && fraudOk)) return this.markPaid(order, status);
     if (s === 'expire' || s === 'cancel' || s === 'deny' || s === 'failure') {
-      const closed = await this.prisma.$transaction((tx) =>
-        this.orders.close(
+      return this.prisma.$transaction(async (tx) => {
+        const closed = await this.orders.close(
           tx,
           order.id,
           s === 'expire' ? 'EXPIRED' : 'CANCELLED',
           s === 'expire'
             ? 'Payment time ran out. The items went back on sale.'
             : 'The payment was declined or cancelled.',
-        ),
-      );
-      return closed ? 'closed' : 'duplicate';
+        );
+        if (!closed) return 'duplicate';
+        await savePayment(tx, order, status);
+        return 'closed';
+      });
     }
-    return 'ignored';
+    return this.prisma.$transaction(async (tx) => {
+      // shared lock: a settlement being written now finishes first, and this then leaves its record alone
+      const [current] = await tx.$queryRaw<{ status: OrderStatus; refundStatus: RefundStatus }[]>`
+        SELECT "status", "refundStatus" FROM "Order" WHERE "id" = ${order.id}::uuid FOR SHARE`;
+      const waiting = current?.status === OrderStatus.PENDING_PAYMENT;
+      // money going back moves no order, but is the latest word on money that was received
+      const received =
+        !!current &&
+        (PAID_STATUSES.some((paid) => paid === current.status) || current.refundStatus !== RefundStatus.NONE);
+      if (waiting || (MONEY_BACK.has(s) && received)) await savePayment(tx, order, status);
+      return s === 'pending' ? 'pending' : 'ignored';
+    });
   }
 
-  private async markPaid(orderId: string, method: string | undefined): Promise<Outcome> {
+  private async markPaid(order: PaidOrder, status: MidtransStatus): Promise<Outcome> {
+    const orderId = order.id;
     return this.prisma.$transaction(async (tx) => {
       const now = new Date();
       const moved = await tx.order.updateMany({
@@ -231,10 +246,11 @@ export class PaymentsService {
         data: { status: OrderStatus.PAID, paidAt: now },
       });
       if (moved.count === 1) {
-        const via = method ? ` via ${paymentMethodLabel(method)}` : '';
+        const via = status.payment_type ? ` via ${paymentMethodLabel(status.payment_type)}` : '';
         await tx.orderEvent.create({
           data: { orderId, status: OrderStatus.PAID, note: `Payment received${via}.` },
         });
+        await savePayment(tx, order, status);
         return 'paid' as const;
       }
       const current = await tx.order.findUniqueOrThrow({
@@ -258,6 +274,8 @@ export class PaymentsService {
           note: 'Payment received after the order closed. It will be refunded.',
         },
       });
+      // the refund needs the transaction it refunds
+      await savePayment(tx, order, status);
       return 'paid-after-close' as const;
     });
   }

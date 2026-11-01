@@ -16,17 +16,9 @@ import {
 import type { Prisma } from '../generated/prisma/client.js';
 import { checkBuild, type Rulebook } from '../build/build-rules.js';
 import { BuildService, toQuote } from '../build/build.service.js';
-import { summarySelect, toSummary } from '../catalog/catalog.service.js';
+import { summarySelect, toSummary } from '../catalog/product.projection.js';
+import { LOCKED_WRITE, lockAccount } from '../prisma/locks.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-
-/**
- * Every change to an account's cart, and checkout, first locks the account's row, so they run one after another: a
- * checkout never empties lines written after it read the cart. NO KEY UPDATE leaves the row's key free, so inserts
- * that only reference the account (a sign-in, an address) never wait on it.
- */
-export async function lockCart(tx: Prisma.TransactionClient, userId: string): Promise<void> {
-  await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId}::uuid FOR NO KEY UPDATE`;
-}
 
 const productSelect = {
   ...summarySelect,
@@ -50,8 +42,6 @@ interface HeldBuild {
 }
 
 const MERGE_KEYS_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
-/** a cart change may queue behind checkouts of the same account (the shared demo shopper most of all) */
-const CART_WRITE = { maxWait: 10_000, timeout: 10_000 };
 
 const toInput = (line: Line, quantity: number): CartLineInput => ({
   slug: line.product.slug,
@@ -81,7 +71,8 @@ export class CartService {
     const read = () =>
       this.prisma.cartItem.findMany({
         where: { userId },
-        orderBy: { createdAt: 'asc' },
+        // lines one merge adds share a timestamp; their time-ordered ids keep them in the guest's order
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         select: { colorKey: true, quantity: true, product: { select: productSelect } },
       });
     const [stored, held] = await Promise.all([read(), this.heldBuilds(userId)]);
@@ -90,9 +81,9 @@ export class CartService {
     );
     if (unsettled) {
       await this.prisma.$transaction(async (tx) => {
-        await lockCart(tx, userId);
+        await lockAccount(tx, userId);
         await this.settleFinishes(tx, userId);
-      }, CART_WRITE);
+      }, LOCKED_WRITE);
     }
     const rows = unsettled ? await read() : stored;
     const book = await this.builds.bookFor(held.length);
@@ -113,7 +104,7 @@ export class CartService {
     const key = { userId_productId_colorKey: { userId, productId: product.id, colorKey } };
 
     await this.prisma.$transaction(async (tx) => {
-      await lockCart(tx, userId);
+      await lockAccount(tx, userId);
       await this.settleFinishes(tx, userId);
       if (input.quantity === 0) {
         await tx.cartItem.deleteMany({ where: key.userId_productId_colorKey });
@@ -128,7 +119,7 @@ export class CartService {
         create: { userId, productId: product.id, colorKey, quantity: input.quantity },
         update: { quantity: input.quantity },
       });
-    }, CART_WRITE);
+    }, LOCKED_WRITE);
     return this.get(userId);
   }
 
@@ -139,9 +130,9 @@ export class CartService {
   async addBuild(userId: string, input: CartBuildInput): Promise<Cart> {
     const book = await this.builds.book();
     await this.prisma.$transaction(async (tx) => {
-      await lockCart(tx, userId);
-      await this.putBuild(tx, userId, input, book, 'refuse');
-    }, CART_WRITE);
+      await lockAccount(tx, userId);
+      await this.putBuild(tx, userId, input, book, 'refuse', await this.heldBuilds(userId, tx));
+    }, LOCKED_WRITE);
     return this.get(userId);
   }
 
@@ -149,11 +140,11 @@ export class CartService {
   async setBuildQuantity(userId: string, id: string, quantity: number): Promise<Cart> {
     const where = { id, userId };
     const { count } = await this.prisma.$transaction(async (tx) => {
-      await lockCart(tx, userId);
+      await lockAccount(tx, userId);
       return quantity === 0
         ? tx.cartBuild.deleteMany({ where })
         : tx.cartBuild.updateMany({ where, data: { quantity } });
-    }, CART_WRITE);
+    }, LOCKED_WRITE);
     if (!count) throw new NotFoundException('That bike is not in your cart');
     return this.get(userId);
   }
@@ -165,17 +156,18 @@ export class CartService {
    * unknown or withdrawn parts are not listed.
    */
   async merge(userId: string, guest: MergeCartInput): Promise<MergeCartResult> {
-    // A retry is answered from the cart as it is, before any of the catalogue work below. The key counts
-    // whichever account it went to: a browser that signs in as someone else must not hand them the cart too.
+    // A retry is answered from the cart as it is, before any of the catalogue work below. A key is merged once,
+    // into the account it reached first: a browser that signs in as someone else must not hand them the cart too.
     const known =
-      guest.mergeKey && (await this.prisma.cartMerge.findFirst({ where: { key: guest.mergeKey } }));
+      guest.mergeKey &&
+      (await this.prisma.cartMerge.findUnique({ where: { key: guest.mergeKey }, select: { key: true } }));
     if (known) return { ...(await this.get(userId)), notMerged: [] };
     const [{ lines: incoming, cut }, book] = await Promise.all([
       this.resolve(guest.items),
       this.builds.bookFor(guest.builds.length),
     ]);
     const notMerged = await this.prisma.$transaction(async (tx) => {
-      await lockCart(tx, userId);
+      await lockAccount(tx, userId);
       await this.settleFinishes(tx, userId);
       if (guest.mergeKey) {
         const first = await tx.cartMerge.createMany({
@@ -188,29 +180,13 @@ export class CartService {
           where: { userId, createdAt: { lt: new Date(Date.now() - MERGE_KEYS_KEPT_MS) } },
         });
       }
-      const left = [...cut];
-      for (const line of incoming) {
-        const key = {
-          userId_productId_colorKey: { userId, productId: line.product.id, colorKey: line.colorKey },
-        };
-        const existing = await tx.cartItem.findUnique({ where: key, select: { quantity: true } });
-        // a full cart still takes more of a part it already holds
-        if (!existing && (await this.countLines(tx, userId)) >= MAX_CART_LINES) {
-          left.push(toInput(line, line.quantity));
-          continue;
-        }
-        const wanted = (existing?.quantity ?? 0) + line.quantity;
-        const quantity = Math.min(MAX_LINE_QUANTITY, wanted);
-        if (wanted > quantity) left.push(toInput(line, wanted - quantity));
-        await tx.cartItem.upsert({
-          where: key,
-          create: { userId, productId: line.product.id, colorKey: line.colorKey, quantity },
-          update: { quantity },
-        });
-      }
+      const left = [...cut, ...(await this.addLines(tx, userId, incoming))];
       // a guest's build that can no longer be made is left behind rather than failing the sign-in; one that is
       // only short of stock is kept, and the cart says so, as it does for a single part
-      for (const build of guest.builds) await this.putBuild(tx, userId, build, book, 'skip');
+      if (guest.builds.length > 0) {
+        const held = await this.heldBuilds(userId, tx);
+        for (const build of guest.builds) await this.putBuild(tx, userId, build, book, 'skip', held);
+      }
       // one entry per part and finish, though both limits may have cut from it
       const byLine = new Map<string, CartLineInput>();
       for (const l of left) {
@@ -218,15 +194,57 @@ export class CartService {
         byLine.set(id, { ...l, quantity: (byLine.get(id)?.quantity ?? 0) + l.quantity });
       }
       return [...byLine.values()];
-    }, CART_WRITE);
+    }, LOCKED_WRITE);
     return { ...(await this.get(userId)), notMerged };
+  }
+
+  /** Adds the guest's lines to the saved ones, capped per line and per cart; returns what did not fit. */
+  private async addLines(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    incoming: Line[],
+  ): Promise<CartLineInput[]> {
+    const saved = await tx.cartItem.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        productId: true,
+        colorKey: true,
+        quantity: true,
+        product: { select: { isActive: true } },
+      },
+    });
+    const byLine = new Map(saved.map((r) => [`${r.productId}:${r.colorKey}`, r]));
+    // lines of parts no longer sold are hidden, so they do not count against the limit
+    let count = saved.filter((r) => r.product.isActive).length;
+    const left: CartLineInput[] = [];
+    const created: Prisma.CartItemCreateManyInput[] = [];
+    for (const line of incoming) {
+      const existing = byLine.get(`${line.product.id}:${line.colorKey}`);
+      // a full cart still takes more of a part it already holds
+      if (!existing && count >= MAX_CART_LINES) {
+        left.push(toInput(line, line.quantity));
+        continue;
+      }
+      const wanted = (existing?.quantity ?? 0) + line.quantity;
+      const quantity = Math.min(MAX_LINE_QUANTITY, wanted);
+      if (wanted > quantity) left.push(toInput(line, wanted - quantity));
+      if (!existing) {
+        created.push({ userId, productId: line.product.id, colorKey: line.colorKey, quantity });
+        count += 1;
+      } else if (quantity !== existing.quantity) {
+        await tx.cartItem.update({ where: { id: existing.id }, data: { quantity } });
+      }
+    }
+    if (created.length > 0) await tx.cartItem.createMany({ data: created });
+    return left;
   }
 
   /** the account's saved builds, as selections to be checked against today's catalogue */
   async heldBuilds(userId: string, db: Pick<PrismaService, 'cartBuild'> = this.prisma): Promise<HeldBuild[]> {
     const rows = await db.cartBuild.findMany({
       where: { userId },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
         colorKey: true,
@@ -244,12 +262,14 @@ export class CartService {
     }));
   }
 
+  /** `held` is the account's saved builds, kept up to date here so that several puts read them once. */
   private async putBuild(
     tx: Prisma.TransactionClient,
     userId: string,
     input: CartBuildInput,
     book: Rulebook,
     onProblem: 'refuse' | 'skip',
+    held: HeldBuild[],
   ): Promise<void> {
     // the same bike already in the cart takes the added quantity, and the check is for the total
     const identity = checkBuild(book, input);
@@ -257,7 +277,7 @@ export class CartService {
       .map((p) => p.part.summary.slug)
       .sort()
       .join();
-    const same = (await this.heldBuilds(userId, tx)).find(
+    const same = held.find(
       (b) =>
         b.selection.colorKey === identity.colorKey &&
         Object.values(b.selection.parts).sort().join() === slugs,
@@ -273,18 +293,28 @@ export class CartService {
     }
     if (same) {
       await tx.cartBuild.update({ where: { id: same.id }, data: { quantity } });
+      same.quantity = quantity;
       return;
     }
-    if ((await tx.cartBuild.count({ where: { userId } })) >= MAX_CART_BUILDS) {
+    if (held.length >= MAX_CART_BUILDS) {
       if (onProblem === 'skip') return;
       throw new ConflictException(`A cart holds up to ${MAX_CART_BUILDS} different bikes`);
     }
-    await tx.cartBuild.create({
+    const { id } = await tx.cartBuild.create({
       data: {
         userId,
         colorKey: checked.colorKey,
         quantity: input.quantity,
         parts: { create: checked.parts.map(({ part }) => ({ productId: part.id })) },
+      },
+      select: { id: true },
+    });
+    held.push({
+      id,
+      quantity: input.quantity,
+      selection: {
+        colorKey: checked.colorKey,
+        parts: Object.fromEntries(checked.parts.map(({ slot, part }) => [slot.category, part.summary.slug])),
       },
     });
   }
@@ -297,7 +327,7 @@ export class CartService {
   async settleFinishes(tx: Prisma.TransactionClient, userId: string): Promise<void> {
     const rows = await tx.cartItem.findMany({
       where: { userId, product: { isActive: true } },
-      orderBy: { createdAt: 'asc' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: {
         id: true,
         productId: true,

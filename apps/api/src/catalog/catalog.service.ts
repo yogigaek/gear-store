@@ -1,20 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Category, ProductDetail, ProductPage, ProductQuery, ProductSummary } from '@gear-store/shared';
+import type { Category, ProductDetail, ProductPage, ProductQuery } from '@gear-store/shared';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-
-export const summarySelect = {
-  slug: true,
-  name: true,
-  model: true,
-  module: true,
-  price: true,
-  stock: true,
-  category: { select: { slug: true } },
-  specs: { where: { onPlate: true }, orderBy: { position: 'asc' }, select: { label: true, value: true } },
-} satisfies Prisma.ProductSelect;
-
-type SummaryRow = Prisma.ProductGetPayload<{ select: typeof summarySelect }>;
+import { summarySelect, toSummary } from './product.projection.js';
 
 const orderBy: Record<ProductQuery['sort'], Prisma.ProductOrderByWithRelationInput[]> = {
   type: [{ category: { sortOrder: 'asc' } }, { price: 'asc' }, { createdAt: 'asc' }, { slug: 'asc' }],
@@ -22,11 +10,6 @@ const orderBy: Record<ProductQuery['sort'], Prisma.ProductOrderByWithRelationInp
   'price-desc': [{ price: 'desc' }, { slug: 'asc' }],
   name: [{ name: 'asc' }, { slug: 'asc' }],
 };
-
-export function toSummary(row: SummaryRow): ProductSummary {
-  const { category, specs, ...rest } = row;
-  return { ...rest, category: category.slug, plate: specs };
-}
 
 @Injectable()
 export class CatalogService {

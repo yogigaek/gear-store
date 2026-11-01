@@ -1,8 +1,9 @@
-import type { INestApplication } from '@nestjs/common';
+import { Logger, type INestApplication } from '@nestjs/common';
 import {
   addressSchema,
   buildCatalogSchema,
   cartSchema,
+  MAX_ADDRESSES,
   orderDetailSchema,
   orderSummarySchema,
 } from '@gear-store/shared';
@@ -10,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { z } from 'zod';
+import { OrdersRepository } from '../src/orders/orders.repository.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp, deleteTestUsers, FakeMail, nextIp, signedInCustomer } from './setup.js';
 
@@ -152,6 +154,19 @@ describe('Addresses and orders (e2e)', () => {
         'postalCode',
         'province',
       ]);
+    });
+
+    it('keeps to the address limit and one default when addresses are added at the same moment', async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      const replies = await Promise.all(Array.from({ length: MAX_ADDRESSES + 2 }, () => me.addAddress()));
+      expect(replies.map((r) => r.status).sort((a, b) => a - b)).toEqual([
+        ...Array<number>(MAX_ADDRESSES).fill(201),
+        409,
+        409,
+      ]);
+      const list = z.array(addressSchema).parse((await me.addresses().expect(200)).body);
+      expect(list).toHaveLength(MAX_ADDRESSES);
+      expect(list.filter((a) => a.isDefault)).toHaveLength(1);
     });
 
     it('will not use or delete another account’s address', async () => {
@@ -750,6 +765,35 @@ describe('Addresses and orders (e2e)', () => {
       expect(await stockOf('lights-front-rear')).toBe(before);
     });
 
+    it('expires every overdue order in one read, giving each part back once per unit taken', async () => {
+      const ana = await customerWithAddress();
+      const budi = await customerWithAddress();
+      const parts = Object.values(start);
+      const before = await Promise.all(parts.map(stockOf));
+      // the cockpit twice on Ana's order: on the bike and on its own
+      await ana.me.addBike(start).expect(200);
+      await ana.me.cartSet(start.cockpits!, 2).expect(200);
+      await budi.me.cartSet(start.cockpits!, 1).expect(200);
+      const orders = await Promise.all(
+        [ana, budi].map(async (c) =>
+          orderDetailSchema.parse((await c.me.checkout(c.address.id).expect(201)).body),
+        ),
+      );
+      const numbers = orders.map((o) => o.number);
+      await prisma.order.updateMany({
+        where: { number: { in: numbers } },
+        data: { paymentExpiresAt: new Date(Date.now() - 1000) },
+      });
+      await ana.me.orders().expect(200);
+      const closed = await prisma.order.findMany({
+        where: { number: { in: numbers } },
+        include: { events: true },
+      });
+      expect(closed.map((o) => o.status)).toEqual(['EXPIRED', 'EXPIRED']);
+      expect(closed.map((o) => o.events.filter((e) => e.status === 'EXPIRED').length)).toEqual([1, 1]);
+      expect(await Promise.all(parts.map(stockOf))).toEqual(before);
+    });
+
     it('hides orders from other accounts and rejects malformed numbers', async () => {
       const { me, address } = await customerWithAddress();
       await me.cartSet('battery-charger-4a', 1).expect(200);
@@ -759,6 +803,22 @@ describe('Addresses and orders (e2e)', () => {
       await other.cancel(order.number).expect(404);
       await other.order('not-an-order').expect(400);
       await me.cancel(order.number).expect(200);
+    });
+
+    it('still answers a read when the sweep of overdue orders fails', async () => {
+      const { me } = await customerWithAddress();
+      const sweep = vi
+        .spyOn(app.get(OrdersRepository), 'closeOverdue')
+        .mockRejectedValueOnce(new Error('Transaction already closed'));
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      try {
+        await me.orders().expect(200);
+        expect(sweep).toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith(expect.stringMatching(/overdue/i));
+      } finally {
+        sweep.mockRestore();
+        warn.mockRestore();
+      }
     });
   });
 });

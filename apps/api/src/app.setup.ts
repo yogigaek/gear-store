@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import type { NextFunction, Request, Response } from 'express';
 import helmet from 'helmet';
 import type { Env } from './config/env.js';
+import { PrismaExceptionFilter } from './prisma/prisma-exception.filter.js';
 
 /** JSON bodies only: Nest's default form parser would let another site post a sign-in form (login CSRF). */
 export const APP_OPTIONS: NestApplicationOptions = { bodyParser: false };
@@ -25,6 +26,7 @@ export function configureApp(app: INestApplication, env: Env): void {
   app.use(helmet());
   app.use(cookieParser());
   app.setGlobalPrefix('api');
+  app.useGlobalFilters(new PrismaExceptionFilter(app.getHttpAdapter()));
   app.enableCors({ origin: env.WEB_ORIGIN, credentials: true });
 
   const config = new DocumentBuilder()

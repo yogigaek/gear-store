@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { BuildCatalog, BuildQuote, BuildSelection, Color } from '@gear-store/shared';
 import type { Prisma } from '../generated/prisma/client.js';
-import { summarySelect, toSummary } from '../catalog/catalog.service.js';
+import { summarySelect, toSummary } from '../catalog/product.projection.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   carriesColour,

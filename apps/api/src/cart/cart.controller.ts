@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import {
   cartBuildInputSchema,
@@ -16,6 +16,7 @@ import {
   type MergeCartInput,
   type MergeCartResult,
 } from '@gear-store/shared';
+import { z } from 'zod';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from '../auth/access-token.guard.js';
 import { openApiSchema } from '../common/openapi.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
@@ -81,7 +82,7 @@ export class CartController {
   @ApiOkResponse({ schema: openApiSchema(cartSchema) })
   setBuild(
     @CurrentAuth() auth: AuthContext,
-    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('id', new ZodValidationPipe(z.uuid())) id: string,
     @Body(new ZodValidationPipe(quantityInputSchema)) input: QuantityInput,
   ): Promise<Cart> {
     return this.cart.setBuildQuantity(auth.userId, id, input.quantity);

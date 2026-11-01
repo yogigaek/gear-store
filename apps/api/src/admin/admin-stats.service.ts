@@ -50,7 +50,7 @@ export class AdminStatsService {
       buckets.set(jakartaDay(new Date(from.getTime() + i * 24 * 60 * 60 * 1000)), { revenue: 0, orders: 0 });
     }
     for (const o of paid) {
-      const bucket = buckets.get(jakartaDay(o.paidAt!));
+      const bucket = o.paidAt && buckets.get(jakartaDay(o.paidAt));
       if (!bucket) continue;
       bucket.revenue += o.total;
       bucket.orders += 1;

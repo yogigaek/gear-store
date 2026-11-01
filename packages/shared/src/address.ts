@@ -56,6 +56,7 @@ export const provinces = {
 } as const satisfies Record<string, ShippingZone>;
 export type Province = keyof typeof provinces;
 export const provinceNames = Object.keys(provinces) as [Province, ...Province[]];
+export const provinceSchema = z.enum(provinceNames, { error: 'Choose a province' });
 
 export function shippingFor(province: Province) {
   const zone = provinces[province];
@@ -82,7 +83,7 @@ export const addressInputSchema = z.object({
   line1: z.string().trim().min(5, 'Enter the street address').max(200),
   line2: z.string().trim().max(200).default(''),
   city: z.string().trim().min(2, 'Enter the city or regency').max(80),
-  province: z.enum(provinceNames, { error: 'Choose a province' }),
+  province: provinceSchema,
   postalCode: z
     .string()
     .trim()
