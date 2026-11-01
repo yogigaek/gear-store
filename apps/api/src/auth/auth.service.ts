@@ -322,6 +322,24 @@ export class AuthService {
     return { message: 'Password changed. Sign in with your new password.' };
   }
 
+  async profile(userId: string): Promise<User> {
+    return toUser(
+      await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: publicUserSelect }),
+    );
+  }
+
+  async rename(userId: string, name: string): Promise<User> {
+    const { isDemo } = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { isDemo: true },
+    });
+    // demo accounts are shared by every visitor; one visitor must not rename them for the next
+    if (isDemo) throw new ForbiddenException('Demo accounts cannot change their profile');
+    return toUser(
+      await this.prisma.user.update({ where: { id: userId }, data: { name }, select: publicUserSelect }),
+    );
+  }
+
   async changePassword(userId: string, sessionId: string, input: ChangePasswordInput): Promise<Message> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (user.isDemo) throw new ForbiddenException('Demo accounts cannot change their password');

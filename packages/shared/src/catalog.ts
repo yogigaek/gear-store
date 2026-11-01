@@ -101,8 +101,13 @@ export const errorSchema = z.object({
   statusCode: z.number().int(),
   message: z.string(),
   issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
+  /** set where a client can act on the error, e.g. PAYMENTS_NOT_SET_UP */
+  code: z.string().optional(),
+  /** seconds to wait before trying again */
+  retryAfter: z.number().int().optional(),
 });
-export type ApiError = z.infer<typeof errorSchema>;
+/** an error reply's body; the clients' `ApiError` classes wrap it */
+export type ApiErrorBody = z.infer<typeof errorSchema>;
 
 /** Saved products, newest first. Capped so one account cannot grow the table without bound. */
 export const WISHLIST_LIMIT = 100;

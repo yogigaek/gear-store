@@ -1,9 +1,13 @@
 import type { INestApplication } from '@nestjs/common';
-import { authResponseSchema, wishlistSchema } from '@gear-store/shared';
+import { authResponseSchema, WISHLIST_LIMIT, wishlistSchema } from '@gear-store/shared';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp, FakeMail, nextIp, deleteTestUsers } from './setup.js';
+
+// enough parts of our own to fill a wishlist and try a few more
+const TEMP_PREFIX = `e2e-wish-${Date.now()}`;
 
 describe('Wishlist (e2e)', () => {
   let app: INestApplication<App>;
@@ -39,6 +43,20 @@ describe('Wishlist (e2e)', () => {
 
   beforeAll(async () => {
     app = await createTestApp({ mail });
+    const prisma = app.get(PrismaService);
+    const { id: categoryId } = await prisma.category.findUniqueOrThrow({ where: { slug: 'accessories' } });
+    await prisma.product.createMany({
+      data: Array.from({ length: WISHLIST_LIMIT + 3 }, (_, i) => ({
+        slug: `${TEMP_PREFIX}-${String(i).padStart(3, '0')}`,
+        name: `Wishlist Test ${i}`,
+        model: 'WT-1',
+        module: 'ACCESSORY' as const,
+        description: 'Created by the wishlist e2e suite',
+        price: 10000,
+        stock: 5,
+        categoryId,
+      })),
+    });
   });
 
   beforeEach(() => {
@@ -47,6 +65,7 @@ describe('Wishlist (e2e)', () => {
 
   afterAll(async () => {
     await deleteTestUsers(app);
+    await app.get(PrismaService).product.deleteMany({ where: { slug: { startsWith: TEMP_PREFIX } } });
     await app.close();
   });
 
@@ -82,5 +101,24 @@ describe('Wishlist (e2e)', () => {
     expect((await budi.list().expect(200)).body).toEqual([]);
     await budi.del('lights-front-rear').expect(204);
     expect((await ana.list().expect(200)).body).toHaveLength(1);
+  });
+
+  it('keeps to the limit when products are saved at the same moment', async () => {
+    const token = await signedInUser();
+    const userId = (JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString()) as { sub: string })
+      .sub;
+    const prisma = app.get(PrismaService);
+    const temps = await prisma.product.findMany({
+      where: { slug: { startsWith: TEMP_PREFIX } },
+      orderBy: { slug: 'asc' },
+      select: { id: true, slug: true },
+    });
+    await prisma.wishlistItem.createMany({
+      data: temps.slice(0, WISHLIST_LIMIT - 1).map((p) => ({ userId, productId: p.id })),
+    });
+    const me = as(token);
+    const replies = await Promise.all(temps.slice(WISHLIST_LIMIT - 1).map((p) => me.put(p.slug)));
+    expect(replies.map((r) => r.status).sort((a, b) => a - b)).toEqual([204, 409, 409, 409]);
+    expect(await prisma.wishlistItem.count({ where: { userId } })).toBe(WISHLIST_LIMIT);
   });
 });

@@ -237,6 +237,26 @@ describe('Cart (e2e)', () => {
       expect(next.items.find((l) => l.product.slug === 'workshop-hex-set')?.quantity).toBe(4);
     });
 
+    it('merges a cart key into one account only, even when two accounts send it at the same moment', async () => {
+      const items = [{ slug: 'workshop-hex-set', quantity: 1 }];
+      for (let i = 0; i < 5; i += 1) {
+        const ana = as(await signedInCustomer(app, mail, nextIp()));
+        const budi = as(await signedInCustomer(app, mail, nextIp()));
+        const mergeKey = crypto.randomUUID();
+        const replies = await Promise.all([ana.merge(items, [], mergeKey), budi.merge(items, [], mergeKey)]);
+        const carts = replies.map((r) => mergeCartResultSchema.parse(r.body));
+        expect(replies.map((r) => r.status)).toEqual([200, 200]);
+        expect(carts.filter((c) => c.items.length > 0)).toHaveLength(1);
+      }
+    });
+
+    it('answers a malformed bike id with field issues, as it does any malformed input', async () => {
+      const me = as(await signedInCustomer(app, mail, nextIp()));
+      const res = await me.setBuild('not-a-uuid', 1).expect(400);
+      expect(res.body).toMatchObject({ statusCode: 400, message: 'Validation failed' });
+      expect(res.body.issues).toHaveLength(1);
+    });
+
     it('merges a guest cart: quantities add up, buildable bikes come along', async () => {
       const me = as(await signedInCustomer(app, mail, nextIp()));
       await me.set({ slug: 'workshop-hex-set', quantity: 8 }).expect(200);

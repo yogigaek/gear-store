@@ -1,7 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { WISHLIST_LIMIT, type Wishlist } from '@gear-store/shared';
+import { LOCKED_WRITE, lockAccount } from '../prisma/locks.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { summarySelect, toSummary } from './catalog.service.js';
+import { summarySelect, toSummary } from './product.projection.js';
 
 @Injectable()
 export class WishlistService {
@@ -24,16 +25,15 @@ export class WishlistService {
       select: { id: true },
     });
     if (!product) throw new NotFoundException('Product not found');
-    const key = { userId_productId: { userId, productId: product.id } };
-    if (await this.prisma.wishlistItem.findUnique({ where: key })) return;
-    if ((await this.prisma.wishlistItem.count({ where: { userId } })) >= WISHLIST_LIMIT) {
-      throw new ConflictException(`A wishlist holds up to ${WISHLIST_LIMIT} products`);
-    }
-    await this.prisma.wishlistItem.upsert({
-      where: key,
-      create: { userId, productId: product.id },
-      update: {},
-    });
+    await this.prisma.$transaction(async (tx) => {
+      await lockAccount(tx, userId);
+      const key = { userId_productId: { userId, productId: product.id } };
+      if (await tx.wishlistItem.findUnique({ where: key })) return;
+      if ((await tx.wishlistItem.count({ where: { userId } })) >= WISHLIST_LIMIT) {
+        throw new ConflictException(`A wishlist holds up to ${WISHLIST_LIMIT} products`);
+      }
+      await tx.wishlistItem.create({ data: { userId, productId: product.id } });
+    }, LOCKED_WRITE);
   }
 
   async remove(userId: string, slug: string): Promise<void> {

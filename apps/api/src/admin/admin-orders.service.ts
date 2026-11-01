@@ -1,7 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { AdminOrder, AdminOrderQuery, AdminOrderRow, ShipInput } from '@gear-store/shared';
 import { OrderStatus, RefundStatus, type Prisma } from '../generated/prisma/client.js';
-import { countItems, detailInclude, OrdersService } from '../orders/orders.service.js';
+import { countItems, detailInclude, toDetail } from '../orders/order.mapper.js';
+import { OrdersService } from '../orders/orders.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /** The demo administrator, whom anyone can sign in as, sees demo accounts' orders only. */
@@ -68,7 +69,7 @@ export class AdminOrdersService {
       include: { ...detailInclude, user: { select: { name: true, email: true } } },
     });
     if (!order) throw new NotFoundException('Order not found');
-    return { ...this.orders.toDetail(order), customer: order.user };
+    return { ...toDetail(order), customer: order.user };
   }
 
   ship(number: string, input: ShipInput): Promise<AdminOrder> {

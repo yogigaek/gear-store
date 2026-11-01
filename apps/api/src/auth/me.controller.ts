@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Patch, Post, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import {
@@ -14,51 +14,32 @@ import {
 import { openApiSchema } from '../common/openapi.js';
 import { FIVE_PER_MINUTE } from '../common/throttle.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
-import { PrismaService } from '../prisma/prisma.service.js';
 import { AccessTokenGuard, type AuthContext, CurrentAuth } from './access-token.guard.js';
-import { AuthService, toUser } from './auth.service.js';
-import { publicUserSelect } from './public-user.js';
+import { AuthService } from './auth.service.js';
 
 @ApiTags('Account')
 @ApiBearerAuth()
 @UseGuards(AccessTokenGuard)
 @Controller('me')
 export class MeController {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly auth: AuthService,
-  ) {}
+  constructor(private readonly auth: AuthService) {}
 
   @Get()
   @ApiOperation({ summary: 'The signed-in account' })
   @ApiOkResponse({ schema: openApiSchema(userSchema) })
-  async me(@CurrentAuth() auth: AuthContext): Promise<User> {
-    return toUser(
-      await this.prisma.user.findUniqueOrThrow({ where: { id: auth.userId }, select: publicUserSelect }),
-    );
+  me(@CurrentAuth() auth: AuthContext): Promise<User> {
+    return this.auth.profile(auth.userId);
   }
 
   @Patch()
   @ApiOperation({ summary: 'Change the display name' })
   @ApiBody({ schema: openApiSchema(updateProfileSchema, 'input') })
   @ApiOkResponse({ schema: openApiSchema(userSchema) })
-  async update(
+  update(
     @CurrentAuth() auth: AuthContext,
     @Body(new ZodValidationPipe(updateProfileSchema)) input: UpdateProfileInput,
   ): Promise<User> {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: auth.userId },
-      select: { isDemo: true },
-    });
-    // demo accounts are shared by every visitor; one visitor must not rename them for the next
-    if (user.isDemo) throw new ForbiddenException('Demo accounts cannot change their profile');
-    return toUser(
-      await this.prisma.user.update({
-        where: { id: auth.userId },
-        data: { name: input.name },
-        select: publicUserSelect,
-      }),
-    );
+    return this.auth.rename(auth.userId, input.name);
   }
 
   @Post('password')

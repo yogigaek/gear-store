@@ -1,8 +1,9 @@
-import type { CartBuild, CartLine } from '@gear-store/shared';
+import { MAX_CART_LINES, MAX_LINE_QUANTITY, type CartBuild, type CartLine } from '@gear-store/shared';
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAuth } from '../../lib/auth-context';
 import { useCart } from '../../lib/cart';
+import { mergeNotice, useMergeNotice } from '../../lib/merge-notice';
 import { usePageTone } from '../layout/page-tone';
 import { PartImage } from '../product/PartImage';
 import { Notice } from '../ui/Field';
@@ -33,7 +34,8 @@ export function CartDrawer() {
   const open = useCartDrawerOpen();
   const dialog = useRef<HTMLDialogElement>(null);
   const { cart, isLoading, isUpdating, error, setQuantity, setBuildQuantity } = useCart();
-  const { status } = useAuth();
+  const { status, user } = useAuth();
+  const notMerged = useMergeNotice(user?.id);
   const { pathname } = useLocation();
   const empty = !cart || cart.items.length + cart.builds.length === 0;
 
@@ -80,6 +82,26 @@ export function CartDrawer() {
           {error && (
             <div className="p-4">
               <Notice tone="error">{error.message}</Notice>
+            </div>
+          )}
+          {notMerged > 0 && (
+            <div className="p-4">
+              <div
+                role="status"
+                className="space-y-1 border-l-[3px] border-signal bg-alu-50 px-4 py-3 text-sm"
+              >
+                <p>
+                  {notMerged} {notMerged === 1 ? 'part' : 'parts'} from before you signed in did not fit in
+                  your cart: a cart holds up to {MAX_CART_LINES} different parts, {MAX_LINE_QUANTITY} of each.
+                </p>
+                <button
+                  type="button"
+                  onClick={mergeNotice.dismiss}
+                  className="min-h-11 text-sm underline underline-offset-4"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
           )}
           {isLoading && <p className="p-4 font-mono text-sm text-ink-3">Loading cart…</p>}

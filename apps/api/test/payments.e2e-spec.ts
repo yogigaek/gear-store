@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
 import { loadEnv } from '../src/config/env.js';
+import { OrdersRepository } from '../src/orders/orders.repository.js';
 import { MidtransError, type MidtransStatus, type SnapRequest } from '../src/payments/midtrans.client.js';
 import { expectedSignature } from '../src/payments/signature.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
@@ -146,6 +147,26 @@ describe('Payments (e2e)', () => {
       await o.pay().expect(409);
     });
 
+    it('refuses to start a payment once the window has run out, even when the sweep could not close the order', async () => {
+      const o = await placedOrder();
+      await prisma.order.update({
+        where: { number: o.order.number },
+        data: { paymentExpiresAt: new Date(Date.now() - 1000) },
+      });
+      const sweep = vi
+        .spyOn(app.get(OrdersRepository), 'closeOverdue')
+        .mockRejectedValue(new Error('Transaction already closed'));
+      const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+      const before = midtrans.snapCalls.length;
+      try {
+        await o.pay().expect(409);
+        expect(midtrans.snapCalls.length).toBe(before);
+      } finally {
+        sweep.mockRestore();
+        warn.mockRestore();
+      }
+    });
+
     it('says payments are not set up when Midtrans refuses the key, and still shows the order', async () => {
       const o = await placedOrder();
       midtrans.keyRefused = true;
@@ -274,6 +295,60 @@ describe('Payments (e2e)', () => {
       expect(order.status).toBe('CANCELLED');
       expect(order.events.at(-1)?.note).toMatch(/refunded/);
       expect(order.events.filter((e) => /refunded/.test(e.note))).toHaveLength(1);
+    });
+
+    it('keeps the settlement on the payment record when a pending or expire notification arrives late', async () => {
+      const o = await placedOrder();
+      await notify(signed(o.order, 'pending')).expect(200);
+      expect((await o.get()).payment).toMatchObject({ status: 'pending', method: 'bank_transfer' });
+      expect((await notify(signed(o.order, 'settlement')).expect(200)).body.outcome).toBe('paid');
+      expect((await notify(signed(o.order, 'pending')).expect(200)).body.outcome).toBe('pending');
+      expect((await notify(signed(o.order, 'expire')).expect(200)).body.outcome).toBe('duplicate');
+      const paid = await o.get();
+      expect(paid.status).toBe('PAID');
+      expect(paid.payment?.status).toBe('settlement');
+    });
+
+    it('records money that arrived after the order closed, for its refund, and nothing later undoes it', async () => {
+      const o = await placedOrder();
+      await o.cancel().expect(200);
+      expect((await notify(signed(o.order, 'settlement')).expect(200)).body.outcome).toBe('paid-after-close');
+      expect((await notify(signed(o.order, 'expire')).expect(200)).body.outcome).toBe('duplicate');
+      expect((await o.get()).payment?.status).toBe('settlement');
+    });
+
+    it('records a refund or chargeback of a paid order on its payment, and a late pending does not undo it', async () => {
+      const paid = await placedOrder();
+      await notify(signed(paid.order, 'settlement')).expect(200);
+      expect((await notify(signed(paid.order, 'refund')).expect(200)).body.outcome).toBe('ignored');
+      await notify(signed(paid.order, 'pending')).expect(200);
+      expect(await paid.get()).toMatchObject({ status: 'PAID', payment: { status: 'refund' } });
+
+      const late = await placedOrder();
+      await late.cancel().expect(200);
+      await notify(signed(late.order, 'settlement')).expect(200);
+      await notify(signed(late.order, 'chargeback')).expect(200);
+      expect(await late.get()).toMatchObject({ status: 'CANCELLED', payment: { status: 'chargeback' } });
+    });
+
+    it('never lets a payment and the expiry both win an order whose time runs out as the money arrives', async () => {
+      const stock = async () =>
+        (await prisma.product.findUniqueOrThrow({ where: { slug: 'battery-charger-4a' } })).stock;
+      const o = await placedOrder();
+      const held = await stock();
+      await prisma.order.update({
+        where: { number: o.order.number },
+        data: { paymentExpiresAt: new Date(Date.now() - 1000) },
+      });
+      // reading the order sweeps it out while the notification is applied
+      const [, paid] = await Promise.all([o.get(), notify(signed(o.order, 'settlement')).expect(200)]);
+      const order = await prisma.order.findUniqueOrThrow({ where: { number: o.order.number } });
+      if (paid.body.outcome === 'paid') {
+        expect([order.status, order.refundStatus, await stock()]).toEqual(['PAID', 'NONE', held]);
+      } else {
+        expect(paid.body.outcome).toBe('paid-after-close');
+        expect([order.status, order.refundStatus, await stock()]).toEqual(['EXPIRED', 'NEEDED', held + 1]);
+      }
     });
 
     it('flags a late payment for a demo order that a newer demo order replaced', async () => {

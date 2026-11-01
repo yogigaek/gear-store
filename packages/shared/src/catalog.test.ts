@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { productQuerySchema } from './catalog.js';
+import { errorSchema, productQuerySchema } from './catalog.js';
 
 describe('productQuerySchema', () => {
   it('applies defaults to an empty query', () => {
@@ -22,5 +22,17 @@ describe('productQuerySchema', () => {
     const result = productQuerySchema.safeParse(input);
     expect(result.success).toBe(false);
     expect(result.error?.issues[0]?.path).toContain(field);
+  });
+});
+
+describe('errorSchema', () => {
+  it('keeps the code and the wait that a client acts on', () => {
+    const paused = {
+      statusCode: 429,
+      message: 'Too many failed sign-ins.',
+      code: 'SIGN_IN_PAUSED',
+      retryAfter: 30,
+    };
+    expect(errorSchema.parse(paused)).toEqual(paused);
   });
 });
