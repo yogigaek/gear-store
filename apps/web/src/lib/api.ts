@@ -35,9 +35,13 @@ interface RequestOptions<S extends z.ZodType> {
   signal?: AbortSignal;
 }
 
+const UNREACHABLE = 'Cannot reach the store right now.';
+// read as a server fault (5xx): an order may still have been placed, so checkout keeps offering the same key
+const UNREADABLE = 'The store sent a reply this site could not read. Try again.';
+
 /**
  * Calls the API (same origin: Vite proxies /api in development, Vercel in production) and validates the reply
- * against the shared schema, so a contract mismatch fails loudly here instead of deep inside a component.
+ * against the shared schema, so a contract mismatch fails here, as a plain 502, instead of deep inside a component.
  */
 export async function api<S extends z.ZodType = z.ZodVoid>(
   path: string,
@@ -58,12 +62,22 @@ export async function api<S extends z.ZodType = z.ZodVoid>(
     });
   } catch (error) {
     if (signal?.aborted) throw error;
-    throw new ApiError(0, 'Cannot reach the store right now.');
+    throw new ApiError(0, UNREACHABLE);
   }
 
   if (!res.ok) throw await toApiError(res);
   if (res.status === 204 || !schema) return undefined as z.output<S>;
-  return schema.parse(await res.json());
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    // a body cut off mid-way fails as a TypeError, like a request that never arrived; bad JSON as a SyntaxError
+    throw error instanceof TypeError ? new ApiError(0, UNREACHABLE) : new ApiError(502, UNREADABLE);
+  }
+  const parsed = schema.safeParse(data);
+  if (!parsed.success) throw new ApiError(502, UNREADABLE);
+  return parsed.data;
 }
 
 async function toApiError(res: Response): Promise<ApiError> {

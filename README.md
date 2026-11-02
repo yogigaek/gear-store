@@ -6,6 +6,7 @@
 [![Case Study](https://img.shields.io/badge/Case_Study-Portfolio-6366f1?style=for-the-badge&logo=googlechrome&logoColor=white&labelColor=0b0d0e)](https://muhammadyogi.vercel.app/projects/rakit)
 [![Android APK](https://img.shields.io/badge/Android-APK-F2C230?style=for-the-badge&logo=android&logoColor=black&labelColor=0b0d0e)](https://yogi-store.vercel.app/app)
 [![CI](https://img.shields.io/github/actions/workflow/status/yogigaek/gear-store/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI&labelColor=0b0d0e)](https://github.com/yogigaek/gear-store/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-9aa2a6?style=for-the-badge&labelColor=0b0d0e)](LICENSE)
 
 </div>
 
@@ -34,6 +35,7 @@ Started as a rebuild of my 2022 bootcamp capstone (MERN), redone with a modern s
 - [🧪 Tests & CI](#-tests--ci)
 - [☁️ Deploy](#️-deploy)
 - [📁 Project structure](#-project-structure)
+- [📄 License](#-license)
 
 ---
 
@@ -168,6 +170,8 @@ repeats it"_.
 - 🗄️ **Data** — CHECK constraints on prices and stock. Products are taken off sale, never deleted, so orders keep
   their history. An admin product edit is refused if an order changed the stock since the form was opened.
 - 🌐 **Web** — a Content Security Policy without `unsafe-eval` or inline scripts, HSTS, and `frame-ancestors none`.
+
+Found a vulnerability? Please report it privately, as [SECURITY.md](SECURITY.md) describes.
 
 ---
 
@@ -308,6 +312,12 @@ GitHub Actions runs on every push to `main` and every pull request, in two jobs:
 A push to `main` deploys both. ⏳ The API sleeps when idle on Render's free tier, so the first request after a
 quiet spell is slower.
 
+⏰ `.github/workflows/keep-warm.yml` calls the API on Render every 10 minutes from 07:03 to 20:53 WIB (UTC+7), so
+visitors in those hours find it awake; at night it sleeps, which keeps it well inside Render's 750 free hours a month.
+The ping and Render's own health check use `/api/health/live`, a liveness route that needs no database, so Neon wakes
+only for real requests and the API's start-up migrations (`/api/health` also checks the database). GitHub disables scheduled workflows in a public
+repository after 60 days without repository activity; re-enable it from the Actions tab.
+
 🔐 **`PROXY_SECRET`** (`openssl rand -hex 32`) lets the API tell the web's `/api` route from a direct caller
 forging Vercel's client-address header. Set it on Vercel first, for Production and Preview, and redeploy the web;
 only then set the same value on Render. In the other order the route sends the literal text `$PROXY_SECRET`
@@ -334,6 +344,12 @@ gear-store/
 ├── e2e/                     # 🌐 Playwright browser tests
 └── docs/screenshots/        # 📸 images in this README
 ```
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) © 2026 Muhammad Yogi
 
 ---
 

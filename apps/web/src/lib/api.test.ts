@@ -93,8 +93,6 @@ describe('api requests and replies', () => {
     const schema = z.object({ n: z.number() });
     reply(200, { n: 1 });
     expect(await api('/x', { schema })).toEqual({ n: 1 });
-    reply(200, { n: 'one' });
-    await expect(api('/x', { schema })).rejects.toBeInstanceOf(z.ZodError);
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => new Response(null, { status: 204 })),
@@ -102,6 +100,60 @@ describe('api requests and replies', () => {
     expect(await api('/x', { schema })).toBeUndefined();
     reply(200, 'not read');
     expect(await api('/x')).toBeUndefined();
+  });
+
+  it.each([
+    ['a body that is not JSON', () => new Response('<html>Bad gateway</html>', { status: 200 })],
+    ['a reply of another shape', () => new Response(JSON.stringify({ n: 'one' }), { status: 200 })],
+  ])('turns %s into a plain message a page can show', async (_, response) => {
+    const { z } = await import('zod');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response()),
+    );
+    const error = await api('/x', { schema: z.object({ n: z.number() }) }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      status: 502,
+      message: 'The store sent a reply this site could not read. Try again.',
+      issues: [],
+      code: undefined,
+    });
+  });
+
+  it('says the store is out of reach when the connection drops while the reply is read', async () => {
+    const { z } = await import('zod');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          throw new TypeError('network error');
+        },
+      })),
+    );
+    const error = await api('/x', { schema: z.object({}) }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 0, message: 'Cannot reach the store right now.' });
+  });
+
+  it('lets a request aborted while its reply is read fail as an abort', async () => {
+    const { z } = await import('zod');
+    const controller = new AbortController();
+    const abort = new DOMException('aborted', 'AbortError');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => {
+          controller.abort();
+          throw abort;
+        },
+      })),
+    );
+    await expect(api('/x', { schema: z.object({}), signal: controller.signal })).rejects.toBe(abort);
   });
 
   it('lets an aborted request fail as an abort, not as an unreachable store', async () => {
