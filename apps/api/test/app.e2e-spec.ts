@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import type { App } from 'supertest/types.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 import { createTestApp } from './setup.js';
 
 describe('API (e2e)', () => {
@@ -19,6 +20,26 @@ describe('API (e2e)', () => {
       .get('/api/health')
       .expect(200)
       .expect({ status: 'ok', database: 'up' });
+  });
+
+  // what Render's health check and the keep-warm workflow call: it must not wake the database (Neon) every few seconds
+  it('GET /api/health/live answers without the database, and is never rate limited', async () => {
+    const prisma = app.get(PrismaService);
+    const query = vi.spyOn(prisma, '$queryRaw').mockRejectedValue(new Error('connection refused'));
+    try {
+      await request(app.getHttpServer()).get('/api/health').expect(503);
+      query.mockClear();
+      const server = app.getHttpServer();
+      for (let i = 0; i < 130; i += 1) {
+        await request(server)
+          .get('/api/health/live')
+          .set('X-Forwarded-For', '203.0.113.7')
+          .expect(200, { status: 'ok' });
+      }
+      expect(query).not.toHaveBeenCalled();
+    } finally {
+      query.mockRestore();
+    }
   });
 
   it('serves the OpenAPI document', async () => {

@@ -1,4 +1,5 @@
 import { Controller, Get, HttpCode, HttpStatus, Res } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import type { HealthResponse } from '@gear-store/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -18,5 +19,12 @@ export class HealthController {
       res.status(HttpStatus.SERVICE_UNAVAILABLE);
       return { status: 'degraded', database: 'down' };
     }
+  }
+
+  // Render's health check (every few seconds) and the keep-warm ping: no query, so Neon can sleep between visitors
+  @Get('live')
+  @SkipThrottle()
+  live(): { status: 'ok' } {
+    return { status: 'ok' };
   }
 }

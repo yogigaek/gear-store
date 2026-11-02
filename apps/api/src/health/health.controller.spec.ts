@@ -26,4 +26,11 @@ describe('HealthController', () => {
     });
     expect(res.status).toHaveBeenCalledWith(503);
   });
+
+  it('answers liveness without asking the database', () => {
+    const queryRaw = vi.fn();
+    const prisma = { $queryRaw: queryRaw } as unknown as PrismaService;
+    expect(new HealthController(prisma).live()).toEqual({ status: 'ok' });
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
 });

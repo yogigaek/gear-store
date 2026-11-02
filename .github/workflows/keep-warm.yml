@@ -1,0 +1,18 @@
+name: Keep API warm
+
+on:
+  schedule:
+    # 07:03–20:53 WIB only: Render's 750 free hours a month are shared by every free service in the workspace
+    - cron: '3-59/10 0-13 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      # the liveness route runs no query, so the ping wakes Render but not the database (Neon)
+      - name: ping the API liveness check on Render
+        run: curl --fail --silent --show-error --max-time 90 --retry 2 --output /dev/null https://rakit-api.onrender.com/api/health/live

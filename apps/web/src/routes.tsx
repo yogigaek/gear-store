@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import type { RouteObject } from 'react-router';
 import { Layout } from './components/layout/Layout';
 import { RequireAuth } from './components/layout/RequireAuth';
+import { RouteError } from './components/layout/RouteError';
 import { HomePage } from './pages/HomePage';
 import { NotFoundPage } from './pages/NotFoundPage';
 
@@ -36,105 +37,122 @@ export const routes: RouteObject[] = [
     // a first visit to a lazy page shows nothing until its chunk arrives, as it does today; saying so
     // keeps React Router from warning on every page load
     HydrateFallback: () => null,
+    // the last resort: the layout itself failed
+    errorElement: <RouteError fullPage />,
     children: [
-      { index: true, handle: stage, element: <HomePage /> },
-      { path: 'products', ...page(async () => (await import('./pages/CatalogPage')).CatalogPage) },
-      { path: 'products/:slug', ...page(async () => (await import('./pages/ProductPage')).ProductPage) },
-      { path: 'c/:id', ...page(async () => (await import('./pages/CategoryRedirect')).CategoryRedirect) },
-      // the account pages share one layout: the 3D scene stays put while the form beside it changes
       {
-        handle: stage,
-        ...page(async () => (await import('./pages/account/AuthLayout')).AuthLayout),
+        // a page that fails shows the error inside the layout, the header and footer still there
+        errorElement: <RouteError />,
         children: [
-          { path: 'sign-in', ...page(async () => (await import('./pages/account/SignInPage')).SignInPage) },
+          { index: true, handle: stage, element: <HomePage /> },
+          { path: 'products', ...page(async () => (await import('./pages/CatalogPage')).CatalogPage) },
+          { path: 'products/:slug', ...page(async () => (await import('./pages/ProductPage')).ProductPage) },
+          { path: 'c/:id', ...page(async () => (await import('./pages/CategoryRedirect')).CategoryRedirect) },
+          // the account pages share one layout: the 3D scene stays put while the form beside it changes
           {
-            path: 'register',
-            ...page(async () => (await import('./pages/account/RegisterPage')).RegisterPage),
+            handle: stage,
+            ...page(async () => (await import('./pages/account/AuthLayout')).AuthLayout),
+            children: [
+              {
+                path: 'sign-in',
+                ...page(async () => (await import('./pages/account/SignInPage')).SignInPage),
+              },
+              {
+                path: 'register',
+                ...page(async () => (await import('./pages/account/RegisterPage')).RegisterPage),
+              },
+              {
+                path: 'verify-email',
+                ...page(async () => (await import('./pages/account/VerifyEmailPage')).VerifyEmailPage),
+              },
+              {
+                path: 'forgot-password',
+                ...page(async () => (await import('./pages/account/ForgotPasswordPage')).ForgotPasswordPage),
+              },
+              {
+                path: 'reset-password',
+                ...page(async () => (await import('./pages/account/ResetPasswordPage')).ResetPasswordPage),
+              },
+            ],
           },
           {
-            path: 'verify-email',
-            ...page(async () => (await import('./pages/account/VerifyEmailPage')).VerifyEmailPage),
+            path: 'account',
+            ...page(async () => (await import('./pages/account/AccountPage')).AccountPage, auth),
           },
           {
-            path: 'forgot-password',
-            ...page(async () => (await import('./pages/account/ForgotPasswordPage')).ForgotPasswordPage),
+            path: 'account/addresses',
+            ...page(async () => (await import('./pages/account/AddressesPage')).AddressesPage, auth),
           },
           {
-            path: 'reset-password',
-            ...page(async () => (await import('./pages/account/ResetPasswordPage')).ResetPasswordPage),
+            path: 'wishlist',
+            ...page(async () => (await import('./pages/WishlistPage')).WishlistPage, auth),
           },
-        ],
-      },
-      {
-        path: 'account',
-        ...page(async () => (await import('./pages/account/AccountPage')).AccountPage, auth),
-      },
-      {
-        path: 'account/addresses',
-        ...page(async () => (await import('./pages/account/AddressesPage')).AddressesPage, auth),
-      },
-      { path: 'wishlist', ...page(async () => (await import('./pages/WishlistPage')).WishlistPage, auth) },
-      {
-        path: 'checkout',
-        ...page(async () => (await import('./pages/orders/CheckoutPage')).CheckoutPage, auth),
-      },
-      // signs in inside the page: a return from Midtrans (?order_id=…) must not meet the sign-in wall
-      { path: 'orders', ...page(async () => (await import('./pages/orders/OrdersPage')).OrdersPage) },
-      {
-        path: 'payment-done',
-        ...page(async () => (await import('./pages/orders/PaymentDonePage')).PaymentDonePage),
-      },
-      {
-        path: 'orders/:number',
-        ...page(async () => (await import('./pages/orders/OrderPage')).OrderPage, auth),
-      },
-      {
-        path: 'admin',
-        // AdminGate checks the role itself and shows the admin layout
-        ...page(async () => (await import('./pages/admin/AdminRoutes')).default),
-        children: [
-          { index: true, ...page(async () => (await import('./pages/admin/OverviewPage')).OverviewPage) },
           {
-            path: 'orders',
-            ...page(async () => (await import('./pages/admin/OrdersAdminPage')).OrdersAdminPage),
+            path: 'checkout',
+            ...page(async () => (await import('./pages/orders/CheckoutPage')).CheckoutPage, auth),
+          },
+          // signs in inside the page: a return from Midtrans (?order_id=…) must not meet the sign-in wall
+          { path: 'orders', ...page(async () => (await import('./pages/orders/OrdersPage')).OrdersPage) },
+          {
+            path: 'payment-done',
+            ...page(async () => (await import('./pages/orders/PaymentDonePage')).PaymentDonePage),
           },
           {
             path: 'orders/:number',
-            ...page(async () => (await import('./pages/admin/OrderAdminPage')).OrderAdminPage),
+            ...page(async () => (await import('./pages/orders/OrderPage')).OrderPage, auth),
           },
           {
-            path: 'products',
-            ...page(async () => (await import('./pages/admin/ProductsAdminPage')).ProductsAdminPage),
+            path: 'admin',
+            // AdminGate checks the role itself and shows the admin layout
+            ...page(async () => (await import('./pages/admin/AdminRoutes')).default),
+            children: [
+              { index: true, ...page(async () => (await import('./pages/admin/OverviewPage')).OverviewPage) },
+              {
+                path: 'orders',
+                ...page(async () => (await import('./pages/admin/OrdersAdminPage')).OrdersAdminPage),
+              },
+              {
+                path: 'orders/:number',
+                ...page(async () => (await import('./pages/admin/OrderAdminPage')).OrderAdminPage),
+              },
+              {
+                path: 'products',
+                ...page(async () => (await import('./pages/admin/ProductsAdminPage')).ProductsAdminPage),
+              },
+              {
+                path: 'products/new',
+                ...page(async () => (await import('./pages/admin/ProductEditPage')).ProductEditPage),
+              },
+              {
+                path: 'products/:slug',
+                ...page(async () => (await import('./pages/admin/ProductEditPage')).ProductEditPage),
+              },
+              {
+                path: 'categories',
+                ...page(async () => (await import('./pages/admin/CategoriesAdminPage')).CategoriesAdminPage),
+              },
+              {
+                path: 'customers',
+                ...page(async () => (await import('./pages/admin/CustomersAdminPage')).CustomersAdminPage),
+              },
+            ],
           },
+          // a photo studio for the bike's stills; scripts only, never in a production build
+          ...(import.meta.env.DEV
+            ? [
+                {
+                  path: 'studio/bike',
+                  ...page(async () => (await import('./pages/StudioBikePage')).StudioBikePage),
+                },
+              ]
+            : []),
           {
-            path: 'products/new',
-            ...page(async () => (await import('./pages/admin/ProductEditPage')).ProductEditPage),
+            path: 'design',
+            ...page(async () => (await import('./pages/DesignSystemPage')).DesignSystemPage),
           },
-          {
-            path: 'products/:slug',
-            ...page(async () => (await import('./pages/admin/ProductEditPage')).ProductEditPage),
-          },
-          {
-            path: 'categories',
-            ...page(async () => (await import('./pages/admin/CategoriesAdminPage')).CategoriesAdminPage),
-          },
-          {
-            path: 'customers',
-            ...page(async () => (await import('./pages/admin/CustomersAdminPage')).CustomersAdminPage),
-          },
+          { path: '*', element: <NotFoundPage /> },
         ],
       },
-      // a photo studio for the bike's stills; scripts only, never in a production build
-      ...(import.meta.env.DEV
-        ? [
-            {
-              path: 'studio/bike',
-              ...page(async () => (await import('./pages/StudioBikePage')).StudioBikePage),
-            },
-          ]
-        : []),
-      { path: 'design', ...page(async () => (await import('./pages/DesignSystemPage')).DesignSystemPage) },
-      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ];
