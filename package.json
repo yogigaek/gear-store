@@ -14,6 +14,13 @@
   "scripts": {
     "dev:api": "npm run start:dev -w @gear-store/api",
     "dev:web": "npm run dev -w @gear-store/web",
+    "dev:mobile": "npm run start -w @gear-store/mobile -- --lan --port 8081",
+    "db:studio": "npm run db:studio -w @gear-store/api",
+    "db:migrate": "npm run db:migrate -w @gear-store/api && npm run prisma:generate -w @gear-store/api",
+    "db:generate": "npm run prisma:generate -w @gear-store/api",
+    "db:deploy": "npm run db:deploy -w @gear-store/api",
+    "db:seed": "npm run db:seed -w @gear-store/api",
+    "build:shared": "npm run build -w @gear-store/shared",
     "build": "npm run build -w @gear-store/shared && npm run build -w @gear-store/api -w @gear-store/web",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run build -w @gear-store/shared && npm run typecheck --workspaces --if-present",
