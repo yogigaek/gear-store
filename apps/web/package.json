@@ -19,19 +19,19 @@
     "@react-three/drei": "^10.7.9",
     "@react-three/fiber": "^9.8.2",
     "@react-three/postprocessing": "^3.2.2",
-    "@tanstack/react-query": "5.105.0",
-    "postprocessing": "^6.39.5",
+    "@tanstack/react-query": "5.105.3",
+    "postprocessing": "^6.39.6",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router": "^8.5.1",
-    "three": "^0.186.1"
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
-    "@types/three": "^0.186.0",
+    "@types/three": "^0.187.0",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^5.0.3",
     "oxlint": "^1.90.0",
