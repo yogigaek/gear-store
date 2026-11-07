@@ -52,7 +52,7 @@
     "@nestjs/testing": "^12.3.2",
     "@types/cookie-parser": "1.4.10",
     "@types/express": "^5.0.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^25.9.9",
     "@types/nodemailer": "8.0.2",
     "@types/supertest": "^7.0.0",
     "@vitest/coverage-v8": "^4.1.12",
